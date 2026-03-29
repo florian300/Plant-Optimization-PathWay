@@ -1,0 +1,18 @@
+# Environnements virtuels
+venv/
+
+# Fichiers de cache Python
+__pycache__/
+.pytest_cache/
+
+# Fichiers temporaires et de configuration locale
+tmp/
+.vscode/
+
+# Fichiers temporaires Excel (ouverts)
+~$*.xlsx
+
+# Results
+Results/
+
+Input/

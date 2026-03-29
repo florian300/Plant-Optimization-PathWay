@@ -1,0 +1,409 @@
+{
+  "HELP": [],
+  "OverView": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 7,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 9,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "CLUSTER"
+      ]
+    },
+    {
+      "row": 12,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "CLUSTER"
+      ]
+    },
+    {
+      "row": 14,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "DATA"
+      ]
+    },
+    {
+      "row": 30,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "DATA"
+      ]
+    },
+    {
+      "row": 32,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "UNIT CONVERSION"
+      ]
+    },
+    {
+      "row": 39,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "UNIT CONVERSION"
+      ]
+    },
+    {
+      "row": 41,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "MODELING"
+      ]
+    },
+    {
+      "row": 46,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "MODELING"
+      ]
+    },
+    {
+      "row": 48,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "OBJECTIVES"
+      ]
+    },
+    {
+      "row": 53,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "OBJECTIVES"
+      ]
+    }
+  ],
+  "NEW TECH": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 3,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 5,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "TECS"
+      ]
+    },
+    {
+      "row": 12,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "TECS"
+      ]
+    },
+    {
+      "row": 14,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "TECHNICAL SPECS"
+      ]
+    },
+    {
+      "row": 29,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "TECHNICAL SPECS"
+      ]
+    },
+    {
+      "row": 31,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "€ SPECS"
+      ]
+    },
+    {
+      "row": 42,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "€ SPECS"
+      ]
+    },
+    {
+      "row": 51,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "€ SPECS"
+      ]
+    }
+  ],
+  "REFINERY": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 12,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 14,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "TOTAL"
+      ]
+    },
+    {
+      "row": 29,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "TOTAL"
+      ]
+    },
+    {
+      "row": 31,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "PROCESS"
+      ]
+    },
+    {
+      "row": 42,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "PROCESS"
+      ]
+    },
+    {
+      "row": 44,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "TECHNOLOGICAL TRANSITION"
+      ]
+    },
+    {
+      "row": 61,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "TECHNOLOGICAL TRANSITION"
+      ]
+    },
+    {
+      "row": 63,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "PURCHASES"
+      ]
+    },
+    {
+      "row": 70,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "PURCHASES"
+      ]
+    }
+  ],
+  "SUBSIDIES": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 3,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 5,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "€ INCENTIVES"
+      ]
+    },
+    {
+      "row": 8,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "€ INCENTIVES"
+      ]
+    }
+  ],
+  "RESSOURCES_PRICE": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 7,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 10,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "SCENARIO 1"
+      ]
+    },
+    {
+      "row": 40,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "SCENARIO 1"
+      ]
+    }
+  ],
+  "CARBON QUOTAS": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 6,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 8,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "FREE ALLOWANCE"
+      ]
+    },
+    {
+      "row": 14,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "FREE ALLOWANCE"
+      ]
+    },
+    {
+      "row": 16,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "QUOTATS"
+      ]
+    },
+    {
+      "row": 44,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "SCENARIO 1"
+      ]
+    }
+  ],
+  "OTHER EMISSIONS": [
+    {
+      "row": 1,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 7,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "INIT"
+      ]
+    },
+    {
+      "row": 10,
+      "col": 1,
+      "type": "START",
+      "prefix": [
+        "SCENARIO 1"
+      ]
+    },
+    {
+      "row": 40,
+      "col": 1,
+      "type": "END",
+      "prefix": [
+        "SCENARIO 1"
+      ]
+    }
+  ]
+}
