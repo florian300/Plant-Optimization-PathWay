@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import os
@@ -782,6 +784,9 @@ class PathFinderReporter:
         if self.generate_excel:
             self._export_charts_sheet(excel_path)
             _step()
+        
+        # Global cleanup to prevent memory leaks and Tcl threading errors
+        plt.close('all')
 
     def _export_charts_sheet(self, excel_path: str):
         """Append or overwrite the 'Charts' sheet with collected plot data."""

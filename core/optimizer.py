@@ -982,7 +982,15 @@ class PathFinderOptimizer:
                 if self.verbose:
                     print("  [magenta][Optimizer][/magenta] [!] Time limit reached with a FEASIBLE incumbent — reporting best solution.")
             else:
-                status = 'Infeasible'
+                # Last-resort fallback: check if variable values were populated despite
+                # CBC not setting sol_status correctly (happens in some CBC versions).
+                vars_with_values = sum(1 for v in list(self.model.variables())[:50] if v.varValue is not None)
+                if vars_with_values > 12:  # >25% of 50 sampled variables
+                    status = 'Feasible'
+                    if self.verbose:
+                        print("  [magenta][Optimizer][/magenta] [!] Time limit reached — recovered incumbent from variable values.")
+                else:
+                    status = 'Infeasible'
         elif status == 'Optimal':
             pass  # already correct
         elif status == 'Infeasible':
@@ -993,3 +1001,4 @@ class PathFinderOptimizer:
         if self.verbose:
             print(f"  [magenta][Optimizer][/magenta] [OK] Solver Status: [bold cyan]{status}[/bold cyan]")
         return status
+

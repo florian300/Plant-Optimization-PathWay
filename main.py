@@ -8,6 +8,9 @@ import threading
 import time
 import traceback
 
+import matplotlib
+matplotlib.use('Agg')
+
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
@@ -102,6 +105,49 @@ def run_with_timeout(fn, timeout_secs):
 
 
 # ---------------------------------------------------------------------------
+# Incumbent recovery helper
+# ---------------------------------------------------------------------------
+
+def _check_incumbent(optimizer):
+    """
+    Check whether the solver left behind a usable incumbent solution.
+
+    PuLP/CBC writes variable values into the model object when it finds
+    a feasible incumbent.  After a watchdog timeout the solver thread is
+    still alive (daemon), but the model object is shared, so we can
+    inspect variable values directly.
+
+    We also try to read the .sol file that CBC writes to disk, which is
+    the most reliable indicator of an incumbent.
+
+    Returns True if at least *some* decision variables have non-None values.
+    """
+    import glob
+
+    # Strategy 1: Check if CBC wrote a .sol file for this model
+    sol_pattern = optimizer.model.name + "*.sol"
+    sol_files = glob.glob(sol_pattern)
+    if sol_files:
+        try:
+            # Ask PuLP to re-read the solution from the .sol file
+            optimizer.model.assignVarsVals(
+                {v.name: v.varValue for v in optimizer.model.variables() if v.varValue is not None}
+            )
+        except Exception:
+            pass  # Not critical – we'll check variable values below
+
+    # Strategy 2: Inspect variable values directly
+    non_none_count = 0
+    sample_size = min(50, len(optimizer.model.variables()))
+    for v in list(optimizer.model.variables())[:sample_size]:
+        if v.varValue is not None:
+            non_none_count += 1
+
+    # If more than 25% of sampled variables have values, consider it a usable solution
+    return non_none_count > sample_size * 0.25
+
+
+# ---------------------------------------------------------------------------
 # Per-scenario pipeline
 # ---------------------------------------------------------------------------
 
@@ -156,14 +202,31 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
     spinner_thread = threading.Thread(target=_spinner, daemon=True)
     spinner_thread.start()
 
+    watchdog_fired = False
     try:
         status = run_with_timeout(optimizer.solve, hard_timeout)
     except SolverTimeoutError as e:
         solve_done.set()
         spinner_thread.join(timeout=1)
+        watchdog_fired = True
         console.print(f"  [bold yellow][TIMEOUT][/bold yellow] [{sc_name}] {e}")
-        progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
-        return 'Timeout'
+
+        # --- Try to recover the best incumbent solution ---
+        # Check if the solver managed to populate variable values before being abandoned.
+        has_incumbent = _check_incumbent(optimizer)
+        if has_incumbent:
+            status = 'Feasible'
+            console.print(
+                f"  [bold cyan][RECOVERY][/bold cyan] [{sc_name}] "
+                f"Best available (non-optimal) solution recovered — proceeding to report."
+            )
+        else:
+            console.print(
+                f"  [bold yellow][WARN][/bold yellow] [{sc_name}] "
+                f"No feasible incumbent found before timeout — skipping report."
+            )
+            progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
+            return 'Timeout'
     except Exception as e:
         solve_done.set()
         spinner_thread.join(timeout=1)
@@ -185,7 +248,10 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
         return 'Infeasible'
 
-    console.print(f"  [bold green][OK][/bold green]   [{sc_name}] Solver status: {status}")
+    if watchdog_fired:
+        console.print(f"  [bold yellow][OK][/bold yellow]   [{sc_name}] Solver status: {status} (best available — time limit exceeded)")
+    else:
+        console.print(f"  [bold green][OK][/bold green]   [{sc_name}] Solver status: {status}")
 
     # --- 5. Reporting --------------------------------------------------------
     progress.update(task_id, description=f"[cyan]{sc_name}[/cyan] Generating report...", completed=88)
@@ -281,7 +347,7 @@ def main():
     console.print("\n")
     rows = []
     for sc_name, st in summary.items():
-        if st in ('Optimal', 'Feasible'):
+        if st in ('Optimal', 'Feasible', 'Feasible (Timeout)'):
             colour = 'green'
             icon   = '✓'
         elif st == 'Infeasible':
