@@ -4,9 +4,10 @@ from typing import List, Dict, Optional
 @dataclass
 class GrantParams:
     active: bool = False
-    rate: float = 0.0
-    cap: float = 0.0
-    renew_time: float = 0.0
+    rate: float = 0.0          # e.g., 0.7 for 70% of capex
+    cap: float = float('inf')  # e.g., 100M€ max
+    renew_time: float = 0.0    # years before a new grant can be obtained
+    excluded_technologies: List[str] = field(default_factory=list)
 
 @dataclass
 class CCfDParams:
@@ -95,9 +96,11 @@ class Technology:
     capex: float = 0.0
     capex_per_unit: bool = False
     capex_unit: str = ""
+    capex_by_year: Dict[int, float] = field(default_factory=dict)
     opex: float = 0.0
     opex_per_unit: bool = False
     opex_unit: str = ""
+    opex_by_year: Dict[int, float] = field(default_factory=dict)
     # impacts: e.g., {'ELEC': {'type': 'variation', 'value': 0.1}, 'CO2': {'type': 'new', 'value': -50}}
     impacts: Dict[str, Dict[str, float]] = field(default_factory=dict)
 

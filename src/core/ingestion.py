@@ -173,7 +173,7 @@ class PathFinderParser:
                         elif "CO2 TRAJECTORY" in name: reporting_toggles.chart_co2_trajectory = is_yes
                         elif "INDIRECT EMISSIONS" in name: reporting_toggles.chart_indirect_emissions = is_yes
                         elif "INVESTMENT PLAN" in name or "INVESTMENT COSTS" in name: reporting_toggles.chart_investment_costs = is_yes
-                        elif "RESSOURCES OPEX" in name or "RESOURCE OPEX" in name: reporting_toggles.chart_resource_opex = is_yes
+                        elif "RESSOURCES OPEX" in name or "RESOURCE OPEX" in name or "TOTAL OPEX" in name or "CCS OPEX" in name: reporting_toggles.chart_total_opex = is_yes
                         elif "CARBON TAX" in name: reporting_toggles.chart_carbon_tax_avoided = is_yes
                         elif "EXTERNAL FINANCING" in name: reporting_toggles.chart_external_financing = is_yes
                         elif "TRANSITION COST" in name: reporting_toggles.chart_transition_costs = is_yes
@@ -231,6 +231,13 @@ class PathFinderParser:
                     
         # Define years list for interpolation
         years_list = list(range(start_year, start_year + duration + 1))
+        
+        # Helper to interpolate a dictionary {year: value}
+        def interpolate_dict(data_dict: Dict[int, Any]) -> Dict[int, float]:
+            if not data_dict: return {}
+            s = pd.Series(data_dict).sort_index()
+            s = s.reindex(years_list)
+            return self._interpolate_linear(s).to_dict()
                     
         # Find CLUSTER START -> END to get entities
         cluster_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'CLUSTER'), None)
@@ -405,40 +412,66 @@ class PathFinderParser:
                     df_euros = df_euros.iloc[idx+1:]
                     break
             
+            raw_tech_capex = {t: {} for t in technologies_dict}
+            raw_tech_opex = {t: {} for t in technologies_dict}
+            raw_tech_capex_links = {}  # t_id -> link_id (e.g. 'EUA' or 'EN_ELEC')
+            raw_tech_opex_links = {}   # t_id -> link_id
+            
             for _, row in df_euros.iterrows():
                 t_id = str(row.get('TECH ID', '')).strip()
                 if t_id in technologies_dict:
                     # Filter by scenario: if a SCENARIO column exists and scenario_id is set
                     row_scenario = str(row.get('SCENARIO', '')).strip().upper()
                     if scenario_id and row_scenario and row_scenario not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]:
-                        # Deep check: Maybe the user used the scenario NAME instead of ID?
                         if self.verbose:
-                            if self.verbose:
-                                print(f"  [cyan][Ingestion][/cyan] [DEBUG] Skipping cost row for {t_id}: row scenario '{row_scenario}' != active scenario '{scenario_id.upper()}' or '{active_sc_name}'")
+                            print(f"  [cyan][Ingestion][/cyan] [DEBUG] Skipping cost row for {t_id}: row scenario '{row_scenario}' != active scenario '{scenario_id.upper()}'")
                         continue
                     
-                    exp_type = str(row.get('TYPE (VARIABLE/FIXED)', '')).strip().upper()
+                    cost_nature = str(row.get('TYPE (CAPEX/OPEX)', '')).strip().upper()
+                    if not cost_nature or cost_nature == 'NAN':
+                        # Fallback for older versions of the file
+                        exp_type = str(row.get('TYPE (VARIABLE/FIXED)', '')).strip().upper()
+                        cost_nature = 'CAPEX' if exp_type == 'FIXED' else 'OPEX' if exp_type == 'VARIABLE' else ''
+                        
+                    try: cost_val = float(row.get('COST', 0))
+                    except: cost_val = 0.0
+                    
+                    y_str = str(row.get('YEAR', 'ALL')).strip().upper()
                     try:
-                        cost_val = float(row.get('COST', 0))
+                        year_val = int(float(y_str))
                     except:
-                        cost_val = 0.0
+                        year_val = y_str
                     
                     per_unit_str = str(row.get('PER UNIT ?', 'NO')).strip().upper()
                     is_per_unit = per_unit_str == 'YES'
                     unit_str = str(row.get('UNIT', '')).strip()
 
-                    if exp_type == 'FIXED':
-                        # CAPEX
-                        if technologies_dict[t_id].capex == 0.0:
-                            technologies_dict[t_id].capex = cost_val
-                            technologies_dict[t_id].capex_per_unit = is_per_unit
-                            technologies_dict[t_id].capex_unit = unit_str
-                    elif exp_type == 'VARIABLE':
-                        # OPEX
-                        if technologies_dict[t_id].opex == 0.0:
-                            technologies_dict[t_id].opex = cost_val
-                            technologies_dict[t_id].opex_per_unit = is_per_unit
-                            technologies_dict[t_id].opex_unit = unit_str
+                    if cost_nature == 'CAPEX':
+                        technologies_dict[t_id].capex_per_unit = is_per_unit
+                        technologies_dict[t_id].capex_unit = unit_str
+                        if year_val == 'ALL':
+                            if technologies_dict[t_id].capex == 0.0:
+                                technologies_dict[t_id].capex = cost_val
+                        elif isinstance(year_val, str):
+                            raw_tech_capex_links[t_id] = (year_val, cost_val)
+                        else:
+                            raw_tech_capex[t_id][year_val] = cost_val
+                    elif cost_nature == 'OPEX':
+                        technologies_dict[t_id].opex_per_unit = is_per_unit
+                        technologies_dict[t_id].opex_unit = unit_str
+                        if year_val == 'ALL':
+                            if technologies_dict[t_id].opex == 0.0:
+                                technologies_dict[t_id].opex = cost_val
+                        elif isinstance(year_val, str):
+                            raw_tech_opex_links[t_id] = (year_val, cost_val)
+                        else:
+                            raw_tech_opex[t_id][year_val] = cost_val
+                            
+            for t_id in technologies_dict:
+                if raw_tech_capex[t_id]:
+                    technologies_dict[t_id].capex_by_year = interpolate_dict(raw_tech_capex[t_id])
+                if raw_tech_opex[t_id]:
+                    technologies_dict[t_id].opex_by_year = interpolate_dict(raw_tech_opex[t_id])
         
         # Parse technical specs for impacts
         specs_start = next((b['row'] for b in blocks_tech if b['type'] == 'START' and b['prefix'] == 'TECHNICAL SPECS'), None)
@@ -819,15 +852,6 @@ class PathFinderParser:
         
         # 4. Parse Time Series data
         time_series = TimeSeriesData()
-        
-        # Helper to interpolate a dictionary {year: value}
-        def interpolate_dict(data_dict: Dict[int, Any]) -> Dict[int, float]:
-            if not data_dict: return {}
-            # sort by year
-            s = pd.Series(data_dict).sort_index()
-            # Reindex to full simulation range to avoid gaps at 0
-            s = s.reindex(years_list)
-            return self._interpolate_linear(s).to_dict()
 
         # 4.1 RESSOURCES_PRICE
         if 'RESSOURCES_PRICE' in self.xl.sheet_names:
@@ -1126,6 +1150,18 @@ class PathFinderParser:
                                     except: pass
                                 grant_params.active = True
                                 
+                        if 'SUBS_NO' in vals:
+                            subs_no_idx = -1
+                            for i, x in enumerate(row_list):
+                                if str(x).strip().upper() == 'SUBS_NO':
+                                    subs_no_idx = i
+                                    break
+                            if subs_no_idx != -1:
+                                for i in range(subs_no_idx + 1, len(row_list)):
+                                    val_tech = str(row_list[i]).strip().upper()
+                                    if pd.notna(row_list[i]) and val_tech and val_tech != 'NAN':
+                                        grant_params.excluded_technologies.append(val_tech)
+                                
                         if 'CCFD' in vals:
                             ccfd_idx = -1
                             for i, x in enumerate(row_list):
@@ -1419,6 +1455,44 @@ class PathFinderParser:
                 else:
                     if self.verbose:
                         print(f"  [cyan][Ingestion][/cyan] [CREDIT] Parsed Credit parameters (Cap: {credit_params.max_volume_pct*100}%, Ref Year: {credit_params.ref_year})")
+
+        # --- Resolve Linked Technology Prices ---
+        for t_id in technologies_dict:
+            # CAPEX Links
+            if t_id in raw_tech_capex_links:
+                link_id, base_cost = raw_tech_capex_links[t_id]
+                linked_prices = {}
+                baseline_p = 1.0
+                
+                if link_id == 'EUA':
+                    linked_prices = time_series.carbon_prices
+                elif link_id in time_series.resource_prices:
+                    linked_prices = time_series.resource_prices[link_id]
+                
+                if linked_prices:
+                    baseline_p = linked_prices.get(params.start_year, 1.0)
+                    if baseline_p == 0: baseline_p = 1.0
+                    technologies_dict[t_id].capex_by_year = {y: base_cost * (linked_prices.get(y, baseline_p) / baseline_p) for y in years_list}
+                    if self.verbose:
+                        print(f"  [cyan][Ingestion][/cyan] [DEBUG] Resolved CAPEX link for {t_id} with {link_id} (Base={base_cost})")
+
+            # OPEX Links
+            if t_id in raw_tech_opex_links:
+                link_id, base_cost = raw_tech_opex_links[t_id]
+                linked_prices = {}
+                baseline_p = 1.0
+                
+                if link_id == 'EUA':
+                    linked_prices = time_series.carbon_prices
+                elif link_id in time_series.resource_prices:
+                    linked_prices = time_series.resource_prices[link_id]
+                
+                if linked_prices:
+                    baseline_p = linked_prices.get(params.start_year, 1.0)
+                    if baseline_p == 0: baseline_p = 1.0
+                    technologies_dict[t_id].opex_by_year = {y: base_cost * (linked_prices.get(y, baseline_p) / baseline_p) for y in years_list}
+                    if self.verbose:
+                        print(f"  [cyan][Ingestion][/cyan] [DEBUG] Resolved OPEX link for {t_id} with {link_id} (Base={base_cost})")
 
         return PathFinderData(
             parameters=params,

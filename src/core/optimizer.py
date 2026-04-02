@@ -107,9 +107,9 @@ class PathFinderOptimizer:
                     # Binary flag if an investment project (at least 1 unit) occurs this year
                     self.project_vars[(t, p_id, t_id)] = pulp.LpVariable(f"Project_{t}_{p_id}_{t_id}", cat=pulp.LpBinary)
                     
-                    if self.data.grant_params.active:
+                    if self.data.grant_params.active and t_id not in self.data.grant_params.excluded_technologies:
                         self.grant_used_vars[(t, p_id, t_id)] = pulp.LpVariable(f"Grant_{t}_{p_id}_{t_id}", cat=pulp.LpBinary)
-                    if self.data.ccfd_params.active:
+                    if self.data.ccfd_params.active and t_id not in self.data.grant_params.excluded_technologies:
                         self.ccfd_used_vars[(t, p_id, t_id)] = pulp.LpVariable(f"CCfD_{t}_{p_id}_{t_id}", cat=pulp.LpBinary)
                         
                     for l_id, loan in enumerate(self.data.bank_loans):
@@ -243,9 +243,9 @@ class PathFinderOptimizer:
                 for t_id in process.valid_technologies:
                     if t_id == 'UP': continue
                     expr = []
-                    if self.data.grant_params.active:
+                    if self.data.grant_params.active and t_id not in self.data.grant_params.excluded_technologies:
                         expr.append(self.grant_used_vars[(t, p_id, t_id)])
-                    if self.data.ccfd_params.active:
+                    if self.data.ccfd_params.active and t_id not in self.data.grant_params.excluded_technologies:
                         expr.append(self.ccfd_used_vars[(t, p_id, t_id)])
                     if expr:
                         self.model += pulp.lpSum(expr) <= self.project_vars[(t, p_id, t_id)], f"Max_1_Aid_{t}_{p_id}_{t_id}"
@@ -259,14 +259,14 @@ class PathFinderOptimizer:
                     self.model += pulp.lpSum(self.grant_used_vars[(tau, p_id, t_id)] 
                                              for tau in window_years 
                                              for p_id, proc in self.entity.processes.items() 
-                                             for t_id in proc.valid_technologies if t_id != 'UP') <= 1, f"Grant_Spacing_{t}"
+                                             for t_id in proc.valid_technologies if t_id != 'UP' and t_id not in self.data.grant_params.excluded_technologies) <= 1, f"Grant_Spacing_{t}"
 
         # CCfD Max Contracts
         if self.data.ccfd_params.active and self.data.ccfd_params.nb_contracts > 0:
             self.model += pulp.lpSum(self.ccfd_used_vars[(t, p_id, t_id)] 
                                      for t in self.years
                                      for p_id, proc in self.entity.processes.items()
-                                     for t_id in proc.valid_technologies if t_id != 'UP') <= self.data.ccfd_params.nb_contracts, "CCfD_Max_Contracts"
+                                     for t_id in proc.valid_technologies if t_id != 'UP' and t_id not in self.data.grant_params.excluded_technologies) <= self.data.ccfd_params.nb_contracts, "CCfD_Max_Contracts"
 
         # --- Subsidies Values (Linearization of Cap) ---
         self.grant_amt_vars = {}
@@ -274,7 +274,7 @@ class PathFinderOptimizer:
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
                     if t_id == 'UP': continue
-                    if self.data.grant_params.active and self.data.grant_params.rate > 0:
+                    if self.data.grant_params.active and self.data.grant_params.rate > 0 and t_id not in self.data.grant_params.excluded_technologies:
                         self.grant_amt_vars[(t, p_id, t_id)] = pulp.LpVariable(f"GrantAmt_{t}_{p_id}_{t_id}", lowBound=0.0)
                         
                         tech = self.data.technologies[t_id]
@@ -284,7 +284,8 @@ class PathFinderOptimizer:
                             elif 'MW' in tech.capex_unit.upper(): 
                                 base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
                                 cap_capex = base_mwh / self.entity.annual_operating_hours
-                        true_capex_per_unit = (tech.capex * cap_capex) / process.nb_units
+                        current_capex = tech.capex_by_year.get(t, tech.capex)
+                        true_capex_per_unit = (current_capex * cap_capex) / process.nb_units
                         
                         max_possible_grant = min(true_capex_per_unit * process.nb_units * self.data.grant_params.rate, self.data.grant_params.cap)
                         
@@ -497,21 +498,40 @@ class PathFinderOptimizer:
                     
                 self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + h2_additional, f"Cons_Balance_{t}_{res_id}"
                 
-                # Granular Reporting: Link specific H2 buy variables to their cons_vars
+            # Granular Reporting: Link specific H2 buy variables to their cons_vars
                 if res_id in self.h2_buy_resources:
                     self.model += self.cons_vars[(t, res_id)] == self.h2_supply_vars[t][res_id], f"H2_Market_Link_{t}_{res_id}"
             # H2 Balancer equation
-            # Physical demand (H2_C) vs physical supply from techs (H2_P)
+            # Identify tech-based H2 demand vs supply
             h2_cons = self.cons_vars.get((t, 'EN_H2_C'), 0.0)
-            h2_prod_tech = self.cons_vars.get((t, 'EN_H2_P'), 0.0)
+            # A tech produces H2 if it has a 'new' impact on EN_H2_P and no negative impact on EN_FUEL (like PEM_H2)
+            # A tech consumes H2 if it has a 'new' impact on EN_H2_P/C and replaces EN_FUEL (like FUEL_TO_H2)
+            h2_supply_from_techs = []
+            h2_demand_from_techs = []
             
-            # Additional supply from market or proxy electrolyzer
-            h2_market_and_proxy = pulp.lpSum([v for v in self.h2_supply_vars[t].values()])
+            for p_id in self.entity.processes:
+                for t_id in self.entity.processes[p_id].valid_technologies:
+                    tech = self.data.technologies[t_id]
+                    # Check if it's a fuel burner switching to H2
+                    is_h2_burner = tech.impacts.get('EN_FUEL', {}).get('value', 0) < 0 and ('H2' in str(tech.impacts.keys()))
+                    
+                    var = self.process_state_vars.get((t, p_id, 'EN_H2_P'))
+                    if var is not None:
+                        if is_h2_burner: h2_demand_from_techs.append(var)
+                        else: h2_supply_from_techs.append(var)
+                    
+                    var_c = self.process_state_vars.get((t, p_id, 'EN_H2_C'))
+                    if var_c is not None:
+                        h2_demand_from_techs.append(var_c)
             
-            # Eq: ProcessDemand + Unallocated == MarketPurchase + ProxyElectrolysis + TechProduction
-            # Note: total_process_cons for H2_C is what we want here.
-            # However, cons_vars[EN_H2_C] already includes unallocated.
-            self.model += h2_cons == h2_market_and_proxy + h2_prod_tech, f"H2_Demand_Fulfillment_{t}"
+            h2_prod_tech = pulp.lpSum(h2_supply_from_techs)
+            h2_cons_tech = pulp.lpSum(h2_demand_from_techs)
+            
+            # Additional supply from market (Green, Blue, Grey H2 buying)
+            h2_market = pulp.lpSum([v for res, v in self.h2_supply_vars[t].items()])
+            
+            # Eq: (Base Refinery Demand + New Tech Demand) == MarketSupply + TechProduction
+            self.model += h2_cons + h2_cons_tech == h2_market + h2_prod_tech, f"H2_Demand_Fulfillment_{t}"
             # Emissions computation
             direct_process_emis = pulp.lpSum([self.process_state_vars[(t, p_id, 'CO2_EM')] for p_id in self.entity.processes])
             
@@ -717,9 +737,10 @@ class PathFinderOptimizer:
                             elif 'MW' in tech.capex_unit.upper(): 
                                 base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
                                 cap = base_mwh / self.entity.annual_operating_hours
-                        true_capex = tech.capex * cap
+                        current_capex = tech.capex_by_year.get(t, tech.capex)
+                        true_capex = current_capex * cap
                         
-                        if self.data.grant_params.active and self.data.grant_params.rate > 0:
+                        if self.data.grant_params.active and self.data.grant_params.rate > 0 and t_id.upper() not in [x.upper() for x in self.data.grant_params.excluded_technologies]:
                             project_net_capex = (true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)] - self.grant_amt_vars[(t, p_id, t_id)]
                         else:
                             project_net_capex = (true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)]
@@ -838,13 +859,15 @@ class PathFinderOptimizer:
                             base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
                             cap_calc = base_mwh / self.entity.annual_operating_hours
                     
-                    true_capex = tech.capex * cap_calc
-                    true_opex = tech.opex * cap_calc
+                    current_capex = tech.capex_by_year.get(t, tech.capex)
+                    current_opex = tech.opex_by_year.get(t, tech.opex)
+                    true_capex = current_capex * cap_calc
+                    true_opex = current_opex * cap_calc
                     
                     # If NO budget constraint, we add CAPEX here directly.
                     # If budget constraint ACTIVE, CAPEX is already in out_of_pocket_capex_vars[t].
                     if not (self.entity.ca_percentage_limit > 0 and self.entity.sold_resources):
-                        if self.data.grant_params.active and self.data.grant_params.rate > 0:
+                        if self.data.grant_params.active and self.data.grant_params.rate > 0 and t_id not in self.data.grant_params.excluded_technologies:
                             total_cost.append((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)] - self.grant_amt_vars[(t, p_id, t_id)])
                         else:
                             total_cost.append((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)])
@@ -852,7 +875,7 @@ class PathFinderOptimizer:
                     total_cost.append((true_opex / process.nb_units) * self.active_vars[(t, p_id, t_id)])
                     
                     # CCfD Calculation
-                    if self.data.ccfd_params.active and self.data.ccfd_params.duration > 0:
+                    if self.data.ccfd_params.active and self.data.ccfd_params.duration > 0 and t_id not in self.data.grant_params.excluded_technologies:
                         ccfd_p = self.data.ccfd_params
                         imp = tech.impacts.get('CO2_EM')
                         if not imp:
@@ -864,7 +887,21 @@ class PathFinderOptimizer:
                             reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
                             if reduction_frac_per_unit > 0:
                                 max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
-                                avoided_tons_per_year_per_unit = reduction_frac_per_unit * max_emis_for_proc
+                                avoided_scope1_per_unit = reduction_frac_per_unit * max_emis_for_proc
+                                
+                                # NET DECARBONIZATION: Subtract added Scope 3 from H2 or other fuels
+                                added_scope3_per_unit = 0.0
+                                for res_id, r_imp in tech.impacts.items():
+                                    if r_imp['type'] == 'new' and r_imp['value'] > 0:
+                                        # If this tech consumes a resource with an emission factor (like H2), 
+                                        # its added footprint reduces the CCfD eligibility.
+                                        # We use a representative factor or link to market variables.
+                                        # For simplicity and linearity, we'll use the weighted emission factor of the H2 pool?
+                                        # No, let's just subtract the max possible footprint of Grey H2 to be conservative?
+                                        # Actually, let's just subtract the specific impact * current pool factor.
+                                        pass # Handled below in the year loop
+                                
+                                avoided_tons_per_year_per_unit = avoided_scope1_per_unit # Base
                                 
                                 start_yr = t + tech.implementation_time
                                 end_yr = start_yr + ccfd_p.duration
@@ -880,7 +917,23 @@ class PathFinderOptimizer:
                                         else: # type == 1
                                             subsidy_per_ton = max(0, strike_price - c_price)
                                             
-                                        # Subsidy is applied to the number of units invested in this project
+                                        # Adjusted Avoided Tons: Avoided Scope 1 - Added Scope 3 (from H2 choice)
+                                        # Since we want to reward clean H2, the CCfD is proportional to:
+                                        # (Avoided S1) - (H2_Cons * Factor_Chosen_H2)
+                                        # In the MILP, we can just subtract the total Scope 3 H2 emissions from the total CCfD pot if this tech is active.
+                                        
+                                        # Simplified: Avoided tons = Avoided S1. 
+                                        # The 'Choice' is already favored by 'total_cost' including H2 prices.
+                                        # BUT to follow user request of 'Choice in CCfD', we subtract the H2 footprint.
+                                        
+                                        h2_footprint_penalty = 0.0
+                                        # We calculate the average emission factor of the H2 supply at year tau
+                                        # This is non-linear. Let's use a linear approximation: 
+                                        # If H2_Buy_Grey is used, it adds its own footprint to the costs anyway.
+                                        
+                                        # FIXED: Use the actual indirect emissions from the H2 balancer in the year tau
+                                        # We'll subtract the total indirect H2 emissions from the CCfD revenue line.
+                                        # This effectively means "You get CCfD on what you avoid, minus what you emit indirectly to do so".
                                         ccfd_revenue_expr.append(subsidy_per_ton * avoided_tons_per_year_per_unit * self.invest_vars[(t, p_id, t_id)])
                                         
                                 if ccfd_revenue_expr:
@@ -895,9 +948,25 @@ class PathFinderOptimizer:
                                     self.model += ccfd_amt_var <= M_subsidy * self.ccfd_used_vars[(t, p_id, t_id)], f"CCfDAmt_Cap_{t}_{p_id}_{t_id}"
                                     self.model += ccfd_amt_var >= total_subsidy - M_subsidy * (1 - self.ccfd_used_vars[(t, p_id, t_id)]), f"CCfDAmt_LB_{t}_{p_id}_{t_id}"
                                     
-                                    total_cost.append(-ccfd_amt_var)
-                
-            if self.data.dac_params.active:
+                        total_cost.append(-ccfd_amt_var)
+                        
+                    # ── CARBON STORAGE & TRANSPORT (CCS/CCU) ──
+                    # If this is a CCS technology, we add a variable cost for the captured CO2
+                    if "CCS" in t_id.upper() or "CCU" in t_id.upper():
+                        imp = tech.impacts.get('CO2_EM')
+                        if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
+                            # Captured tonnage per unit: original emissions that are NO LONGER emitted
+                            reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
+                            if reduction_frac_per_unit > 0:
+                                max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                captured_tons_per_unit = reduction_frac_per_unit * max_emis_for_proc
+                                
+                                # We check for storage and transport prices (e.g., CO2_STORAGE, CO2_TRANSPORT)
+                                s_price = self.data.time_series.resource_prices.get('CO2_STORAGE', {}).get(t, 0.0)
+                                tr_price = self.data.time_series.resource_prices.get('CO2_TRANSPORT', {}).get(t, 0.0)
+                                if s_price > 0 or tr_price > 0:
+                                    total_cost.append((s_price + tr_price) * captured_tons_per_unit * self.active_vars[(t, p_id, t_id)])
+
                 total_cost.append(self.dac_total_capacity_vars[t] * self.data.dac_params.opex_by_year.get(t, 0.0))
             if self.data.credit_params.active:
                 total_cost.append(self.credit_purchased_vars[t] * self.data.credit_params.cost_by_year.get(t, 0.0))
@@ -927,6 +996,19 @@ class PathFinderOptimizer:
                             total_cost.append(-price * self.cons_vars[(t, r_id)])
                     else:
                         total_cost.append(price * self.cons_vars[(t, r_id)])
+                        
+                        # NET CCfD PENALTY: Scope 3 emissions reduce the 'Avoided Tons' benefit
+                        if 'H2' in r_id.upper() and r_id in self.data.time_series.other_emissions_factors:
+                            factor = self.data.time_series.other_emissions_factors[r_id].get(t, 0.0)
+                            if factor > 0 and self.data.ccfd_params.active:
+                                ccfd_p = self.data.ccfd_params
+                                c_price = self.data.time_series.carbon_prices.get(t, 0.0)
+                                strike_price = (1.0 + ccfd_p.eua_price_pct) * self.data.time_series.carbon_prices.get(t, 0.0)
+                                subsidy_per_ton = strike_price - c_price
+                                if ccfd_p.contract_type == 1: subsidy_per_ton = max(0, subsidy_per_ton)
+                                
+                                # Penalty reduces the negative cost (subsidy)
+                                total_cost.append(self.cons_vars[(t, r_id)] * factor * subsidy_per_ton)
                     
             # Carbon Taxes
             c_price = self.data.time_series.carbon_prices.get(t, 0.0)
@@ -944,7 +1026,9 @@ class PathFinderOptimizer:
         max_possible_cost = 0.0
         for t_id, tech in self.data.technologies.items():
             # Check tech costs (scaled by process units)
-            max_possible_cost = max(max_possible_cost, tech.capex, tech.opex)
+            max_tech_capex = max(tech.capex_by_year.values()) if tech.capex_by_year else tech.capex
+            max_tech_opex = max(tech.opex_by_year.values()) if tech.opex_by_year else tech.opex
+            max_possible_cost = max(max_possible_cost, max_tech_capex, max_tech_opex)
         
         c_prices = self.data.time_series.carbon_prices.values()
         if c_prices:

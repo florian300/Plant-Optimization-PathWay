@@ -87,7 +87,8 @@ class PathFinderReporter:
                             if tech.capex_unit == 'tCO2': cap_capex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
                             elif 'MW' in tech.capex_unit.upper(): 
                                 cap_capex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
-                        capex_cost = (tech.capex * cap_capex / process.nb_units) * invested_units
+                        current_capex = tech.capex_by_year.get(t, tech.capex)
+                        capex_cost = (current_capex * cap_capex / process.nb_units) * invested_units
                         
                         # Calculate Reductions (negative impacts) and Additions (positive impacts)
                         impact_strings = []
@@ -358,9 +359,10 @@ class PathFinderReporter:
                         
                         invest_v = getattr(self.opt.invest_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                         if invest_v > 1e-6:
-                            true_capex = (tech.capex * cap_capex / process.nb_units) * invest_v
+                            current_capex = tech.capex_by_year.get(t, tech.capex)
+                            true_capex = (current_capex * cap_capex / process.nb_units) * invest_v
                             if true_capex > 0 and self.verbose:
-                                print(f"  [yellow][Reporter][/yellow] [DEBUG] {t}: {p_id} {t_id} invest={invest_v} capex={tech.capex} true_capex={true_capex}")
+                                print(f"  [yellow][Reporter][/yellow] [DEBUG] {t}: {p_id} {t_id} invest={invest_v} capex={current_capex} true_capex={true_capex}")
                             tech_capex_spent[(t, p_id, t_id)] += true_capex
                             
                             # Calculate CO2 Abatement added by this investment
@@ -757,8 +759,8 @@ class PathFinderReporter:
         if toggles.chart_investment_costs: 
             self._plot_investment_costs(df_costs, df_finance)
             _step()
-        if toggles.chart_resource_opex: 
-            self._plot_r_opex(df_cons)
+        if toggles.chart_total_opex: 
+            self._plot_total_opex(df_cons, df_emis)
             _step()
         if toggles.chart_carbon_tax_avoided: 
             self._plot_carbon_tax_and_avoided(df_emis)
@@ -1548,86 +1550,158 @@ class PathFinderReporter:
         # Store data
         self.charts_data.append(("External Financing Strategy: Public & Private", df_plot))
 
-    def _plot_r_opex(self, df_cons: pd.DataFrame):
+    def _plot_total_opex(self, df_cons: pd.DataFrame, df_emis: pd.DataFrame):
+        """Generates a generalized OPEX chart including resources, individual tech opex, taxes and credits."""
         df_plot = df_cons.copy()
         df_plot.set_index('Year', inplace=True)
+        years = list(df_plot.index)
         
-        cost_data = {}
+        # 1. Resource Costs (grouped by resource ID)
+        res_costs = {}
         for res_id in df_plot.columns:
-            cost_data[res_id] = []
-            for t in df_plot.index:
+            if res_id in ['EN_H2_ON_SITE']: continue # Avoid double counting
+            res_costs[res_id] = []
+            for t in years:
                 cons = df_plot.at[t, res_id]
                 price = self.data.time_series.resource_prices.get(res_id, {}).get(t, 0.0)
-                
-                # Fallback dynamique si le prix n'est pas trouvé
-                if price == 0.0:
-                    if 'H2' in res_id.upper() or 'HYDROGEN' in res_id.upper():
-                        # L'hydrogène est valorisé au prix de l'hydrogène gris
-                        price = self.data.time_series.resource_prices.get('EN_GREY_H2_C', {}).get(t, 0.0)
-                        
-                # Only consider purchased resources for OPEX (where consumption > 0)
-                cost = cons * price if cons > 0 else 0
-                cost_data[res_id].append(cost)
-                
-        df_cost = pd.DataFrame(cost_data, index=df_plot.index)
+                if price == 0.0 and ('H2' in res_id.upper() or 'HYDROGEN' in res_id.upper()):
+                    price = self.data.time_series.resource_prices.get('EN_GREY_H2_C', {}).get(t, 0.0)
+                cost = (cons * price if cons > 0 else 0) / 1_000_000.0
+                res_costs[res_id].append(cost)
         
-        # Remove empty columns to clean up the chart
-        df_cost = df_cost.loc[:, (df_cost != 0).any(axis=0)]
+        df_res_costs = pd.DataFrame(res_costs, index=years)
+        # Rename resource columns for humans
+        res_rename = {}
+        for col in df_res_costs.columns:
+            if col in self.data.resources:
+                res_name = self.data.resources[col].name
+                res_rename[col] = res_name.upper() if res_name else col.upper()
+        df_res_costs.rename(columns=res_rename, inplace=True)
+        # Filter zero resources
+        df_res_costs = df_res_costs.loc[:, (df_res_costs.abs() > 1e-4).any(axis=0)]
         
-        # Convert costs to Millions of Euros (M€)
-        df_cost = df_cost / 1_000_000.0
-        
-        if df_cost.empty:
-            return
+        # 2. Technology Individual OPEX
+        tech_opex_details = {}
+        # We look for all technologies that might be implemented
+        for t_id, tech in self.data.technologies.items():
+            if t_id == 'UP': continue
+            tech_annual_opex = []
+            is_active = False
+            for t in years:
+                yr_val = 0.0
+                for p_id, process in self.opt.entity.processes.items():
+                    if t_id in process.valid_technologies:
+                        act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                        if act_v > 0.01:
+                            is_active = True
+                            cap_opex = 1.0
+                            if tech.opex_per_unit:
+                                if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                elif 'MW' in str(tech.opex_unit).upper():
+                                    cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
+                            current_opex = tech.opex_by_year.get(t, tech.opex)
+                            yr_val += (current_opex * cap_opex / process.nb_units) * act_v
+                tech_annual_opex.append(yr_val / 1_000_000.0)
             
-        df_cost['Total_R_OPEX'] = df_cost.sum(axis=1)
-        df_bars = df_cost.drop(columns=['Total_R_OPEX'])
+            if is_active:
+                col_name = f"{tech.name.upper()} OPEX" if tech.name else f"{t_id.upper()} OPEX"
+                tech_opex_details[col_name] = tech_annual_opex
+
+        df_tech_costs = pd.DataFrame(tech_opex_details, index=years)
         
-        fig, ax = plt.subplots(figsize=(12, 9))
+        # 3. DAC OPEX
+        dac_opex = []
+        if self.data.dac_params.active:
+            for t in years:
+                dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
+                dac_opex.append((dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)) / 1_000_000.0)
         
-        # Plot stacked area chart for each resource with a nice palette
-        if not df_bars.empty:
-            rename_map = {}
-            for col in df_bars.columns:
-                if col in self.data.resources:
-                    res_name = self.data.resources[col].name
-                    rename_map[col] = res_name.upper() if res_name else col.upper()
-            df_bars.rename(columns=rename_map, inplace=True)
-            df_bars.plot.area(ax=ax, stacked=True, alpha=0.9, colormap='tab20')
+        # 4. Carbon Tax (Gross)
+        tax_costs = df_emis.set_index('Year')['Tax_Cost_MEuros'].tolist()
+        
+        # 5. Carbon Credits
+        credit_costs = []
+        for t in years:
+            cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
+            credit_costs.append((cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)) / 1_000_000.0)
             
-        # Plot the dashed line for Total R-OPEX
-        ax.plot(df_cost.index, df_cost['Total_R_OPEX'], color='#2C3E50', linestyle='--', 
-                linewidth=2.5, marker='o', markersize=6, markerfacecolor='white', label='Total R-OPEX (M€)')
-                
-        # Add text annotations for first and last year on the total line
-        for i, t in enumerate([df_cost.index[0], df_cost.index[-1]]):
-            val = df_cost.at[t, 'Total_R_OPEX']
-            ax.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 12), 
-                        textcoords="offset points", ha='center', va='bottom', fontsize=9,
+        # 6. CCS Storage & Transport (Specific calculated OPEX)
+        ccs_st_costs = []
+        for t in years:
+            yr_ccs_st = 0.0
+            for p_id, process in self.opt.entity.processes.items():
+                for t_id in process.valid_technologies:
+                    if "CCS" in t_id.upper() or "CCU" in t_id.upper():
+                        tech = self.data.technologies[t_id]
+                        imp = tech.impacts.get('CO2_EM')
+                        if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
+                            act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                            if act_v > 0.01:
+                                reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
+                                max_emis_for_proc = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                captured_tons_per_unit = reduction_frac_per_unit * max_emis_for_proc
+                                
+                                s_price = self.data.time_series.resource_prices.get('CO2_STORAGE', {}).get(t, 0.0)
+                                tr_price = self.data.time_series.resource_prices.get('CO2_TRANSPORT', {}).get(t, 0.0)
+                                yr_ccs_st += (s_price + tr_price) * captured_tons_per_unit * act_v
+            ccs_st_costs.append(yr_ccs_st / 1_000_000.0)
+
+        # Combine into a plotting dataframe in a clean order
+        df_bars = pd.concat([df_res_costs, df_tech_costs], axis=1)
+        
+        if sum(ccs_st_costs) > 1e-4:
+            df_bars['CCS STORAGE & TRANSPORT'] = ccs_st_costs
+            
+        if sum(dac_opex) > 1e-4:
+            df_bars['DAC OPEX'] = dac_opex
+        
+        df_bars['CARBON TAX (GROSS)'] = tax_costs
+        
+        if sum(credit_costs) > 1e-4:
+            df_bars['CARBON CREDITS'] = credit_costs
+            
+        # Final clean-up of empty columns
+        df_bars = df_bars.loc[:, (df_bars.abs() > 1e-4).any(axis=0)]
+        total_opex = df_bars.sum(axis=1)
+        
+        # Add Total to the dataframe for Excel export (before plotting)
+        df_bars_export = df_bars.copy()
+        df_bars_export['TOTAL ANNUAL OPEX (M€)'] = total_opex
+        
+        fig, ax = plt.subplots(figsize=(14, 10))
+        # Use tab20 colors for variety
+        df_bars.plot.area(ax=ax, stacked=True, alpha=0.85, colormap='tab20')
+        
+        # Plot Total Line
+        ax.plot(years, total_opex, color='#2C3E50', linestyle='--', linewidth=3, 
+                marker='o', markersize=7, markerfacecolor='white', label='Total Annual OPEX (M€)')
+        
+        # Annotations
+        for t in [years[0], years[-1]]:
+            val = total_opex.loc[t]
+            ax.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15), 
+                        textcoords="offset points", ha='center', va='bottom', fontsize=11,
                         weight='bold', color='#2C3E50',
-                        bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='#2C3E50', alpha=0.8))
+                        bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#2C3E50', alpha=0.9))
         
-        # Format the X-axis
-        ax.set_xticks(list(df_cost.index))
-        ax.set_xticklabels([str(y) for y in df_cost.index], rotation=0, ha='center')
+        ax.set_title("TOTAL OPEX: ANNUAL OPERATIONAL EXPENDITURE BREAKDOWN", 
+                     fontsize=18, weight='bold', pad=30)
+        ax.set_ylabel("Annual OPEX (M€)", fontsize=13, weight='semibold')
+        ax.set_xlabel("Year", fontsize=13, weight='semibold')
+        ax.set_xticks(years)
+        ax.set_xticklabels([str(y) for y in years], rotation=0)
         
-        ax.set_title("R-OPEX: RESOURCES OPERATIONAL EXPENDITURE\n(H2 valued at grey hydrogen purchase price)", 
-                     fontsize=15, weight='bold', pad=20)
-        ax.set_ylabel("Annual Cost (M€)", fontsize=12, weight='semibold')
-        ax.set_xlabel("Year", fontsize=12, weight='semibold')
-        
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=12, ncol=3, frameon=True)
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), fontsize=10, ncol=3, frameon=True)
         self._apply_premium_style(ax)
         
         plt.tight_layout()
         self._add_watermark(fig)
         self._add_scenario_label(fig)
         os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_R_OPEX.png'), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Total_OPEX.png'), dpi=300, bbox_inches='tight')
         plt.close()
         
-        # Store data
-        self.charts_data.append(("Operational Impacts on OPEX by Resource", df_cost))
+        self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_bars_export))
 
     def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame):
         df_plot = df.copy()
@@ -1938,7 +2012,8 @@ class PathFinderReporter:
                             if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
                             elif 'MW' in str(tech.opex_unit).upper():
                                 cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
-                        year_opex += (tech.opex * cap_opex / process.nb_units) * act_v
+                        current_opex = tech.opex_by_year.get(t, tech.opex)
+                        year_opex += (current_opex * cap_opex / process.nb_units) * act_v
             
             if self.data.dac_params.active:
                 dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
@@ -1955,10 +2030,10 @@ class PathFinderReporter:
         # --- NEGATIVE COSTS ---
         public_aids = []
         for t in years:
-            grant_total = sum(getattr(self.opt.grant_amt_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0 
+            grant_total = sum(self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue or 0.0 
                              for p_id, proc in self.opt.entity.processes.items() 
                              for t_id in proc.valid_technologies 
-                             if (t, p_id, t_id) in self.opt.grant_amt_vars)
+                             if (t, p_id, t_id) in self.opt.grant_amt_vars and self.opt.grant_amt_vars.get((t, p_id, t_id)) is not None and self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue is not None)
             ccfd_refund = df_emis.set_index('Year').at[t, 'CCfD_Refund_MEuros']
             public_aids.append(-(grant_total / 1_000_000.0 + ccfd_refund))
         df_annual['Public Aids (Grants & CCfD)'] = public_aids
@@ -1993,61 +2068,60 @@ class PathFinderReporter:
         # Calculate on df_annual to ensure correct signs
         df_net_cumul = df_annual.sum(axis=1).cumsum()
 
-        # Plotting
-        fig, ax1 = plt.subplots(figsize=(12, 9), facecolor='#F8F9FA')
-        ax1.set_facecolor('#F8F9FA')
+        # ── TRANSITION EFFORTS (Positive) ──
+        pos_cols = ['Self-funded CAPEX', 'Financing Interests', 'New Tech & DAC OPEX', 'Voluntary Carbon Credits']
         
-        # Columns categorized by sign or logical type
-        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits']
+        # ── TRANSITION BENEFITS & SAVINGS (Negative) ──
         neg_cols = ['Public Aids (Grants & CCfD)', 'Avoided Carbon Tax']
         
-        if res_is_cost:
+        # Determine Resource Mix Change coloring (Blue if avg > 0 (cost), Green if avg <= 0 (saving))
+        res_mean = df_plot['Resource Mix Change'].mean() if 'Resource Mix Change' in df_plot.columns else 0
+        if res_mean > 1e-3:
             pos_cols.append('Resource Mix Change')
         else:
             neg_cols.append('Resource Mix Change')
-        
+            
+        # Clean columns to remove near-zero ones
         pos_cols = [c for c in pos_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
         neg_cols = [c for c in neg_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
         
-        # Colors
-        colors_pos = ['#1A5276', '#5499C7', '#A9CCE3', '#D4E6F1', '#2471A3'] # Blues
-        colors_neg = ['#1D8348', '#52BE80', '#A9DFBF'] # Greens
+        # Refined Palette
+        # Efforts: Dark Blues / Purples
+        colors_efforts = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#3E4444'] 
+        # Savings/Aids: Fresh Greens / Teals
+        colors_savings = ['#16A085', '#27AE60', '#A2D149', '#F1C40F']
         
         x = years
         
         # Plot stacked areas (Annual) on ax1
         if pos_cols:
             y_pos = df_plot[pos_cols].values.T
-            ax1.stackplot(x, y_pos, labels=pos_cols, colors=colors_pos[:len(pos_cols)], alpha=0.85, zorder=3)
+            ax1.stackplot(x, y_pos, labels=pos_cols, colors=colors_efforts[:len(pos_cols)], alpha=0.85, zorder=3)
             
         if neg_cols:
             y_neg = df_plot[neg_cols].values.T
-            ax1.stackplot(x, y_neg, labels=neg_cols, colors=colors_neg[:len(neg_cols)], alpha=0.85, zorder=3)
+            ax1.stackplot(x, y_neg, labels=neg_cols, colors=colors_savings[:len(neg_cols)], alpha=0.85, zorder=3)
             
         # Create secondary axis for Cumulative Line
         ax2 = ax1.twinx()
         
         # Plot Net Cumulative Cost Line on ax2
         lns = ax2.plot(x, df_net_cumul, color='#E74C3C', linewidth=4, 
-                 label='Net Transition Cost (Cumulative) (M€)', marker='o', markersize=6, zorder=10)
+                 label='Net Transition Balance (Cumulative)', marker='o', markersize=6, zorder=10)
         
         # Aesthetics for Primary Axis
-        ax1.axhline(0, color='#333333', linewidth=1.2, zorder=5)
+        ax1.axhline(0, color='#333333', linewidth=1.5, zorder=5)
         
         # ── Dynamic Scenario Investment Cap (Annual Reference) ──────────────────
         if self.data.reporting_toggles.investment_cap > 0:
             cap_val = self.data.reporting_toggles.investment_cap
             ax1.axhline(cap_val, color='#E74C3C', linestyle='--', linewidth=1.5, 
-                        label=f'Annual Investment Cap ({cap_val} M€)', zorder=4)
+                        label=f'Annual Effort Cap ({cap_val} M€)', zorder=4)
 
-        ax1.set_title("ECOLOGICAL TRANSITION: ANNUAL EFFORTS & LONG-TERM BALANCE", fontsize=18, weight='bold', pad=30)
-        ax1.set_ylabel("Annual Delta (Areas) (M€)", fontsize=12, weight='semibold', color='#1A5276')
+        ax1.set_title("ECOLOGICAL TRANSITION: ANNUAL INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
+        ax1.set_ylabel("Annual Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
         ax1.set_xlabel("Year", fontsize=12, weight='semibold')
         
-        # ax1.set_yscale('symlog', linthresh=1.0)
-        
-        # Use scientific notation formatting that still looks like M€ if possible, 
-        # or just standard symlog formatting
         ax1.yaxis.set_major_formatter(plt.FormatStrFormatter('%g M€'))
         ax1.set_xticks(years)
         ax1.set_xticklabels([str(y) for y in years], rotation=0)
@@ -2059,7 +2133,7 @@ class PathFinderReporter:
             ax1.set_ylim(top=max(current_max, cap_val * 1.15))
         
         # Aesthetics for Secondary Axis
-        ax2.set_ylabel("Cumulative Net Cost (Line) (M€)", fontsize=12, weight='semibold', color='#E74C3C')
+        ax2.set_ylabel("Net Cumulative Transition Effort (M€)", fontsize=12, weight='semibold', color='#E74C3C')
         ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f} M€'))
         ax2.spines['right'].set_color('#E74C3C')
         ax2.tick_params(axis='y', labelcolor='#E74C3C')
@@ -2067,7 +2141,7 @@ class PathFinderReporter:
         # Add labels for start and end of cumulative line on ax2
         for t in [years[0], years[-1]]:
             val = df_net_cumul.at[t]
-            ax2.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15 if val >=0 else -20),
+            ax2.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15 if val >=0 else -25),
                         textcoords="offset points", ha='center', fontsize=11, weight='bold',
                         color='#E74C3C', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#E74C3C', alpha=0.9))
 
@@ -2075,7 +2149,7 @@ class PathFinderReporter:
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
         ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper center', 
-                  bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True, fontsize=12)
+                  bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True, fontsize=11)
         
         self._apply_premium_style(ax1)
         # ax2 doesn't need premium style as it's paired with ax1

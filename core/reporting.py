@@ -87,7 +87,8 @@ class PathFinderReporter:
                             if tech.capex_unit == 'tCO2': cap_capex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
                             elif 'MW' in tech.capex_unit.upper(): 
                                 cap_capex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
-                        capex_cost = (tech.capex * cap_capex / process.nb_units) * invested_units
+                        current_capex = tech.capex_by_year.get(t, tech.capex)
+                        capex_cost = (current_capex * cap_capex / process.nb_units) * invested_units
                         
                         # Calculate Reductions (negative impacts) and Additions (positive impacts)
                         impact_strings = []
@@ -358,9 +359,10 @@ class PathFinderReporter:
                         
                         invest_v = getattr(self.opt.invest_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                         if invest_v > 1e-6:
-                            true_capex = (tech.capex * cap_capex / process.nb_units) * invest_v
+                            current_capex = tech.capex_by_year.get(t, tech.capex)
+                            true_capex = (current_capex * cap_capex / process.nb_units) * invest_v
                             if true_capex > 0 and self.verbose:
-                                print(f"  [yellow][Reporter][/yellow] [DEBUG] {t}: {p_id} {t_id} invest={invest_v} capex={tech.capex} true_capex={true_capex}")
+                                print(f"  [yellow][Reporter][/yellow] [DEBUG] {t}: {p_id} {t_id} invest={invest_v} capex={current_capex} true_capex={true_capex}")
                             tech_capex_spent[(t, p_id, t_id)] += true_capex
                             
                             # Calculate CO2 Abatement added by this investment
@@ -1938,7 +1940,8 @@ class PathFinderReporter:
                             if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
                             elif 'MW' in str(tech.opex_unit).upper():
                                 cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
-                        year_opex += (tech.opex * cap_opex / process.nb_units) * act_v
+                        current_opex = tech.opex_by_year.get(t, tech.opex)
+                        year_opex += (current_opex * cap_opex / process.nb_units) * act_v
             
             if self.data.dac_params.active:
                 dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
@@ -1955,10 +1958,10 @@ class PathFinderReporter:
         # --- NEGATIVE COSTS ---
         public_aids = []
         for t in years:
-            grant_total = sum(getattr(self.opt.grant_amt_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0 
+            grant_total = sum(self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue or 0.0 
                              for p_id, proc in self.opt.entity.processes.items() 
                              for t_id in proc.valid_technologies 
-                             if (t, p_id, t_id) in self.opt.grant_amt_vars)
+                             if (t, p_id, t_id) in self.opt.grant_amt_vars and self.opt.grant_amt_vars.get((t, p_id, t_id)) is not None and self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue is not None)
             ccfd_refund = df_emis.set_index('Year').at[t, 'CCfD_Refund_MEuros']
             public_aids.append(-(grant_total / 1_000_000.0 + ccfd_refund))
         df_annual['Public Aids (Grants & CCfD)'] = public_aids
