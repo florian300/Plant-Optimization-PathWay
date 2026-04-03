@@ -737,11 +737,291 @@ class PathFinderReporter:
     
                 if self.verbose:
                     print(f"  [yellow][Reporter][/yellow] [!] File was locked. Exported data to [bold cyan]{excel_path}[/bold cyan] instead.")
-        else:
-            if self.verbose:
-                print(f"  [yellow][Reporter][/yellow] [SKIP] Excel Results generation disabled by toggle.")
+        # 3. NEW: CO2 Abatement Cost Calculation (MAC) - Aggregate by Tech Type (+ Potential Techs)
+        # ── 1. HELPERS: Uniform effective price and emission factor ──────────────────────
+        # ALL resources get the same treatment:
+        #   effective_price = market_price + emission_factor × carbon_tax  (Scope 3 included)
+        #   effective_emiss = emission_factor from time series
+        # No hardcoded resource IDs — the logic reads whatever is in the data.
+
+        def _get_effective_price(r_id, yr):
+            """All-in cost for one unit of resource r_id at year yr.
+            Includes the market price plus the indirect carbon cost of upstream emissions."""
+            market_p = self.data.time_series.resource_prices.get(r_id, {}).get(yr, 0.0)
+            emiss_f  = self.data.time_series.other_emissions_factors.get(r_id, {}).get(yr, 0.0)
+            carbon_p = self.data.time_series.carbon_prices.get(yr, 0.0)
+            return market_p + (emiss_f * carbon_p)
+
+        def _get_effective_emiss(r_id, yr):
+            """Indirect emission factor (tCO2/unit) for resource r_id at year yr."""
+            return self.data.time_series.other_emissions_factors.get(r_id, {}).get(yr, 0.0)
+
+        def _get_metric(r_id, yr, metric_type):
+            """Unified metric getter — same logic for every resource."""
+            if metric_type == 'price':
+                return _get_effective_price(r_id, yr)
+            else:
+                return _get_effective_emiss(r_id, yr)
+
+        def _primary_energy_consumption(process):
+            """Return the base consumption of the dominant energy resource for a process.
+            Searches all base_consumptions ranked by share — avoids hardcoding 'EN_FUEL'."""
+            best_res, best_val = None, 0.0
+            for res, share in process.consumption_shares.items():
+                base = self.opt.entity.base_consumptions.get(res, 0.0)
+                val  = base * share
+                if val > best_val:
+                    best_val = val
+                    best_res = res
+            return best_val, best_res
+
+        def _get_estimated_unit_capex(t_id):
+            """Return the unit CAPEX cost (€) for a technology, with prefix-based fallback if zero."""
+            tech = self.data.technologies.get(t_id)
+            if not tech: return 0.0
+            
+            # 1. Primary: From technology settings (Sim year or tech total)
+            eval_yr = self.years[0]
+            val = tech.capex_by_year.get(eval_yr, tech.capex)
+            if val > 0: return val
+            
+            # 2. Fallback: Prefix-based average (e.g., all FUEL_TO_H2_* techs)
+            prefix = t_id.split('_')[0]
+            sim_techs = [t for tid, t in self.data.technologies.items() 
+                         if (tid.startswith(prefix) or prefix in tid) and 
+                         (t.capex > 0 or any(v > 0 for v in t.capex_by_year.values()))]
+            if sim_techs:
+                vals = [t.capex_by_year.get(eval_yr, t.capex) for t in sim_techs if t.capex_by_year.get(eval_yr, t.capex) > 0]
+                if vals: return sum(vals) / len(vals)
+                
+            # 3. Last resort: Global average of all technologies
+            global_techs = [t for t in self.data.technologies.values() 
+                            if t.capex > 0 or any(v > 0 for v in t.capex_by_year.values())]
+            if global_techs:
+                vals = [t.capex_by_year.get(eval_yr, t.capex) for t in global_techs if t.capex_by_year.get(eval_yr, t.capex) > 0]
+                if vals: return sum(vals) / len(vals)
+                
+            return 0.0
+
+        def _get_grant_rate(t_id):
+            """Return the subsidy rate for a technology from global grant parameters."""
+            gp = getattr(self.data, 'grant_params', None)
+            if not gp or not getattr(gp, 'active', False): return 0.0
+            if t_id in getattr(gp, 'excluded_technologies', []): return 0.0
+            return getattr(gp, 'rate', 0.0)
+
+        # ── 2. AGGREGATE MAC BY TECHNOLOGY ───────────────────────────────────────────────
+        tech_mac_agg = {}   # t_id → {capex, opex, co2, processes, status}
+
+        all_techs = [t_id for t_id in self.data.technologies.keys() if t_id != 'UP']
+        if self.data.dac_params.active:    all_techs.append('DAC')
+        if self.data.credit_params.active: all_techs.append('CREDIT')
+
+        for t_id in all_techs:
+            if t_id not in tech_mac_agg:
+                tech_mac_agg[t_id] = {'capex': 0.0, 'opex': 0.0, 'co2': 0.0,
+                                      'processes': [], 'status': 'Estimation'}
+
+            # Identify valid processes for this tech
+            if   t_id == 'DAC':    valid_p_ids = ['INDIRECT']
+            elif t_id == 'CREDIT': valid_p_ids = ['INDIRECT']
+            else:
+                valid_p_ids = [p_id for p_id, p in self.opt.entity.processes.items()
+                               if t_id in p.valid_technologies]
+
+            # ── UNIFIED ESTIMATION ───────────────────────────────────────────
+            # To meet the user request, we perform an estimation for EVERY technology
+            # based on its potential (1 unit deployment) to make them comparable.
+            t_eval = self.years[0]
+            tech   = self.data.technologies.get(t_id)
+            if not tech:
+                continue
+
+            for p_id in valid_p_ids:
+                process = self.opt.entity.processes.get(p_id)
+                if not process:
+                    continue
+
+                # A — CAPEX Estimation (using robust helper with fallback)
+                unit_capex_est = _get_estimated_unit_capex(t_id)
+                cap_capex = 1.0
+                if tech.capex_per_unit:
+                    if tech.capex_unit == 'tCO2':
+                        cap_capex = (self.opt.entity.base_emissions
+                                     * process.emission_shares.get('CO2_EM', 0.0))
+                    elif 'MW' in tech.capex_unit.upper():
+                        primary_conso, _ = _primary_energy_consumption(process)
+                        # Estimate MW from primary consumption if possible, or assume 1 MW unit
+                        h_fac = getattr(self.opt.entity, 'annual_operating_hours', 8760.0) or 8760.0
+                        cap_capex = primary_conso / h_fac
+                
+                tech_mac_agg[t_id]['capex'] += unit_capex_est * cap_capex
+
+                # B — Potential CO2 Abated
+                for res_id, imp in tech.impacts.items():
+                    if res_id == 'CO2_EM' or 'CO2' in res_id.upper():
+                        factor = 1.0
+                    else:
+                        factor = _get_effective_emiss(res_id, t_eval)
+                        if factor == 0.0:
+                            continue
+
+                    if res_id == 'CO2_EM' or 'CO2' in res_id.upper():
+                        base_val = (self.opt.entity.base_emissions
+                                    * process.emission_shares.get('CO2_EM', 0.0))
+                    else:
+                        base_val = (self.opt.entity.base_consumptions.get(res_id, 0.0)
+                                    * process.consumption_shares.get(res_id, 0.0))
+
+                    if imp['type'] in ('variation', 'up'):
+                        target_red = -imp['value'] * base_val
+                    elif imp['type'] == 'new':
+                        ref_res  = imp.get('ref_resource')
+                        base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
+                                    * process.consumption_shares.get(ref_res, 0.0)
+                                    if ref_res and ref_res in self.opt.entity.base_consumptions
+                                    else base_val)
+                        target_red = -imp['value'] * base_ref
+                    else:
+                        target_red = 0.0
+
+                    # Total potential over simulation period (minus implementation delay)
+                    tech_mac_agg[t_id]['co2'] += (target_red * factor) \
+                                                 * (len(self.years) - tech.implementation_time)
+
+                # C — Potential OPEX Change
+                # We calculate opex over the simulation years starting from availability
+                for t in self.years[tech.implementation_time:]:
+                    year_opex_change = 0.0
+                    for res_id, imp_op in tech.impacts.items():
+                        if res_id in ('CO2_EM', 'ALL'):
+                            continue
+
+                        ref_res   = imp_op.get('ref_resource') or res_id
+                        ref_state = imp_op.get('reference', 'INITIAL')
+
+                        if ref_res == 'CO2_EM':
+                            base_ref = (self.opt.entity.base_emissions
+                                        * process.emission_shares.get('CO2_EM', 0.0))
+                        else:
+                            base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
+                                        * process.consumption_shares.get(ref_res, 0.0))
+
+                        if imp_op['type'] in ('variation', 'up'):
+                            target_change = imp_op['value'] * base_ref
+                        elif imp_op['type'] == 'new':
+                            if ref_state == 'AVOIDED':
+                                co2_imp = tech.impacts.get('CO2_EM')
+                                if co2_imp and co2_imp['type'] == 'variation' and (ref_res == 'CO2_EM' or not ref_res):
+                                    target_change = imp_op['value'] * abs(co2_imp['value'] * base_ref)
+                                else:
+                                    target_change = imp_op['value'] * base_ref
+                            else:
+                                target_change = imp_op['value'] * base_ref
+                        else:
+                            target_change = 0.0
+
+                        year_opex_change += target_change * _get_effective_price(res_id, t)
+
+                    cur_opex = tech.opex_by_year.get(t, tech.opex)
+                    cap_opex = 1.0
+                    if tech.opex_per_unit:
+                        if tech.opex_unit == 'tCO2':
+                            cap_opex = (self.opt.entity.base_emissions
+                                        * process.emission_shares.get('CO2_EM', 0.0))
+                        elif 'MW' in tech.opex_unit.upper():
+                            primary_conso, _ = _primary_energy_consumption(process)
+                            h_fac = getattr(self.opt.entity, 'annual_operating_hours', 8760.0) or 8760.0
+                            cap_opex = primary_conso / h_fac
+
+                    tech_mac_agg[t_id]['opex'] += year_opex_change + (cur_opex * cap_opex)
+
+                tech_mac_agg[t_id]['processes'].append(p_id)
+
+        # ── STATUS SYNC ──────────────────────────────────────────────────────────────
+        # Mark which technologies have actual investments in the simulation results
+        for t_id in tech_mac_agg:
+            # Re-identify valid processes for sync
+            if t_id == 'DAC' or t_id == 'CREDIT': v_p_ids = ['INDIRECT']
+            elif t_id in self.data.technologies:
+                v_p_ids = [pid for pid, p in self.opt.entity.processes.items() if t_id in p.valid_technologies]
+            else: v_p_ids = []
+            
+            if any((pid, t_id) in project_ids for pid in v_p_ids):
+                tech_mac_agg[t_id]['status'] = 'Invested'
+
+        # DAC and CREDIT special potential logic
+        if 'DAC' in tech_mac_agg and tech_mac_agg['DAC']['status'] != 'Invested':
+            tech_mac_agg['DAC']['co2']   = 100_000.0 * (len(self.years) - 2)
+            tech_mac_agg['DAC']['capex'] = 100_000.0 * self.data.dac_params.capex_by_year.get(self.years[0], 500.0)
+            tech_mac_agg['DAC']['opex']  = 100_000.0 * self.data.dac_params.opex_by_year.get(self.years[0], 100.0) * (len(self.years) - 2)
+        if 'CREDIT' in tech_mac_agg and tech_mac_agg['CREDIT']['status'] != 'Invested':
+            tech_mac_agg['CREDIT']['co2']  = 50_000.0 * len(self.years)
+            tech_mac_agg['CREDIT']['opex'] = 50_000.0 * self.data.credit_params.cost_by_year.get(self.years[0], 50.0) * len(self.years)
+
+        # ── 3. BUILD MAC DATA LIST ────────────────────────────────────────────────────────
+        # One entry per technology ID — no decomposition by sub-resource.
+        # Each FUEL_TO_H2_X variant is already its own t_id and produces its own bar.
+        mac_data = []
+        for t_id, vals in tech_mac_agg.items():
+            if vals['co2'] < 1.0:
+                continue  # Skip techs with negligible abatement
+
+            if t_id in self.data.technologies:
+                tech_name = self.data.technologies[t_id].name
+            elif t_id == 'DAC':
+                tech_name = "Direct Air Capture"
+            elif t_id == 'CREDIT':
+                tech_name = "Carbon Credits"
+            else:
+                tech_name = t_id
+
+            proc_sum = ", ".join(sorted(set(vals['processes']))[:3])
+            if len(set(vals['processes'])) > 3:
+                proc_sum += ", ..."
+
+            # ── 1. BRUT entry (Without state aid) ──────────────────────────
+            capex_brut = vals['capex']
+            opex_val   = vals['opex']
+            co2_val    = vals['co2']
+            
+            mac_data.append({
+                'Project':               f"{tech_name} (Brut)",
+                'Process Summary':       proc_sum,
+                'Display Label':         f"{tech_name} (Brut)\n({proc_sum})" if proc_sum else f"{tech_name} (Brut)",
+                'MAC (€/tCO2)':          (capex_brut + opex_val) / co2_val,
+                'MAC CAPEX (€/tCO2)':    capex_brut / co2_val,
+                'MAC OPEX (€/tCO2)':     opex_val  / co2_val,
+                'Total Abated (tCO2)':   co2_val,
+                'Total CAPEX (M€)':      capex_brut / 1_000_000.0,
+                'Total OPEX Change (M€)': opex_val / 1_000_000.0,
+                'Status':                vals['status'],
+            })
+
+            # ── 2. NET entry (With state aid if applicable) ────────────────
+            grant_rate = _get_grant_rate(t_id)
+            if grant_rate > 0:
+                capex_net = capex_brut * (1.0 - grant_rate)
+                mac_data.append({
+                    'Project':               f"{tech_name} (Net -{int(grant_rate*100)}%)",
+                    'Process Summary':       proc_sum,
+                    'Display Label':         f"{tech_name} (Net)\n({proc_sum})" if proc_sum else f"{tech_name} (Net)",
+                    'MAC (€/tCO2)':          (capex_net + opex_val) / co2_val,
+                    'MAC CAPEX (€/tCO2)':    capex_net / co2_val,
+                    'MAC OPEX (€/tCO2)':     opex_val  / co2_val,
+                    'Total Abated (tCO2)':   co2_val,
+                    'Total CAPEX (M€)':      capex_net / 1_000_000.0,
+                    'Total OPEX Change (M€)': opex_val / 1_000_000.0,
+                    'Status':                vals['status'],
+                })
+
+
         
-        # 3. Generate Visualizations
+        df_mac = pd.DataFrame(mac_data)
+        if not df_mac.empty:
+            df_mac = df_mac.sort_values(by='MAC (€/tCO2)')
+
+        # 4. Generate Visualizations
         if self.verbose:
             print("  [yellow][Reporter][/yellow] [PLOT] Generating visualizations...")
         self.charts_data = [] # Clear/Re-init for collection
@@ -779,6 +1059,9 @@ class PathFinderReporter:
             _step()
         if toggles.chart_resource_prices: 
             self._plot_prices()
+            _step()
+        if toggles.chart_co2_abatement_cost and not df_mac.empty:
+            self._plot_co2_abatement_cost(df_mac)
             _step()
         
         # 4. Final step: Re-run Excel export to include the charts sheet if needed
@@ -2299,3 +2582,84 @@ class PathFinderReporter:
         df_prices = pd.DataFrame({info['name']: info['data'] for info in price_series.values()}).sort_index()
         df_prices.index.name = 'Year'
         self.charts_data.append(("Simulation Prices", df_prices))
+
+    def _plot_co2_abatement_cost(self, df: pd.DataFrame):
+        """Plot the Marginal Abatement Cost (MAC) per technology implementation."""
+        fig, ax = plt.subplots(figsize=(14, 10))
+        fig.set_facecolor('#F8F9FA')
+        ax.set_facecolor('#F8F9FA')
+        
+        df_plot = df.sort_values(by='MAC (€/tCO2)')
+        
+        norm = plt.Normalize(df_plot['MAC (€/tCO2)'].min(), df_plot['MAC (€/tCO2)'].max())
+        import matplotlib.cm as cm
+        colors = cm.RdYlGn_r(norm(df_plot['MAC (€/tCO2)'].values))
+        
+        # Adjust colors for negative MAC (profitable)
+        for i, (idx, row) in enumerate(df_plot.iterrows()):
+            if row['MAC (€/tCO2)'] < 0:
+                colors[i] = [0.1, 0.6, 0.2, 0.9] # Solid green for profitable
+        
+        # Visual distinction for Potential vs Invested
+        alphas = [0.9 if s == 'Invested' else 0.45 for s in df_plot['Status']]
+        edge_colors = ['#2C3E50' if s == 'Invested' else '#7F8C8D' for s in df_plot['Status']]
+        linestyles = ['-' if s == 'Invested' else '--' for s in df_plot['Status']]
+        
+        x_labels = df_plot['Display Label'] if 'Display Label' in df_plot.columns else df_plot['Project']
+        y_capex = df_plot['MAC CAPEX (€/tCO2)'].values
+        y_opex = df_plot['MAC OPEX (€/tCO2)'].values
+        y_total = df_plot['MAC (€/tCO2)'].values
+
+        # Plot bars item by item to handle per-technology alpha
+        for i in range(len(x_labels)):
+            label = x_labels.iloc[i] if hasattr(x_labels, 'iloc') else x_labels[i]
+            
+            # Plot CAPEX Part
+            ax.bar(label, y_capex[i], color='#3498DB', alpha=alphas[i], 
+                     edgecolor=edge_colors[i], linewidth=1.2, width=0.65, 
+                     linestyle=linestyles[i], label='CAPEX (Investment) Component' if i == 0 else "", zorder=3)
+            
+            # Plot OPEX Part (Stacked)
+            ax.bar(label, y_opex[i], bottom=y_capex[i], color='#E67E22', alpha=alphas[i],
+                      edgecolor=edge_colors[i], linewidth=1.2, width=0.65,
+                      linestyle=linestyles[i], label='OPEX (Operational) Component' if i == 0 else "", zorder=3)
+        
+        # Add numeric labels at the top of the TOTAL bar
+        for i, (label, val) in enumerate(zip(x_labels, y_total)):
+            va = 'bottom' if val >= 0 else 'top'
+            offset = 5 if val >= 0 else -15
+            ax.annotate(f'{val:,.0f} €/t',
+                        xy=(i, val),
+                        xytext=(0, offset),
+                        textcoords="offset points",
+                        ha='center', va=va, fontsize=10, weight='bold', color='#2C3E50')
+
+        avg_co2_price = sum(self.data.time_series.carbon_prices.values()) / len(self.data.time_series.carbon_prices) if self.data.time_series.carbon_prices else 0.0
+        if avg_co2_price > 0:
+            ax.axhline(avg_co2_price, color='#E74C3C', linestyle='--', linewidth=2, label=f'Avg Carbon Price ({avg_co2_price:,.0f} €/t)', zorder=4)
+            ax.fill_between([-1, len(df_plot)], 0, avg_co2_price, color='#2ECC71', alpha=0.07, label='Profitable Zone (Cost < Tax)')
+
+        plt.title('CO2 ABATEMENT COST BY TECHNOLOGY (MAC)', fontsize=18, weight='bold', pad=30, color='#1A1A1A')
+        plt.ylabel('Cost of Abatement (€ / tCO2 avoided)', fontsize=13, weight='semibold', color='#333333')
+        plt.xlabel('Implemented Technology per Process', fontsize=13, weight='semibold', color='#333333')
+        
+        plt.xticks(rotation=45, ha='right', fontsize=11)
+        ax.grid(axis='y', linestyle=':', alpha=0.6, zorder=0)
+        ax.axhline(0, color='black', linewidth=1.0, zorder=2)
+        ax.legend(loc='best', fontsize=12, frameon=True, facecolor='white', framealpha=0.9)
+        
+        total_tons = df_plot['Total Abated (tCO2)'].sum()
+        ax.text(0.98, 0.02, f"Total Simulation Abatement: {total_tons/1000:,.0f} ktCO2", 
+                transform=ax.transAxes, ha='right', va='bottom', 
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='#CCCCCC'), fontsize=11, weight='bold')
+
+        self._apply_premium_style(ax)
+        plt.tight_layout()
+        self._add_watermark(fig)
+        self._add_scenario_label(fig)
+        
+        os.makedirs(self.results_dir, exist_ok=True)
+        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_CO2_Abatement_Cost.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        self.charts_data.append(("CO2 Abatement Cost (MAC)", df_plot))

@@ -56,6 +56,7 @@ class ReportingToggles:
     chart_carbon_prices: bool = True
     chart_interest_paid: bool = True
     chart_resource_prices: bool = True
+    chart_co2_abatement_cost: bool = True # New chart for Marginal Abatement Cost
     investment_cap: float = 0.0 # New field for dynamic cap on charts
 
 @dataclass
