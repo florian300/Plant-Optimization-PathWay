@@ -697,6 +697,23 @@ class PathFinderReporter:
                             print(f"  Year {t}: {', '.join(shares)}")
                     print("")
         
+        
+        # 1.5 Prepare Data Used sheet
+        data_used_rows = []
+        # Get all unique resource IDs
+        all_resources = set(self.data.time_series.resource_prices.keys()).union(set(self.data.time_series.other_emissions_factors.keys()))
+        for r_id in all_resources:
+            for t in self.years:
+                price = self.data.time_series.resource_prices.get(r_id, {}).get(t, 0.0)
+                emissions = self.data.time_series.other_emissions_factors.get(r_id, {}).get(t, 0.0)
+                data_used_rows.append({
+                    "Resource": r_id,
+                    "Year": t,
+                    "Price": price,
+                    "CO2_Emissions": emissions
+                })
+        df_data_used = pd.DataFrame(data_used_rows) if data_used_rows else pd.DataFrame(columns=["Resource", "Year", "Price", "CO2_Emissions"])
+
         # 2. Export to Excel
         excel_path = os.path.join(self.results_dir, 'Master_Plan.xlsx')
         if self.generate_excel or (hasattr(self.data, 'reporting_toggles') and self.data.reporting_toggles.results_excel):
@@ -710,6 +727,9 @@ class PathFinderReporter:
                         df_indir.to_excel(writer, sheet_name='Indirect_Emissions', index=False)
                     df_costs.to_excel(writer, sheet_name='Technology_Costs', index=False)
                     df_finance.to_excel(writer, sheet_name='Financing', index=False)
+                    
+                    if not df_data_used.empty:
+                        df_data_used.to_excel(writer, sheet_name='Data_Used', index=False)
                     
                     # 2.2 Export Chart Data
                     if hasattr(self, 'charts_data') and self.charts_data:
@@ -738,6 +758,9 @@ class PathFinderReporter:
                     df_costs.to_excel(writer, sheet_name='Technology_Costs', index=False)
                     df_finance.to_excel(writer, sheet_name='Financing', index=False)
     
+                    if not df_data_used.empty:
+                        df_data_used.to_excel(writer, sheet_name='Data_Used', index=False)
+                        
                     # 2.2 Export Chart Data (Fallback)
                     if hasattr(self, 'charts_data') and self.charts_data:
                         start_row = 0

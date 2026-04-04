@@ -1033,56 +1033,107 @@ def build_resources_opex_graph(df_costs: pd.DataFrame) -> Tuple[Dict[str, Any], 
     return {"data": traces, "layout": layout}, description
 
 
-def build_simulation_prices_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
-    title = "SIMULATION PRICES"
-    if df_co2.empty or "Year" not in df_co2.columns:
+def build_data_used_graph(df_data_used: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
+    title = "DATA USED"
+    description = "Displays the price and CO2 emissions for each selected resource over time."
+
+    if df_data_used.empty or "Resource" not in df_data_used.columns or "Year" not in df_data_used.columns:
         return (
-            placeholder_figure(title, "No CO2_Trajectory data is available."),
-            "This graph uses Tax_Price and tax-related metrics from CO2_Trajectory.",
+            placeholder_figure(title, "No data"),
+            "Data_Used sheet is missing or empty.",
         )
 
-    years = year_axis(df_co2["Year"])
-    tax_price = to_float_list(pd.to_numeric(df_co2.get("Tax_Price", 0.0), errors="coerce").fillna(0.0))
-    net_tax = to_float_list(pd.to_numeric(df_co2.get("Net_Tax_Cost_MEuros", 0.0), errors="coerce").fillna(0.0), scale=1.0)
-    taxed = to_float_list(pd.to_numeric(df_co2.get("Taxed_CO2", 0.0), errors="coerce").fillna(0.0), scale=1.0)
+    # Sort years for consistent x-axis
+    years = year_axis(sorted(df_data_used["Year"].unique()))
+    resources = sorted(df_data_used["Resource"].dropna().unique())
 
-    effective = []
-    for nt, taxed_val in zip(net_tax, taxed):
-        if taxed_val <= 0:
-            effective.append(0.0)
-        else:
-            effective.append(round((nt * 1_000_000.0) / taxed_val, 6))
+    if not resources:
+        return (
+            placeholder_figure(title, "No data"),
+            "No resources data available.",
+        )
 
-    traces = [
-        {
+    traces = []
+    buttons = []
+    traces_per_res = 2  # Price and CO2 Emissions
+
+    for i, res in enumerate(resources):
+        df_res = df_data_used[df_data_used["Resource"] == res].sort_values("Year")
+        # Ensure we map all years correctly even if missing
+        res_years = year_axis(df_res["Year"])
+        res_price = to_float_list(pd.to_numeric(df_res["Price"], errors="coerce").fillna(0.0))
+        res_co2 = to_float_list(pd.to_numeric(df_res["CO2_Emissions"], errors="coerce").fillna(0.0))
+
+        is_first = (i == 0)
+
+        # Trace 1: Price (left axis)
+        traces.append({
             "type": "scatter",
             "mode": "lines+markers",
-            "name": "Carbon market price",
-            "x": years,
-            "y": tax_price,
+            "name": f"Price",
+            "x": res_years,
+            "y": res_price,
             "line": {"width": 3, "color": "#1D4ED8"},
             "marker": {"size": 6, "color": "#1D4ED8"},
-            "hovertemplate": "%{y:,.2f} EUR/tCO2<extra>%{fullData.name}</extra>",
+            "hovertemplate": "%{y:,.2f} EUR/unit<extra>%{fullData.name}</extra>",
             "yaxis": "y",
-        },
-        {
+            "visible": is_first
+        })
+
+        # Trace 2: CO2 Emissions (right axis)
+        traces.append({
             "type": "scatter",
             "mode": "lines+markers",
-            "name": "Effective net tax unit cost",
-            "x": years,
-            "y": effective,
-            "line": {"width": 2.5, "dash": "dot", "color": "#0F766E"},
-            "marker": {"size": 5, "color": "#0F766E"},
-            "hovertemplate": "%{y:,.2f} EUR/tCO2<extra>%{fullData.name}</extra>",
-            "yaxis": "y",
-        },
-    ]
+            "name": f"CO2 Emissions",
+            "x": res_years,
+            "y": res_co2,
+            "line": {"width": 2.5, "dash": "dot", "color": "#E11D48"},
+            "marker": {"size": 5, "color": "#E11D48"},
+            "hovertemplate": "%{y:,.4f} tCO2/unit<extra>%{fullData.name}</extra>",
+            "yaxis": "y2",
+            "visible": is_first
+        })
 
-    layout = base_layout(title, "EUR / tCO2", years, barmode="group")
-    description = (
-        "Simulation prices are approximated from CO2_Trajectory: market carbon price (Tax_Price) and implied net tax unit cost "
-        "computed as Net_Tax_Cost_MEuros / Taxed_CO2."
-    )
+        # Dropdown button logic
+        vis_array = [False] * (len(resources) * traces_per_res)
+        vis_array[i * traces_per_res] = True
+        vis_array[i * traces_per_res + 1] = True
+
+        buttons.append({
+            "method": "update",
+            "label": res,
+            "args": [
+                {"visible": vis_array},
+                {"title": f"DATA USED - {res}"}
+            ]
+        })
+
+    layout = base_layout(f"DATA USED - {resources[0]}", "Price (EUR)", years, barmode="group")
+    
+    # Update layout with dropdown
+    layout["updatemenus"] = [{
+        "active": 0,
+        "buttons": buttons,
+        "direction": "down",
+        "showactive": True,
+        "x": 0.5,
+        "xanchor": "center",
+        "y": 1.15,
+        "yanchor": "bottom",
+        "bgcolor": "white",
+        "bordercolor": "#ccc",
+        "font": {"color": "#333"}
+    }]
+
+    # Add secondary Y-axis
+    layout["yaxis2"] = {
+        "title": "CO2 Emissions (tCO2/unit)",
+        "overlaying": "y",
+        "side": "right",
+        "showgrid": False,
+        "zeroline": False
+    }
+
     return {"data": traces, "layout": layout}, description
 
 
@@ -1485,6 +1536,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         df_invest = load_sheet(workbook, "Investments")
         df_mac = load_mac_table(workbook)
         df_transition_balance = load_transition_balance_table(workbook)
+        df_data_used = load_sheet(workbook, "Data_Used")
 
         carbon_price_fig, carbon_price_desc = build_carbon_price_graph(df_co2)
         carbon_tax_fig, carbon_tax_desc = build_carbon_tax_graph(df_co2)
@@ -1494,7 +1546,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         indirect_fig, indirect_desc = build_indirect_emissions_graph(df_indir)
         invest_fig, invest_desc = build_investment_plan_graph(df_invest)
         resources_opex_fig, resources_opex_desc = build_resources_opex_graph(df_costs)
-        sim_prices_fig, sim_prices_desc = build_simulation_prices_graph(df_co2)
+        data_used_fig, data_used_desc = build_data_used_graph(df_data_used)
         transition_fig, transition_desc = build_transition_cost_graph(df_financing, df_costs, df_co2, df_transition_balance)
         total_opex_fig, total_opex_desc = build_total_annual_opex_graph(df_costs, df_co2)
         co2_abatement_fig, co2_abatement_desc = build_co2_abatement_graph(df_mac)
@@ -1559,12 +1611,12 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
                     "downloadName": sanitize_filename(f"{scenario_name}_ressources_opex"),
                     "figure": resources_opex_fig,
                 },
-                "simulation_prices": {
-                    "label": "SIMULATION PRICES",
-                    "title": "SIMULATION PRICES",
-                    "description": sim_prices_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_simulation_prices"),
-                    "figure": sim_prices_fig,
+                "data_used": {
+                    "label": "DATA USED",
+                    "title": "DATA USED",
+                    "description": data_used_desc,
+                    "downloadName": sanitize_filename(f"{scenario_name}_data_used"),
+                    "figure": data_used_fig,
                 },
                 "transition_cost": {
                     "label": "TRANSITION COST",
@@ -2003,7 +2055,7 @@ def main() -> None:
     print(f"Scenarios loaded: {len(workbooks)}")
     print(
         "Charts available per scenario: CARBON PRICE, CARBON TAX, CO2 TRAJECTORY, ENERGY MIX, "
-        "FINANCING, INDIRECT EMISSIONS, INVESTMENT PLAN, RESSOURCES OPEX, SIMULATION PRICES, "
+        "FINANCING, INDIRECT EMISSIONS, INVESTMENT PLAN, RESSOURCES OPEX, DATA USED, "
         "TRANSITION COST, TOTAL ANNUAL OPEX, CO2 ABATEMENT"
     )
 
