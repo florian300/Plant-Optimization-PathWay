@@ -20,9 +20,6 @@ data/processed/**
 data/external/**
 *.csv
 *.tsv
-*.xlsx
-*.xls
-~$*.xlsx
 
 # Solver/model artifacts (never commit)
 *.lp
