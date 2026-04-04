@@ -1513,4 +1513,3 @@ class PathFinderParser:
 if __name__ == '__main__':
     parser = PathFinderParser('data/raw/excel/PathFinder input.xlsx')
     data = parser.parse()
-    # print("Done")

@@ -1579,7 +1579,6 @@ class PathFinderReporter:
         df_plot = df_plot / 1_000_000.0
         
         # Rename columns for internal logic (already using raw IDs here)
-        # df_plot = df_plot.rename(columns=...) # No rename needed if using raw IDs
         
         # Load metadata
         process_labels = {} 
