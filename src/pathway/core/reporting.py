@@ -1145,7 +1145,14 @@ class PathFinderReporter:
         try:
             # Check if file exists to decide mode
             if os.path.exists(excel_path):
-                with pd.ExcelWriter(excel_path, mode='a', engine='openpyxl', if_sheet_exists='replace') as writer:
+                # To avoid pandas overwrite loop bugs with replace, remove the sheet first
+                from openpyxl import load_workbook
+                wb = load_workbook(excel_path)
+                if 'Charts' in wb.sheetnames:
+                    del wb['Charts']
+                    wb.save(excel_path)
+                wb.close()
+                with pd.ExcelWriter(excel_path, mode='a', engine='openpyxl', if_sheet_exists='overlay') as writer:
                     start_row = 0
                     sheet_name = 'Charts'
                     for title, df_chart in self.charts_data:
@@ -1759,7 +1766,7 @@ class PathFinderReporter:
         self.charts_data.append(("Investment Plan: Implementation Costs", df_plot))
 
     def _plot_external_financing(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame):
-        """Standardizes the Public Aids chart to include private bank loans (External Financing)."""
+        """Standardizes the Public Aids chart to include private bank loans (Financing)."""
         df_costs = df_costs.copy()
         if 'Year' in df_costs.columns:
             df_costs.set_index('Year', inplace=True)
@@ -1781,8 +1788,8 @@ class PathFinderReporter:
 
         if df_plot.empty:
             self._save_no_data_chart(
-                f'{self.scenario_name}_External_Financing.png',
-                'EXTERNAL FINANCING STRATEGY',
+                f'{self.scenario_name}_Financing.png',
+                'FINANCING STRATEGY',
                 'No public aids or private loans were triggered in this scenario.'
             )
             return
@@ -1860,7 +1867,7 @@ class PathFinderReporter:
                                  arrowprops=dict(arrowstyle="-", color=glow_color, alpha=0.8), zorder=6)
         
         # Styling details
-        fig.suptitle("EXTERNAL FINANCING STRATEGY", 
+        fig.suptitle("FINANCING STRATEGY", 
                      color='white', fontsize=18, weight='bold', fontfamily='sans-serif', y=0.96)
         ax.set_title("Annual support from public aids (grants/CCfD) and private loans", 
                      color='#AAAAAA', fontsize=12, pad=10)
@@ -1891,18 +1898,17 @@ class PathFinderReporter:
         os.makedirs(self.results_dir, exist_ok=True)
         try:
             # We construct the path absolutely and explicitly to avoid invisible unicode characters
-            f_name = f'{self.scenario_name}_External_Financing.png'
+            f_name = f'{self.scenario_name}_Financing.png'
             out_file = os.path.join(self.results_dir, f_name)
             plt.savefig(out_file, dpi=300, bbox_inches='tight', facecolor='#0D0D14')
         except Exception as e:
             print(f"  [red][Reporter][/red] [!] Error saving {f_name}: {e}")
         plt.close()
-        
+
         # Store data
-        self.charts_data.append(("External Financing Strategy: Public & Private", df_plot))
+        self.charts_data.append(("Financing Strategy: Public & Private", df_plot))
 
     def _plot_total_opex(self, df_cons: pd.DataFrame, df_emis: pd.DataFrame):
-        """Generates a generalized OPEX chart including resources, individual tech opex, taxes and credits."""
         df_plot = df_cons.copy()
         df_plot.set_index('Year', inplace=True)
         years = list(df_plot.index)

@@ -1,35 +1,12 @@
 import pulp
 import pandas as pd
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Set
 from rich import print
 from tqdm import tqdm
 from .model import PathFinderData
 
 MASSIVE_PENALTY_COST = 1e7
-
-# Conversion factors between resource units
-# Key: (source_unit, target_unit) -> multiplication factor
-_UNIT_CONVERSIONS = {
-    ('MWH', 'GJ'): 3.6,
-    ('GJ', 'MWH'): 1.0 / 3.6,
-    ('KWH', 'GJ'): 0.0036,
-    ('GJ', 'KWH'): 1000.0 / 3.6,
-    ('KWH', 'MWH'): 0.001,
-    ('MWH', 'KWH'): 1000.0,
-}
-
-def _get_unit_conversion(ref_resource, target_resource) -> float:
-    """Return the conversion factor to apply when a 'new' impact references a resource
-    with a different unit than the produced/consumed resource.
-    E.g. EN_FUEL (MWH) -> EN_H2_P (GJ): factor = 3.6"""
-    if ref_resource is None or target_resource is None:
-        return 1.0
-    ref_unit = ref_resource.unit.strip().upper()
-    tgt_unit = target_resource.unit.strip().upper()
-    if ref_unit == tgt_unit:
-        return 1.0
-    return _UNIT_CONVERSIONS.get((ref_unit, tgt_unit), 1.0)
 
 class PathFinderOptimizer:
     def __init__(self, data: PathFinderData, verbose: bool = False):
@@ -63,10 +40,194 @@ class PathFinderOptimizer:
         self.dac_total_capacity_vars = {}
         self.dac_captured_vars = {}
         self.credit_purchased_vars = {}
+
+        # Semantic caches resolved from resource/technology names and metadata.
+        self.primary_emission_id: Optional[str] = None
+        self.continuous_improvement_tech_ids: Set[str] = set()
+        self.hydrogen_resource_ids: List[str] = []
+        self.hydrogen_production_resource_ids: List[str] = []
+        self.hydrogen_consumption_resource_ids: List[str] = []
+        self.hydrogen_associated_tech_ids: Set[str] = set()
+        self.h2_buy_resources: List[str] = []
+        self.h2_production_resource_id: Optional[str] = None
+        self.h2_consumption_resource_id: Optional[str] = None
+        self.h2_electricity_resource_id: Optional[str] = None
+        self.fuel_resource_id: Optional[str] = None
+        self.electricity_resource_id: Optional[str] = None
+        self.ccs_tech_ids: Set[str] = set()
+        self.co2_storage_resource_id: Optional[str] = None
+        self.co2_transport_resource_id: Optional[str] = None
+
+    @staticmethod
+    def _norm(raw_val: Any) -> str:
+        return str(raw_val).strip().upper() if raw_val is not None else ""
+
+    def _resource_name_upper(self, res_id: str) -> str:
+        res = self.data.resources.get(res_id)
+        return self._norm(res.name if res is not None else res_id)
+
+    def _resource_type_upper(self, res_id: str) -> str:
+        res = self.data.resources.get(res_id)
+        return self._norm(res.type if res is not None else "")
+
+    def _tech_name_upper(self, t_id: str) -> str:
+        tech = self.data.technologies.get(t_id)
+        return self._norm(tech.name if tech is not None else t_id)
+
+    def _token_has_hydrogen(self, token: str) -> bool:
+        txt = self._norm(token)
+        return 'HYDROGEN' in txt or 'H2' in txt
+
+    def _is_primary_emission_candidate(self, res_id: str) -> bool:
+        r_type = self._resource_type_upper(res_id)
+        r_name = self._resource_name_upper(res_id)
+        return ('EMISS' in r_type) and ('CO2' in r_name or 'CARBON' in r_name)
+
+    def _is_hydrogen_resource(self, res_id: str) -> bool:
+        return self._token_has_hydrogen(self._resource_name_upper(res_id))
+
+    def _is_continuous_improvement_tech(self, t_id: str) -> bool:
+        tech_name = self._tech_name_upper(t_id)
+        return tech_name in {'PROGRESS', 'CONTINUOUS IMPROVEMENT', 'UPGRADE'}
+
+    def _is_continuous_improvement_tech_id(self, t_id: str) -> bool:
+        return t_id in self.continuous_improvement_tech_ids
+
+    def _is_ccs_tech(self, t_id: str) -> bool:
+        tech_name = self._tech_name_upper(t_id)
+        return 'CCS' in tech_name or 'CCU' in tech_name or 'CAPTURE' in tech_name
+
+    def _is_electric_resource(self, res_id: str) -> bool:
+        name = self._resource_name_upper(res_id)
+        return 'ELEC' in name or 'ELECTRIC' in name
+
+    def _is_fuel_resource(self, res_id: str) -> bool:
+        name = self._resource_name_upper(res_id)
+        return 'FUEL' in name
+
+    def _pick_largest_base_resource(self, resource_ids: List[str]) -> Optional[str]:
+        if not resource_ids:
+            return None
+        return max(resource_ids, key=lambda r_id: abs(self.entity.base_consumptions.get(r_id, 0.0)))
+
+    def _find_named_resource(self, required_any: List[str], required_all: List[str]) -> Optional[str]:
+        candidates = []
+        for r_id in self.data.resources:
+            r_name = self._resource_name_upper(r_id)
+            if not any(k in r_name for k in required_any):
+                continue
+            if not all(k in r_name for k in required_all):
+                continue
+            candidates.append(r_id)
+        return self._pick_largest_base_resource(candidates)
+
+    def _resolve_semantic_mappings(self) -> None:
+        emission_candidates = [r_id for r_id in self.data.resources if self._is_primary_emission_candidate(r_id)]
+        if len(emission_candidates) != 1:
+            raise ValueError(
+                "Primary emission resource resolution failed. "
+                f"Expected exactly one CO2/CARBON emission resource, found {len(emission_candidates)}: {emission_candidates}"
+            )
+        self.primary_emission_id = emission_candidates[0]
+
+        self.continuous_improvement_tech_ids = {
+            t_id for t_id in self.data.technologies if self._is_continuous_improvement_tech(t_id)
+        }
+
+        self.hydrogen_resource_ids = [r_id for r_id in self.data.resources if self._is_hydrogen_resource(r_id)]
+        self.hydrogen_production_resource_ids = [
+            r_id for r_id in self.hydrogen_resource_ids
+            if self._resource_type_upper(r_id) == 'PRODUCTION'
+        ]
+        self.hydrogen_consumption_resource_ids = [
+            r_id for r_id in self.hydrogen_resource_ids
+            if r_id not in self.hydrogen_production_resource_ids
+        ]
+        self.h2_production_resource_id = self._pick_largest_base_resource(self.hydrogen_production_resource_ids)
+        self.h2_consumption_resource_id = self._pick_largest_base_resource(self.hydrogen_consumption_resource_ids)
+
+        self.h2_electricity_resource_id = next(
+            (r_id for r_id in self.hydrogen_resource_ids if self._is_electric_resource(r_id)),
+            None
+        )
+
+        h2_internal_resources = set(self.hydrogen_production_resource_ids + self.hydrogen_consumption_resource_ids)
+        if self.h2_electricity_resource_id:
+            h2_internal_resources.add(self.h2_electricity_resource_id)
+
+        self.h2_buy_resources = [
+            r_id for r_id in self.hydrogen_resource_ids
+            if r_id in self.data.time_series.resource_prices and r_id not in h2_internal_resources
+        ]
+
+        self.hydrogen_associated_tech_ids = set()
+        for t_id, tech in self.data.technologies.items():
+            for impact_resource_id in tech.impacts:
+                if impact_resource_id in self.hydrogen_resource_ids or self._token_has_hydrogen(impact_resource_id):
+                    self.hydrogen_associated_tech_ids.add(t_id)
+                    break
+
+        self.ccs_tech_ids = {t_id for t_id in self.data.technologies if self._is_ccs_tech(t_id)}
+        self.fuel_resource_id = self._pick_largest_base_resource([
+            r_id for r_id in self.data.resources
+            if self._is_fuel_resource(r_id) and self._resource_type_upper(r_id) != 'PRODUCTION'
+        ])
+        self.electricity_resource_id = self._pick_largest_base_resource([
+            r_id for r_id in self.data.resources
+            if self._is_electric_resource(r_id) and not self._token_has_hydrogen(self._resource_name_upper(r_id))
+        ])
+        self.co2_storage_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['STORAGE'])
+        self.co2_transport_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['TRANSPORT'])
+
+    def _get_unit_conversion(self, ref_resource_id: Optional[str], target_resource_id: Optional[str]) -> float:
+        if ref_resource_id is None or target_resource_id is None:
+            return 1.0
+        ref_resource = self.data.resources.get(ref_resource_id)
+        target_resource = self.data.resources.get(target_resource_id)
+        if ref_resource is None or target_resource is None:
+            return 1.0
+
+        ref_unit = self._norm(ref_resource.unit)
+        tgt_unit = self._norm(target_resource.unit)
+        if not ref_unit or not tgt_unit or ref_unit == tgt_unit:
+            return 1.0
+        return self.data.unit_conversions.get((ref_unit, tgt_unit), 1.0)
+
+    def _find_impact_for_resource(self, tech: Any, resource_id: str) -> Optional[Dict[str, Any]]:
+        imp = tech.impacts.get(resource_id)
+        if imp:
+            return imp
+
+        if resource_id == self.primary_emission_id:
+            for impact_resource_id, impact_data in tech.impacts.items():
+                if impact_resource_id in self.data.resources and self._is_primary_emission_candidate(impact_resource_id):
+                    return impact_data
+                impact_token = self._norm(impact_resource_id)
+                if 'CO2' in impact_token or 'CARBON' in impact_token:
+                    return impact_data
+        return None
+
+    def _is_primary_emission_objective(self, resource_token: str) -> bool:
+        token_upper = self._norm(resource_token)
+        if resource_token == self.primary_emission_id:
+            return True
+        if resource_token in self.data.resources:
+            return self._is_primary_emission_candidate(resource_token)
+        return ('CO2' in token_upper or 'CARBON' in token_upper) and 'INDIRECT' not in token_upper and 'TOTAL' not in token_upper
+
+    def _is_indirect_emission_objective(self, resource_token: str) -> bool:
+        token_upper = self._norm(resource_token)
+        return 'INDIRECT' in token_upper and ('CO2' in token_upper or 'CARBON' in token_upper)
+
+    def _is_total_emission_objective(self, resource_token: str) -> bool:
+        token_upper = self._norm(resource_token)
+        return 'TOTAL' in token_upper and ('CO2' in token_upper or 'CARBON' in token_upper)
     
     def build_model(self):
         if not self.entity:
             raise ValueError("No entity to optimize")
+
+        self._resolve_semantic_mappings()
             
         total_cost = []
         if self.verbose:
@@ -80,7 +241,6 @@ class PathFinderOptimizer:
             self.paid_quota_vars[t] = pulp.LpVariable(f"PaidQuota_{t}", lowBound=0)
             self.penalty_quota_vars[t] = pulp.LpVariable(f"PenaltyQuota_{t}", lowBound=0)
             
-        self.h2_buy_resources = [r for r in self.data.resources if 'H2' in r.upper() and r in self.data.time_series.resource_prices and r not in ['EN_H2_P', 'EN_H2_C', 'EN_ELEC_FOR_H2']]
         self.h2_supply_vars = {t: {} for t in self.years}
         for t in self.years:
             self.h2_supply_vars[t]['PRODUCED_ON_SITE'] = pulp.LpVariable(f"H2_Produce_{t}", lowBound=0)
@@ -88,13 +248,12 @@ class PathFinderOptimizer:
                 self.h2_supply_vars[t][res] = pulp.LpVariable(f"H2_Buy_{res}_{t}", lowBound=0)
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP':  # UP is free continuous improvement — no decision variable needed
+                    if self._is_continuous_improvement_tech_id(t_id):
                         continue
                     # PERFORMANCE: Relax technologies if nb_units > 1 to speed up solver
                     # Integer decision to invest in a number of units of technology t_id at year t for process p_id
-                    _H2_TECHS = {'FUEL_TO_H2', 'PEM_H2'}
                     # Relax if it's an H2 tech OR if nb_units > 1 (MIP complexity reduction)
-                    should_relax = (t_id in _H2_TECHS) or (process.nb_units > 1)
+                    should_relax = (t_id in self.hydrogen_associated_tech_ids) or (process.nb_units > 1)
                     
                     # Also check for global override from parameters if added
                     if hasattr(self.data.parameters, 'relax_integrality') and self.data.parameters.relax_integrality:
@@ -116,7 +275,7 @@ class PathFinderOptimizer:
                         self.loan_vars[(t, p_id, t_id, l_id)] = pulp.LpVariable(f"Loan_{t}_{p_id}_{t_id}_{l_id}", lowBound=0)
                 
             for res_id in self.data.resources:
-                if res_id not in ['CO2_EM']:
+                if res_id != self.primary_emission_id:
                     res_obj = self.data.resources.get(res_id)
                     lb = 0.0 if res_obj and res_obj.type.strip().upper() != 'PRODUCTION' else None
                     self.cons_vars[(t, res_id)] = pulp.LpVariable(f"Cons_{t}_{res_id}", lowBound=lb)
@@ -157,7 +316,7 @@ class PathFinderOptimizer:
                         ref_emis_expr = self.emis_vars[ref_yr]
                     else:
                         # Historical or external reference from Entities sheet
-                        yr_map = self.entity.ref_baselines.get('CO2_EM', {})
+                        yr_map = self.entity.ref_baselines.get(self.primary_emission_id, {})
                         if ref_yr in yr_map:
                             ref_emis_expr = yr_map[ref_yr]
                         elif yr_map:
@@ -173,7 +332,7 @@ class PathFinderOptimizer:
                 ref_emis_expr = self.emis_vars[ref_year]
             else:
                 # Use historical/external reference from Entities sheet
-                yr_map = self.entity.ref_baselines.get('CO2_EM', {})
+                yr_map = self.entity.ref_baselines.get(self.primary_emission_id, {})
                 if ref_year in yr_map:
                     ref_emis_expr = yr_map[ref_year]
                 elif yr_map:
@@ -192,7 +351,10 @@ class PathFinderOptimizer:
         
         # Active logic: maximum capacity and cumulative investments
         for p_id, process in self.entity.processes.items():
-            major_techs = [t_id for t_id in process.valid_technologies if t_id != 'UP']
+            major_techs = [
+                t_id for t_id in process.valid_technologies
+                if not self._is_continuous_improvement_tech_id(t_id)
+            ]
             
             # --- Directed Technology Precedence Logic ---
             for t1 in major_techs:
@@ -221,7 +383,7 @@ class PathFinderOptimizer:
                                 self.model += self.active_vars[(t, p_id, t2)] == 0, f"No_T2_Precedence_{p_id}_{t1}_{t2}_at_{t}"
 
             for t_id in process.valid_technologies:
-                if t_id == 'UP':  # UP is handled as automatic continuous improvement, not a decision
+                if self._is_continuous_improvement_tech_id(t_id):
                     continue
                 
                 tech = self.data.technologies[t_id]
@@ -241,7 +403,8 @@ class PathFinderOptimizer:
         for t in self.years:
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP': continue
+                    if self._is_continuous_improvement_tech_id(t_id):
+                        continue
                     expr = []
                     if self.data.grant_params.active and t_id not in self.data.grant_params.excluded_technologies:
                         expr.append(self.grant_used_vars[(t, p_id, t_id)])
@@ -259,30 +422,41 @@ class PathFinderOptimizer:
                     self.model += pulp.lpSum(self.grant_used_vars[(tau, p_id, t_id)] 
                                              for tau in window_years 
                                              for p_id, proc in self.entity.processes.items() 
-                                             for t_id in proc.valid_technologies if t_id != 'UP' and t_id not in self.data.grant_params.excluded_technologies) <= 1, f"Grant_Spacing_{t}"
+                                             for t_id in proc.valid_technologies
+                                             if not self._is_continuous_improvement_tech_id(t_id)
+                                             and t_id not in self.data.grant_params.excluded_technologies) <= 1, f"Grant_Spacing_{t}"
 
         # CCfD Max Contracts
         if self.data.ccfd_params.active and self.data.ccfd_params.nb_contracts > 0:
             self.model += pulp.lpSum(self.ccfd_used_vars[(t, p_id, t_id)] 
                                      for t in self.years
                                      for p_id, proc in self.entity.processes.items()
-                                     for t_id in proc.valid_technologies if t_id != 'UP' and t_id not in self.data.grant_params.excluded_technologies) <= self.data.ccfd_params.nb_contracts, "CCfD_Max_Contracts"
+                                     for t_id in proc.valid_technologies
+                                     if not self._is_continuous_improvement_tech_id(t_id)
+                                     and t_id not in self.data.grant_params.excluded_technologies) <= self.data.ccfd_params.nb_contracts, "CCfD_Max_Contracts"
 
         # --- Subsidies Values (Linearization of Cap) ---
         self.grant_amt_vars = {}
         for t in self.years:
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP': continue
+                    if self._is_continuous_improvement_tech_id(t_id):
+                        continue
                     if self.data.grant_params.active and self.data.grant_params.rate > 0 and t_id not in self.data.grant_params.excluded_technologies:
                         self.grant_amt_vars[(t, p_id, t_id)] = pulp.LpVariable(f"GrantAmt_{t}_{p_id}_{t_id}", lowBound=0.0)
                         
                         tech = self.data.technologies[t_id]
                         cap_capex = 1.0
                         if tech.capex_per_unit:
-                            if tech.capex_unit == 'tCO2': cap_capex = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if tech.capex_unit == 'tCO2':
+                                cap_capex = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                             elif 'MW' in tech.capex_unit.upper(): 
-                                base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
+                                base_mwh = 0.0
+                                if self.fuel_resource_id is not None:
+                                    base_mwh = (
+                                        self.entity.base_consumptions.get(self.fuel_resource_id, 0.0)
+                                        * process.consumption_shares.get(self.fuel_resource_id, 0.0)
+                                    )
                                 cap_capex = base_mwh / self.entity.annual_operating_hours
                         current_capex = tech.capex_by_year.get(t, tech.capex)
                         true_capex_per_unit = (current_capex * cap_capex) / process.nb_units
@@ -335,8 +509,8 @@ class PathFinderOptimizer:
         # --- Base State Initialization & Evolution ---
         for p_id, process in self.entity.processes.items():
             for res_id in self.data.resources:
-                if res_id == 'CO2_EM':
-                    initial_val = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                if res_id == self.primary_emission_id:
+                    initial_val = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                 else:
                     initial_val = self.entity.base_consumptions.get(res_id, 0.0) * process.consumption_shares.get(res_id, 0.0)
                 
@@ -346,49 +520,42 @@ class PathFinderOptimizer:
                 M = max(1000.0, abs(initial_val) * 2.0)
                 
                 # Evolution of the state year over year
-                # Determine UP continuous improvement rate for this process
+                # Determine continuous improvement rate for this process
                 up_rate = 0.0
-                if 'UP' in process.valid_technologies:
-                    up_tech = self.data.technologies['UP']
-                    # UP impacts ALL resources with a variation type
-                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get(res_id)
-                    if up_imp and (up_imp['type'] == 'variation' or up_imp['type'] == 'up'):
-                        up_rate = abs(up_imp['value'])  # e.g. 0.01 for 1% per year
+                for ci_t_id in process.valid_technologies:
+                    if not self._is_continuous_improvement_tech_id(ci_t_id):
+                        continue
+                    ci_tech = self.data.technologies[ci_t_id]
+                    ci_imp = ci_tech.impacts.get('ALL') or ci_tech.impacts.get(res_id)
+                    if ci_imp and ci_imp['type'] in ['variation', 'up']:
+                        up_rate += abs(ci_imp['value'])
+                up_rate = min(up_rate, 0.99)
                 
                 for i, t in enumerate(self.years):
-                    # Accumulate all technologies active at year t applied from the UP-adjusted baseline
-                    # UP is excluded from this loop (handled above via up_adjusted_val)
+                    # Accumulate all technologies active at year t from the adjusted baseline
                     impacts_t = []
                     
                     for t_id in process.valid_technologies:
-                        if t_id == 'UP':  # UP already applied via up_adjusted_val — skip to avoid double-counting
+                        if self._is_continuous_improvement_tech_id(t_id):
                             continue
                         tech = self.data.technologies[t_id]
                         
-                        # Find exactly matching impacts for res_id
-                        imp = tech.impacts.get(res_id)
-                        # Special handling for indirect 'CO2' keys mapping to CO2_EM
-                        if not imp and res_id == 'CO2_EM':
-                            co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                            if co2_keys: imp = tech.impacts[co2_keys[0]]
+                        imp = self._find_impact_for_resource(tech, res_id)
                         
                         if imp:
                             act_var_current = self.active_vars[(t, p_id, t_id)]
                             
                             reference = imp.get('reference', 'INITIAL')
                             ref_res = imp.get('ref_resource')
-                            if ref_res == 'CO2_EM':
-                                base_ref_amount = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if ref_res == self.primary_emission_id:
+                                base_ref_amount = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                             elif ref_res and ref_res in self.entity.base_consumptions:
                                 base_ref_amount = self.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
                             else:
                                 base_ref_amount = 1.0
                                 
                             if imp.get('reference', '') == 'AVOIDED' and ref_res:
-                                ref_imp = tech.impacts.get(ref_res)
-                                if not ref_imp and ref_res == 'CO2_EM':
-                                    co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                                    if co2_keys: ref_imp = tech.impacts[co2_keys[0]]
+                                ref_imp = self._find_impact_for_resource(tech, ref_res)
                                 if ref_imp and ref_imp['type'] in ['variation', 'up'] and ref_imp['value'] < 0:
                                     base_ref = abs(ref_imp['value']) * base_ref_amount
                                 else:
@@ -415,12 +582,7 @@ class PathFinderOptimizer:
                                     target_reduction = imp['value'] * initial_val * scaling_factor
                                 elif imp['type'] == 'new':
                                     scaling_factor = 1.0 / process.nb_units
-                                    # Apply unit conversion if ref_resource and produced resource have different units
-                                    # e.g. EN_FUEL (MWH) -> EN_H2_P (GJ): multiply by 3.6
-                                    conv = _get_unit_conversion(
-                                        self.data.resources.get(ref_res),
-                                        self.data.resources.get(res_id)
-                                    )
+                                    conv = self._get_unit_conversion(ref_res, res_id)
                                     target_reduction = imp['value'] * base_ref * scaling_factor * conv
                                 else:
                                     target_reduction = 0
@@ -446,19 +608,14 @@ class PathFinderOptimizer:
                                     target_reduction = imp['value'] * initial_val * scaling_factor
                                 elif imp['type'] == 'new':
                                     scaling_factor = 1.0 / process.nb_units
-                                    # Apply unit conversion if ref_resource and produced resource have different units
-                                    # e.g. EN_FUEL (MWH) -> EN_H2_P (GJ): multiply by 3.6
-                                    conv = _get_unit_conversion(
-                                        self.data.resources.get(ref_res),
-                                        self.data.resources.get(res_id)
-                                    )
+                                    conv = self._get_unit_conversion(ref_res, res_id)
                                     target_reduction = imp['value'] * base_ref * scaling_factor * conv
                                 else:
                                     target_reduction = 0
                                     
                                 impacts_t.append(target_reduction * act_var_current)
                                     
-                    # Apply compounding continuous improvement (UP) to the entire state
+                    # Apply compounding continuous improvement to the entire state
                     # Formula: State(t) = (Initial + Sum of Tech Impacts) * (1 - up_rate)^t
                     up_factor = (1.0 - up_rate) ** i
                     
@@ -468,13 +625,12 @@ class PathFinderOptimizer:
                     
                     # We NO LONGER need the State_NonNeg_Slack here as we added lowBound=0 to cons_vars
                     # which propagates back through the mass balance.
-                    # However, for CO2_EM (which is not in cons_vars), we use the emis_vars bounds.
                     self.model += self.process_state_vars[(t, p_id, res_id)] == net_base_val * up_factor, f"State_Evol_{t}_{p_id}_{res_id}"
 
         # Resource Mass Balance via mapped dynamic states
         for t in self.years:
             for res_id in self.data.resources:
-                if res_id == 'CO2_EM':
+                if res_id == self.primary_emission_id:
                     continue
                     
                 # The total consumption is exactly the sum of the dynamic process states
@@ -486,14 +642,14 @@ class PathFinderOptimizer:
                 unallocated = self.entity.base_consumptions.get(res_id, 0.0) * frac_unallocated
                 
                 dac_cons = 0.0
-                if self.data.dac_params.active and res_id == 'EN_ELEC':
+                if self.data.dac_params.active and self.electricity_resource_id is not None and res_id == self.electricity_resource_id:
                     dac_cons = self.dac_captured_vars[t] * self.data.dac_params.elec_by_year.get(t, 0.0)
                 
                 h2_additional = 0.0
                 # NOTE: We NO LONGER add h2_additional to self.cons_vars for H2 resources
                 # because it causes an identity cancellation in the Balancer equation.
                 # Cons_vars should represent the PHYSICAL consumption of the refinery processes.
-                if res_id == 'EN_ELEC_FOR_H2':
+                if self.h2_electricity_resource_id is not None and res_id == self.h2_electricity_resource_id:
                     h2_additional = self.h2_supply_vars[t]['PRODUCED_ON_SITE'] * 2.0
                     
                 self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + h2_additional, f"Cons_Balance_{t}_{res_id}"
@@ -503,24 +659,37 @@ class PathFinderOptimizer:
                     self.model += self.cons_vars[(t, res_id)] == self.h2_supply_vars[t][res_id], f"H2_Market_Link_{t}_{res_id}"
             # H2 Balancer equation
             # Identify tech-based H2 demand vs supply
-            h2_cons = self.cons_vars.get((t, 'EN_H2_C'), 0.0)
-            # A tech produces H2 if it has a 'new' impact on EN_H2_P and no negative impact on EN_FUEL (like PEM_H2)
-            # A tech consumes H2 if it has a 'new' impact on EN_H2_P/C and replaces EN_FUEL (like FUEL_TO_H2)
+            h2_cons = 0.0
+            if self.h2_consumption_resource_id is not None:
+                h2_cons = self.cons_vars.get((t, self.h2_consumption_resource_id), 0.0)
+
             h2_supply_from_techs = []
             h2_demand_from_techs = []
             
             for p_id in self.entity.processes:
                 for t_id in self.entity.processes[p_id].valid_technologies:
+                    if self._is_continuous_improvement_tech_id(t_id):
+                        continue
                     tech = self.data.technologies[t_id]
-                    # Check if it's a fuel burner switching to H2
-                    is_h2_burner = tech.impacts.get('EN_FUEL', {}).get('value', 0) < 0 and ('H2' in str(tech.impacts.keys()))
-                    
-                    var = self.process_state_vars.get((t, p_id, 'EN_H2_P'))
+
+                    fuel_drop = 0.0
+                    if self.fuel_resource_id is not None:
+                        fuel_drop = tech.impacts.get(self.fuel_resource_id, {}).get('value', 0)
+                    has_h2_impact = any(self._token_has_hydrogen(r_id) for r_id in tech.impacts.keys())
+                    is_h2_burner = fuel_drop < 0 and has_h2_impact
+
+                    var = None
+                    if self.h2_production_resource_id is not None:
+                        var = self.process_state_vars.get((t, p_id, self.h2_production_resource_id))
                     if var is not None:
-                        if is_h2_burner: h2_demand_from_techs.append(var)
-                        else: h2_supply_from_techs.append(var)
+                        if is_h2_burner:
+                            h2_demand_from_techs.append(var)
+                        else:
+                            h2_supply_from_techs.append(var)
                     
-                    var_c = self.process_state_vars.get((t, p_id, 'EN_H2_C'))
+                    var_c = None
+                    if self.h2_consumption_resource_id is not None:
+                        var_c = self.process_state_vars.get((t, p_id, self.h2_consumption_resource_id))
                     if var_c is not None:
                         h2_demand_from_techs.append(var_c)
             
@@ -533,10 +702,16 @@ class PathFinderOptimizer:
             # Eq: (Base Refinery Demand + New Tech Demand) == MarketSupply + TechProduction
             self.model += h2_cons + h2_cons_tech == h2_market + h2_prod_tech, f"H2_Demand_Fulfillment_{t}"
             # Emissions computation
-            direct_process_emis = pulp.lpSum([self.process_state_vars[(t, p_id, 'CO2_EM')] for p_id in self.entity.processes])
+            direct_process_emis = pulp.lpSum([
+                self.process_state_vars[(t, p_id, self.primary_emission_id)]
+                for p_id in self.entity.processes
+            ])
             
             # Account for unallocated emissions
-            allocated_emis_share = sum(p.emission_shares.get('CO2_EM', 0.0) for p in self.entity.processes.values())
+            allocated_emis_share = sum(
+                p.emission_shares.get(self.primary_emission_id, 0.0)
+                for p in self.entity.processes.values()
+            )
             frac_unallocated_emis = 1.0 - allocated_emis_share
             if abs(frac_unallocated_emis) < 1e-4: frac_unallocated_emis = 0.0
             unallocated_co2 = self.entity.base_emissions * frac_unallocated_emis
@@ -599,9 +774,9 @@ class PathFinderOptimizer:
                     base_val = yr_map[ref_yr]
                 elif yr_map:
                     base_val = next(iter(yr_map.values()))
-            elif obj.resource == 'CO2_EM':
+            elif self._is_primary_emission_objective(obj.resource):
                 base_val = self.entity.base_emissions
-            elif obj.resource == 'INDIRECT_CO2_EM':
+            elif self._is_indirect_emission_objective(obj.resource):
                 base_indir = 0.0
                 for r_id in self.data.resources:
                     if r_id in self.data.time_series.other_emissions_factors:
@@ -609,7 +784,7 @@ class PathFinderOptimizer:
                         if factor > 0:
                             base_indir += self.entity.base_consumptions.get(r_id, 0.0) * factor
                 base_val = base_indir
-            elif obj.resource == 'TOTAL_CO2_EM':
+            elif self._is_total_emission_objective(obj.resource):
                 base_indir = 0.0
                 for r_id in self.data.resources:
                     if r_id in self.data.time_series.other_emissions_factors:
@@ -659,16 +834,16 @@ class PathFinderOptimizer:
                     else:
                         limit_t = limit_val
                     
-                    if obj.resource == 'CO2_EM':
+                    if self._is_primary_emission_objective(obj.resource):
                         net_obj_emis = self.emis_vars[t]
                         if self.data.dac_params.active:
                             net_obj_emis -= self.dac_captured_vars[t]
                         if self.data.credit_params.active:
                             net_obj_emis -= self.credit_purchased_vars[t]
                         var_expr = net_obj_emis
-                    elif obj.resource == 'INDIRECT_CO2_EM':
+                    elif self._is_indirect_emission_objective(obj.resource):
                         var_expr = self.indirect_emis_vars[t]
-                    elif obj.resource == 'TOTAL_CO2_EM':
+                    elif self._is_total_emission_objective(obj.resource):
                         net_obj_emis = self.total_emis_vars[t]
                         if self.data.dac_params.active:
                             net_obj_emis -= self.dac_captured_vars[t]
@@ -685,16 +860,16 @@ class PathFinderOptimizer:
                     elif obj.limit_type == 'MIN':
                         self.model += var_expr + penalty_t >= limit_t, f"Objective_{i}_MIN_{obj.resource}_{t}"
             else:
-                if obj.resource == 'CO2_EM':
+                if self._is_primary_emission_objective(obj.resource):
                     net_obj_emis = self.emis_vars[t_target]
                     if self.data.dac_params.active:
                         net_obj_emis -= self.dac_captured_vars[t_target]
                     if self.data.credit_params.active:
                         net_obj_emis -= self.credit_purchased_vars[t_target]
                     var_expr = net_obj_emis
-                elif obj.resource == 'INDIRECT_CO2_EM':
+                elif self._is_indirect_emission_objective(obj.resource):
                     var_expr = self.indirect_emis_vars[t_target]
-                elif obj.resource == 'TOTAL_CO2_EM':
+                elif self._is_total_emission_objective(obj.resource):
                     net_obj_emis = self.total_emis_vars[t_target]
                     if self.data.dac_params.active:
                         net_obj_emis -= self.dac_captured_vars[t_target]
@@ -728,14 +903,21 @@ class PathFinderOptimizer:
             capex_expr = []
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP': continue
+                    if self._is_continuous_improvement_tech_id(t_id):
+                        continue
                     tech = self.data.technologies[t_id]
                     if tech.capex > 0:
                         cap = 1.0
                         if tech.capex_per_unit:
-                            if tech.capex_unit == 'tCO2': cap = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if tech.capex_unit == 'tCO2':
+                                cap = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                             elif 'MW' in tech.capex_unit.upper(): 
-                                base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
+                                base_mwh = 0.0
+                                if self.fuel_resource_id is not None:
+                                    base_mwh = (
+                                        self.entity.base_consumptions.get(self.fuel_resource_id, 0.0)
+                                        * process.consumption_shares.get(self.fuel_resource_id, 0.0)
+                                    )
                                 cap = base_mwh / self.entity.annual_operating_hours
                         current_capex = tech.capex_by_year.get(t, tech.capex)
                         true_capex = current_capex * cap
@@ -757,7 +939,8 @@ class PathFinderOptimizer:
             # Out of pocket = Capex - Loans
             total_loans_t = pulp.lpSum(self.loan_vars[(t, p_id, t_id, l_id)] 
                                        for p_id, p in self.entity.processes.items() 
-                                       for t_id in p.valid_technologies if t_id != 'UP'
+                                       for t_id in p.valid_technologies
+                                       if not self._is_continuous_improvement_tech_id(t_id)
                                        for l_id in range(len(self.data.bank_loans)))
             self.model += out_of_pocket_capex_vars[t] == capex_spent_vars[t] - total_loans_t, f"OutOfPocket_Calc_{t}"
 
@@ -836,7 +1019,8 @@ class PathFinderOptimizer:
                         
                         total_loan_amount = pulp.lpSum(self.loan_vars[(tau, p_id, t_id, l_id)]
                                                        for p_id, p in self.entity.processes.items()
-                                                       for t_id in p.valid_technologies if t_id != 'UP')
+                                                       for t_id in p.valid_technologies
+                                                       if not self._is_continuous_improvement_tech_id(t_id))
                         total_cost.append(total_loan_amount * annuity_factor)
                         
                         # Add a tiny penalty to loan selection to strictly prioritize out-of-pocket usage
@@ -846,7 +1030,7 @@ class PathFinderOptimizer:
             # CAPEX and OPEX
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP':  # UP is free — no CAPEX/OPEX cost
+                    if self._is_continuous_improvement_tech_id(t_id):
                         continue
                     tech = self.data.technologies[t_id]
                     
@@ -854,9 +1038,14 @@ class PathFinderOptimizer:
                     cap_calc = 1.0
                     if tech.capex_per_unit or tech.opex_per_unit:
                         if tech.capex_unit == 'tCO2' or tech.opex_unit == 'tCO2': 
-                            cap_calc = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            cap_calc = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                         elif 'MW' in str(tech.capex_unit).upper() or 'MW' in str(tech.opex_unit).upper(): 
-                            base_mwh = self.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)
+                            base_mwh = 0.0
+                            if self.fuel_resource_id is not None:
+                                base_mwh = (
+                                    self.entity.base_consumptions.get(self.fuel_resource_id, 0.0)
+                                    * process.consumption_shares.get(self.fuel_resource_id, 0.0)
+                                )
                             cap_calc = base_mwh / self.entity.annual_operating_hours
                     
                     current_capex = tech.capex_by_year.get(t, tech.capex)
@@ -877,16 +1066,13 @@ class PathFinderOptimizer:
                     # CCfD Calculation
                     if self.data.ccfd_params.active and self.data.ccfd_params.duration > 0 and t_id not in self.data.grant_params.excluded_technologies:
                         ccfd_p = self.data.ccfd_params
-                        imp = tech.impacts.get('CO2_EM')
-                        if not imp:
-                            co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                            if co2_keys: imp = tech.impacts[co2_keys[0]]
+                        imp = self._find_impact_for_resource(tech, self.primary_emission_id)
                             
                         if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
                             # Avoided emissions: The absolute reduction per year for ONE unit out of nb_units
                             reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
                             if reduction_frac_per_unit > 0:
-                                max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                                 avoided_scope1_per_unit = reduction_frac_per_unit * max_emis_for_proc
                                 
                                 # NET DECARBONIZATION: Subtract added Scope 3 from H2 or other fuels
@@ -950,20 +1136,24 @@ class PathFinderOptimizer:
                                     
                         total_cost.append(-ccfd_amt_var)
                         
-                    # ── CARBON STORAGE & TRANSPORT (CCS/CCU) ──
-                    # If this is a CCS technology, we add a variable cost for the captured CO2
-                    if "CCS" in t_id.upper() or "CCU" in t_id.upper():
-                        imp = tech.impacts.get('CO2_EM')
+                    # CCS-related transport and storage variable costs
+                    if t_id in self.ccs_tech_ids:
+                        imp = self._find_impact_for_resource(tech, self.primary_emission_id)
                         if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
                             # Captured tonnage per unit: original emissions that are NO LONGER emitted
                             reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
                             if reduction_frac_per_unit > 0:
-                                max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                max_emis_for_proc = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
                                 captured_tons_per_unit = reduction_frac_per_unit * max_emis_for_proc
                                 
-                                # We check for storage and transport prices (e.g., CO2_STORAGE, CO2_TRANSPORT)
-                                s_price = self.data.time_series.resource_prices.get('CO2_STORAGE', {}).get(t, 0.0)
-                                tr_price = self.data.time_series.resource_prices.get('CO2_TRANSPORT', {}).get(t, 0.0)
+                                s_price = 0.0
+                                if self.co2_storage_resource_id is not None:
+                                    s_price = self.data.time_series.resource_prices.get(self.co2_storage_resource_id, {}).get(t, 0.0)
+
+                                tr_price = 0.0
+                                if self.co2_transport_resource_id is not None:
+                                    tr_price = self.data.time_series.resource_prices.get(self.co2_transport_resource_id, {}).get(t, 0.0)
+
                                 if s_price > 0 or tr_price > 0:
                                     total_cost.append((s_price + tr_price) * captured_tons_per_unit * self.active_vars[(t, p_id, t_id)])
 
@@ -973,15 +1163,15 @@ class PathFinderOptimizer:
                 
             # Resource Costs / Revenues
             for r_id in self.data.resources:
-                if r_id == 'CO2_EM': continue
+                if r_id == self.primary_emission_id:
+                    continue
                 price = 0.0
                 if r_id in self.data.time_series.resource_prices:
                     price = self.data.time_series.resource_prices[r_id].get(t, 0.0)
                 
                 if price > 0:
-                    # EXCEPTION: We do not add direct revenue for EN_H2_P in the objective
-                    # because its primary benefit is reducing market H2 purchases in the balancer.
-                    if r_id == 'EN_H2_P':
+                    # On-site hydrogen output is handled through the H2 balancer logic.
+                    if self.h2_production_resource_id is not None and r_id == self.h2_production_resource_id:
                         continue
                         
                     res_obj = self.data.resources.get(r_id)
@@ -998,7 +1188,7 @@ class PathFinderOptimizer:
                         total_cost.append(price * self.cons_vars[(t, r_id)])
                         
                         # NET CCfD PENALTY: Scope 3 emissions reduce the 'Avoided Tons' benefit
-                        if 'H2' in r_id.upper() and r_id in self.data.time_series.other_emissions_factors:
+                        if r_id in self.hydrogen_resource_ids and r_id in self.data.time_series.other_emissions_factors:
                             factor = self.data.time_series.other_emissions_factors[r_id].get(t, 0.0)
                             if factor > 0 and self.data.ccfd_params.active:
                                 ccfd_p = self.data.ccfd_params
@@ -1058,27 +1248,29 @@ class PathFinderOptimizer:
         self.model.solve(solver)
         status = pulp.LpStatus[self.model.status]
 
+        objective_value = None
+        try:
+            if self.model.objective is not None:
+                objective_value = self.model.objective.value()
+        except Exception:
+            objective_value = None
+
+        vars_with_values = sum(1 for v in self.model.variables() if v.varValue is not None)
+        has_incumbent = (vars_with_values > 0) and (objective_value is not None)
+
         # Normalize status: CBC reports 'Not Solved' / 'Undefined' when the time limit
         # is hit, but sol_status==1 means a feasible incumbent was found — treat as Feasible.
         if status in ['Not Solved', 'Undefined']:
-            if self.model.sol_status == 1:
+            if self.model.sol_status == 1 or has_incumbent:
                 status = 'Feasible'
                 if self.verbose:
                     print("  [magenta][Optimizer][/magenta] [!] Time limit reached with a FEASIBLE incumbent — reporting best solution.")
             else:
-                # Last-resort fallback: check if variable values were populated despite
-                # CBC not setting sol_status correctly (happens in some CBC versions).
-                vars_with_values = sum(1 for v in list(self.model.variables())[:50] if v.varValue is not None)
-                if vars_with_values > 12:  # >25% of 50 sampled variables
-                    status = 'Feasible'
-                    if self.verbose:
-                        print("  [magenta][Optimizer][/magenta] [!] Time limit reached — recovered incumbent from variable values.")
-                else:
-                    status = 'Infeasible'
+                status = 'Infeasible'
         elif status == 'Optimal':
             pass  # already correct
         elif status == 'Infeasible':
-            if self.model.sol_status == 1:
+            if self.model.sol_status == 1 or has_incumbent:
                 # Rare numerical edge-case: solver claims infeasible but has a solution
                 status = 'Feasible'
 

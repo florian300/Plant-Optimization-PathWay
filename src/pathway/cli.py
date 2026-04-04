@@ -4,9 +4,12 @@ Main entry point — sequential pipeline with OS-level solver watchdog.
 """
 import os
 import signal
+import subprocess
+import sys
 import threading
 import time
 import traceback
+from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
@@ -223,10 +226,58 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         else:
             console.print(
                 f"  [bold yellow][WARN][/bold yellow] [{sc_name}] "
-                f"No feasible incumbent found before timeout — skipping report."
+                f"No feasible incumbent found before timeout. Trying recovery solve passes..."
             )
-            progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
-            return 'Timeout'
+
+            try:
+                retry_time_limit = max(float(time_limit) * 2.0, float(time_limit) + 60.0)
+
+                # Recovery pass 1: same integrality, more time.
+                data.parameters.time_limit = retry_time_limit
+                retry_optimizer = PathFinderOptimizer(data, verbose=False)
+                retry_optimizer.build_model()
+                retry_status = run_with_timeout(retry_optimizer.solve, retry_time_limit + WATCHDOG_BUFFER)
+
+                if retry_status in ('Optimal', 'Feasible'):
+                    optimizer = retry_optimizer
+                    status = retry_status
+                    watchdog_fired = False
+                    console.print(
+                        f"  [bold cyan][RECOVERY][/bold cyan] [{sc_name}] "
+                        f"Recovered after timeout with extended time limit ({retry_time_limit:.0f}s)."
+                    )
+                else:
+                    # Recovery pass 2: relaxed integrality.
+                    relax_data = p.parse(scenario_id=sc_id if use_scenario_filter else None)
+                    relax_data.parameters.time_limit = retry_time_limit
+                    relax_data.parameters.relax_integrality = True
+                    relax_optimizer = PathFinderOptimizer(relax_data, verbose=False)
+                    relax_optimizer.build_model()
+                    relax_status = run_with_timeout(relax_optimizer.solve, retry_time_limit + WATCHDOG_BUFFER)
+
+                    if relax_status in ('Optimal', 'Feasible'):
+                        optimizer = relax_optimizer
+                        status = 'Feasible (Relaxed)'
+                        watchdog_fired = False
+                        console.print(
+                            f"  [bold cyan][RECOVERY][/bold cyan] [{sc_name}] "
+                            f"Recovered after timeout with relaxed integrality."
+                        )
+                    else:
+                        console.print(
+                            f"  [bold yellow][WARN][/bold yellow] [{sc_name}] "
+                            f"Recovery attempts failed — skipping report."
+                        )
+                        progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
+                        return 'Timeout'
+            except Exception as rec_e:
+                console.print(
+                    f"  [bold red][ERROR][/bold red] [{sc_name}] Timeout recovery failed: {rec_e}"
+                )
+                if os.environ.get('PATHFINDER_DEBUG'):
+                    traceback.print_exc()
+                progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
+                return 'Timeout'
     except Exception as e:
         solve_done.set()
         spinner_thread.join(timeout=1)
@@ -242,11 +293,52 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
     # --- 4. Check if a solution exists ---------------------------------------
     if status == 'Infeasible':
         console.print(
-            f"  [bold yellow][WARN][/bold yellow] [{sc_name}] No feasible solution found (Infeasible). "
-            f"Check emission targets and budget constraints."
+            f"  [bold yellow][WARN][/bold yellow] [{sc_name}] Infeasible on first pass. "
+            f"Trying automatic recovery (more time, then relaxed integrality if needed)..."
         )
-        progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
-        return 'Infeasible'
+
+        # Recovery pass 1: same model, extended time limit.
+        try:
+            retry_time_limit = max(float(time_limit) * 2.0, float(time_limit) + 60.0)
+            optimizer.data.parameters.time_limit = retry_time_limit
+            retry_status = run_with_timeout(optimizer.solve, retry_time_limit + WATCHDOG_BUFFER)
+            if retry_status in ('Optimal', 'Feasible'):
+                status = retry_status
+                console.print(
+                    f"  [bold cyan][RECOVERY][/bold cyan] [{sc_name}] "
+                    f"Recovered with extended time limit ({retry_time_limit:.0f}s)."
+                )
+            else:
+                # Recovery pass 2: rebuild with relaxed integrality.
+                relax_data = p.parse(scenario_id=sc_id if use_scenario_filter else None)
+                relax_data.parameters.relax_integrality = True
+                relax_data.parameters.time_limit = retry_time_limit
+                relax_optimizer = PathFinderOptimizer(relax_data, verbose=False)
+                relax_optimizer.build_model()
+                relax_status = run_with_timeout(relax_optimizer.solve, retry_time_limit + WATCHDOG_BUFFER)
+
+                if relax_status in ('Optimal', 'Feasible'):
+                    optimizer = relax_optimizer
+                    status = 'Feasible (Relaxed)'
+                    console.print(
+                        f"  [bold cyan][RECOVERY][/bold cyan] [{sc_name}] "
+                        f"Recovered with relaxed integrality."
+                    )
+                else:
+                    console.print(
+                        f"  [bold yellow][WARN][/bold yellow] [{sc_name}] "
+                        f"Recovery attempts failed — remaining Infeasible."
+                    )
+                    progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
+                    return 'Infeasible'
+        except Exception as e:
+            console.print(
+                f"  [bold red][ERROR][/bold red] [{sc_name}] Recovery pass failed: {e}"
+            )
+            if os.environ.get('PATHFINDER_DEBUG'):
+                traceback.print_exc()
+            progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
+            return 'Infeasible'
 
     if watchdog_fired:
         console.print(f"  [bold yellow][OK][/bold yellow]   [{sc_name}] Solver status: {status} (best available — time limit exceeded)")
@@ -275,8 +367,43 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         progress.update(task_id, description=f"[red]{sc_name} — Report Error[/red]", completed=100)
         return 'ReportError'
 
-    progress.update(task_id, description=f"[green]{sc_name} ✓[/green]", completed=100)
+    progress.update(task_id, description=f"[green]{sc_name} v[/green]", completed=100)
     return status
+
+
+def regenerate_results_dashboard() -> bool:
+    """Regenerate the standalone HTML dashboard from scenario reports."""
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / 'scripts' / 'ops' / 'generate_results_dashboard.py'
+    if not script_path.exists():
+        console.print(f"[yellow][WARN][/yellow] Dashboard script not found: {script_path}")
+        return False
+
+    cmd = [sys.executable, str(script_path)]
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as e:
+        console.print(f"[yellow][WARN][/yellow] Dashboard regeneration failed to start: {e}")
+        return False
+
+    if completed.returncode != 0:
+        err = (completed.stderr or '').strip()
+        out = (completed.stdout or '').strip()
+        details = err if err else out
+        if details:
+            console.print(f"[yellow][WARN][/yellow] Dashboard regeneration failed: {details}")
+        else:
+            console.print("[yellow][WARN][/yellow] Dashboard regeneration failed with no output.")
+        return False
+
+    console.print("[bold green][OK][/bold green] Dashboard regenerated: artifacts/reports/Results/results_dashboard.html")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -343,16 +470,22 @@ def main():
             )
             summary[sc['name']] = status
 
+    success_statuses = {'Optimal', 'Feasible', 'Feasible (Timeout)', 'Feasible (Relaxed)'}
+    if any(st in success_statuses for st in summary.values()):
+        regenerate_results_dashboard()
+    else:
+        console.print("[yellow][WARN][/yellow] Dashboard regeneration skipped: no successful scenario report to publish.")
+
     # -- 2. Final summary -----------------------------------------------------
     console.print("\n")
     rows = []
     for sc_name, st in summary.items():
-        if st in ('Optimal', 'Feasible', 'Feasible (Timeout)'):
+        if st in ('Optimal', 'Feasible', 'Feasible (Timeout)', 'Feasible (Relaxed)'):
             colour = 'green'
-            icon   = '✓'
+            icon   = 'v'
         elif st == 'Infeasible':
-            colour = 'yellow'
-            icon   = '✗'
+            colour = 'red'
+            icon   = 'x'
         elif st == 'Timeout':
             colour = 'yellow'
             icon   = '⏱'

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 @dataclass
 class GrantParams:
@@ -151,6 +151,8 @@ class PathFinderData:
     mixt_groups: Dict[str, List[str]] = field(default_factory=dict)
     # Maps technology ID -> list of compatible technology IDs
     tech_compatibilities: Dict[str, List[str]] = field(default_factory=dict)
+    # Maps (unit_in, unit_out) -> conversion factor
+    unit_conversions: Dict[Tuple[str, str], float] = field(default_factory=dict)
     
     grant_params: GrantParams = field(default_factory=GrantParams)
     ccfd_params: CCfDParams = field(default_factory=CCfDParams)

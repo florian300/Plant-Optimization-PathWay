@@ -3,7 +3,7 @@ import numpy as np
 import warnings
 from rich import print
 from tqdm import tqdm
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, List
 from .model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -175,7 +175,7 @@ class PathFinderParser:
                         elif "INVESTMENT PLAN" in name or "INVESTMENT COSTS" in name: reporting_toggles.chart_investment_costs = is_yes
                         elif "RESSOURCES OPEX" in name or "RESOURCE OPEX" in name or "TOTAL OPEX" in name or "CCS OPEX" in name: reporting_toggles.chart_total_opex = is_yes
                         elif "CARBON TAX" in name: reporting_toggles.chart_carbon_tax_avoided = is_yes
-                        elif "EXTERNAL FINANCING" in name: reporting_toggles.chart_external_financing = is_yes
+                        elif "FINANCING" in name: reporting_toggles.chart_external_financing = is_yes
                         elif "TRANSITION COST" in name: reporting_toggles.chart_transition_costs = is_yes
                         elif "CARBON PRICE" in name: reporting_toggles.chart_carbon_prices = is_yes
                         elif "SIMULATION PRICES" in name or "RESOURCE PRICES" in name: reporting_toggles.chart_resource_prices = is_yes
@@ -231,6 +231,19 @@ class PathFinderParser:
                     
         # Define years list for interpolation
         years_list = list(range(start_year, start_year + duration + 1))
+
+        def normalize_token(raw_val: Any) -> str:
+            return str(raw_val).strip().upper() if pd.notna(raw_val) else ""
+
+        def is_emission_type(resource_type: str) -> bool:
+            return 'EMISS' in normalize_token(resource_type)
+
+        def is_primary_emission_resource(resource_obj: Resource) -> bool:
+            name_upper = normalize_token(resource_obj.name)
+            return is_emission_type(resource_obj.type) and ('CO2' in name_upper or 'CARBON' in name_upper)
+
+        unit_conversions: Dict[Tuple[str, str], float] = {}
+        entities: List[str] = []
         
         # Helper to interpolate a dictionary {year: value}
         def interpolate_dict(data_dict: Dict[int, Any]) -> Dict[int, float]:
@@ -246,14 +259,24 @@ class PathFinderParser:
         entities_info = {}
         if cluster_start is not None and cluster_end is not None:
             df_cluster = self._extract_block_data(df_overview, cluster_start, cluster_end)
-            if 'ID' in df_cluster.columns:
+            cluster_col_map = {normalize_token(c): c for c in df_cluster.columns}
+            id_col = cluster_col_map.get('ID')
+            prod_col = cluster_col_map.get('PRODUCTION')
+            sheet_col = cluster_col_map.get('SHEET')
+            if id_col is not None:
                 for _, row in df_cluster.iterrows():
-                    e_id = str(row['ID']).strip()
-                    if e_id and e_id != 'nan':
-                        prod = row.get('PRODUCTION', 0.0)
-                        try: prod = float(prod)
-                        except: prod = 0.0
-                        entities_info[e_id] = {'production': prod}
+                    e_id = str(row.get(id_col, '')).strip()
+                    if e_id and e_id.lower() != 'nan':
+                        prod = row.get(prod_col, 0.0) if prod_col is not None else 0.0
+                        try:
+                            prod = float(prod)
+                        except Exception:
+                            prod = 0.0
+                        sheet_name = str(row.get(sheet_col, '')).strip() if sheet_col is not None else ''
+                        entities_info[e_id] = {
+                            'production': prod,
+                            'sheet': sheet_name
+                        }
                 entities = list(entities_info.keys())
                 
         # Find RESOURCES
@@ -272,21 +295,64 @@ class PathFinderParser:
                     break
             
             if 'ID' in df_data.columns and 'TYPE' in df_data.columns and 'UNIT' in df_data.columns:
+                if 'NAME' not in df_data.columns:
+                    raise ValueError("DATA block is missing required NAME column for resources")
                 for _, row in df_data.iterrows():
                     res_id = str(row['ID']).strip()
                     if res_id and pd.notna(res_id) and res_id != 'nan':
-                        # Try to get a human-readable name from a NAME column, fall back to ID
                         res_name = str(row.get('NAME', '')).strip()
-                        if not res_name or res_name == 'nan':
-                            res_name = str(row.get('LIBELLE', '')).strip()
-                        if not res_name or res_name == 'nan':
-                            res_name = res_id  # fall back to ID
+                        if not res_name or res_name.lower() == 'nan':
+                            raise ValueError(f"Resource '{res_id}' is missing NAME in DATA block")
                         resources_dict[res_id] = Resource(
                             id=res_id,
                             type=str(row['TYPE']),
                             unit=str(row['UNIT']),
                             name=res_name
                         )
+
+        # Parse UNIT CONVERSIONS block in OverView
+        unit_conv_start = next((
+            b['row'] for b in blocks_overview
+            if b['type'] == 'START' and 'UNIT CONVERSION' in normalize_token(b['prefix'])
+        ), None)
+        unit_conv_end = next((
+            b['row'] for b in blocks_overview
+            if b['type'] == 'END' and 'UNIT CONVERSION' in normalize_token(b['prefix'])
+        ), None)
+
+        if unit_conv_start is not None and unit_conv_end is not None:
+            df_unit_conv = self._extract_block_data(df_overview, unit_conv_start, unit_conv_end)
+            if not df_unit_conv.empty:
+                col_map = {normalize_token(c): c for c in df_unit_conv.columns}
+                unit_in_col = col_map.get('UNIT IN')
+                unit_out_col = col_map.get('UNIT OUT')
+                factor_col = col_map.get('FACTOR')
+
+                if unit_in_col is None or unit_out_col is None or factor_col is None:
+                    raise ValueError("UNIT CONVERSIONS block must contain UNIT IN, UNIT OUT, and FACTOR columns")
+
+                for row_idx, row in df_unit_conv.iterrows():
+                    unit_in = normalize_token(row.get(unit_in_col, ''))
+                    unit_out = normalize_token(row.get(unit_out_col, ''))
+                    factor_raw = row.get(factor_col, None)
+
+                    if not unit_in or not unit_out or unit_in == 'NAN' or unit_out == 'NAN':
+                        continue
+
+                    try:
+                        factor = float(str(factor_raw).replace(',', '.').strip())
+                    except Exception:
+                        raise ValueError(
+                            f"Invalid FACTOR in UNIT CONVERSIONS at row {row_idx}: {factor_raw}"
+                        )
+
+                    if factor == 0.0:
+                        raise ValueError(
+                            f"UNIT CONVERSIONS factor cannot be zero for {unit_in} -> {unit_out}"
+                        )
+
+                    unit_conversions[(unit_in, unit_out)] = factor
+                    unit_conversions[(unit_out, unit_in)] = 1.0 / factor
         
         # Parse OBJECTIVES
         objectives_list = []
@@ -381,6 +447,9 @@ class PathFinderParser:
                     df_tecs.columns = row_list
                     df_tecs = df_tecs.iloc[idx+1:]
                     break
+
+            if 'NAME' not in df_tecs.columns:
+                raise ValueError("TECS block is missing required NAME column for technologies")
             
             for _, row in df_tecs.iterrows():
                 t_id = str(row.get('ID', '')).strip()
@@ -388,8 +457,8 @@ class PathFinderParser:
                     imp_time_raw = row.get('IMPLEMANTATION TIME (YEAR)') or row.get('IMPLEMENTATION TIME (YEAR)')
                     imp_time = int(imp_time_raw) if pd.notna(imp_time_raw) else 1
                     t_name = str(row.get('NAME', '')).strip()
-                    if not t_name or t_name == 'nan':
-                        t_name = t_id  # fallback to ID
+                    if not t_name or t_name.lower() == 'nan':
+                        raise ValueError(f"Technology '{t_id}' is missing NAME in TECS block")
                     technologies_dict[t_id] = Technology(
                         id=t_id,
                         name=t_name,
@@ -564,24 +633,27 @@ class PathFinderParser:
                 print(f"  [cyan][Ingestion][/cyan] [LINK] Parsed compatibility matrix for {len(tech_compatibilities)} technologies")
         
         
-        # 3. Parse Entities (REFINERY)
-        # Assuming the 'REFINERY' sheet or similar sheet matches the entity IDs
-        # For simplicity, we loop over known entity IDs to see if there's a sheet for it.
+        # 3. Parse Entities from per-entity SHEET values in CLUSTER block
         entities_dict = {}
         for entity_id in entities:
-            # check if a sheet exists containing that ID or just try parsing "REFINERY" for TOT1
-            # In our case, the overview says TOT1 is REFINERY 1. But the sheet name is 'REFINERY'.
-            # We'll parse 'REFINERY' for demonstration and map it to the first entity.
-            sheet_to_parse = 'REFINERY'
-            if sheet_to_parse in self.xl.sheet_names:
-                df_ent = self.xl.parse(sheet_to_parse, header=None)
+            entity_meta = entities_info.get(entity_id, {})
+            sheet_to_parse = str(entity_meta.get('sheet', '')).strip()
+            if not sheet_to_parse:
+                warnings.warn(f"Entity '{entity_id}' has no SHEET configured in CLUSTER block and will be skipped")
+                continue
+            if sheet_to_parse not in self.xl.sheet_names:
+                warnings.warn(f"Entity '{entity_id}' references missing sheet '{sheet_to_parse}' and will be skipped")
+                continue
+
+            df_ent = self.xl.parse(sheet_to_parse, header=None)
+            if True:
                 blocks_ent = self._find_blocks(df_ent)
                 
                 # TOTAL block for basic prod info
                 tot_start = next((b['row'] for b in blocks_ent if b['type'] == 'START' and b['prefix'] == 'TOTAL'), None)
                 tot_end = next((b['row'] for b in blocks_ent if b['type'] == 'END' and b['prefix'] == 'TOTAL'), None)
                 
-                production_level = entities_info.get(entity_id, {}).get('production', 0.0)
+                production_level = entity_meta.get('production', 0.0)
                 # Parse INIT for operating hours
                 init_start = next((b['row'] for b in blocks_ent if b['type'] == 'START' and b['prefix'] == 'INIT'), None)
                 init_end = next((b['row'] for b in blocks_ent if b['type'] == 'END' and b['prefix'] == 'INIT'), None)
@@ -655,16 +727,16 @@ class PathFinderParser:
                             else:
                                 for i, cell in enumerate(row_list):
                                     cell_str = str(cell).strip()
-                                    if cell_str == 'CO2_EM':
+                                    if cell_str in resources_dict:
                                         try: 
                                             v = float(row_list[i+1])
-                                            p.emission_shares['CO2_EM'] = v if not np.isnan(v) else 0.0
-                                        except: pass
-                                    elif cell_str in resources_dict:
-                                        try: 
-                                            v = float(row_list[i+1])
-                                            p.consumption_shares[cell_str] = v if not np.isnan(v) else 0.0
-                                        except: pass
+                                            v = v if not np.isnan(v) else 0.0
+                                            if is_primary_emission_resource(resources_dict[cell_str]):
+                                                p.emission_shares[cell_str] = v
+                                            else:
+                                                p.consumption_shares[cell_str] = v
+                                        except Exception:
+                                            pass
                 
                 # Parse BUDGET limit (CA Percentage) and TECH mapping
                 ca_percent = 0.0
@@ -803,13 +875,9 @@ class PathFinderParser:
                         vals = [x for x in row.values if pd.notna(x) and str(x).strip() != '']
                         if len(vals) >= 3:
                             # vals[0]: name (e.g., 'CO2 EMISSIONS')
-                            # vals[1]: id (e.g., 'CO2_EM')
+                            # vals[1]: resource id
                             # vals[2]: value
                             r_id = str(vals[1]).strip()
-                            r_display_name = str(vals[0]).strip()
-                            # Enrich resource name if it's still using the ID as fallback
-                            if r_id in resources_dict and (not resources_dict[r_id].name or resources_dict[r_id].name == r_id):
-                                resources_dict[r_id].name = r_display_name
                             val_str = vals[2]
                             raw_unit = str(vals[3]).strip().upper() if len(vals) > 3 else ''
                             
@@ -828,7 +896,7 @@ class PathFinderParser:
                                 
                             total_val = val * annual_production * multiplier
                             
-                            if 'CO2_EM' in r_id or r_id == 'CO2_EM':
+                            if r_id in resources_dict and is_primary_emission_resource(resources_dict[r_id]):
                                 base_emis += total_val
                             elif r_id in resources_dict:
                                 base_cons[r_id] = total_val
@@ -916,11 +984,9 @@ class PathFinderParser:
                             
             for r_id, p_dict in raw_prices.items():
                 if r_id not in resources_dict:
-                    # Auto-register resource if it exists in price sheet but not in DATA block
-                    res_name = r_id
-                    res_type = 'PRODUCTION' # Default type for buyable resources
-                    res_unit = 'units'      # Default unit
-                    resources_dict[r_id] = Resource(id=r_id, type=res_type, unit=res_unit, name=res_name)
+                    raise ValueError(
+                        f"Resource '{r_id}' appears in RESSOURCES_PRICE but is missing from DATA block with a NAME"
+                    )
                     
                 time_series.resource_prices[r_id] = interpolate_dict(p_dict)
             if self.verbose:
@@ -1361,7 +1427,7 @@ class PathFinderParser:
                             
                             try:
                                 # Snippet: CREDIT, resource_id, scenario_id, unit, year, cost
-                                # vals: [CREDIT, CO2_EM, LCB, tCO2, 2025, 22.50 €]
+                                # vals: [CREDIT, <emission_resource>, <scenario>, <unit>, <year>, <cost>]
                                 if len(vals) >= 6:
                                     year = int(float(vals[4]))
                                     cost_raw = str(vals[5]).strip()
@@ -1502,6 +1568,7 @@ class PathFinderParser:
             entities=entities_dict,
             objectives=objectives_list,
             tech_compatibilities=tech_compatibilities,
+            unit_conversions=unit_conversions,
             grant_params=grant_params,
             ccfd_params=ccfd_params,
             bank_loans=bank_loans,
