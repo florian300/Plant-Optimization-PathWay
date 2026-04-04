@@ -2,9 +2,9 @@
 import os
 import sys
 import pandas as pd
-from core.ingestion import PathFinderParser
-from core.optimizer import PathFinderOptimizer
-from core.reporting import PathFinderReporter
+from pathway.core.ingestion import PathFinderParser
+from pathway.core.optimizer import PathFinderOptimizer
+from pathway.core.reporting import PathFinderReporter
 
 def test_h2_mac():
     print("Starting H2 MAC verification...")

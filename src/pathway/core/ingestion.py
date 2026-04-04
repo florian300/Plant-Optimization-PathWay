@@ -4,7 +4,7 @@ import warnings
 from rich import print
 from tqdm import tqdm
 from typing import Dict, Any
-from core.model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles
+from .model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 pd.set_option('future.no_silent_downcasting', True)
@@ -1511,10 +1511,6 @@ class PathFinderParser:
         )
 
 if __name__ == '__main__':
-    parser = PathFinderParser('PathFinder input.xlsx')
-    data = parser.parse()
-    # print("Done")
-if __name__ == '__main__':
-    parser = PathFinderParser('PathFinder input.xlsx')
+    parser = PathFinderParser('data/raw/excel/PathFinder input.xlsx')
     data = parser.parse()
     # print("Done")

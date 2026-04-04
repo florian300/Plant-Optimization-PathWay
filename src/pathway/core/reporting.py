@@ -9,7 +9,7 @@ import shutil
 import matplotlib.ticker as ticker
 from rich import print
 from tqdm import tqdm
-from core.optimizer import PathFinderOptimizer
+from .optimizer import PathFinderOptimizer
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -21,7 +21,8 @@ class PathFinderReporter:
         self.generate_excel = generate_excel
         self.verbose = verbose
         self.progress_cb = progress_cb
-        self.results_dir = os.path.join('Results', self.scenario_name)
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        self.results_dir = os.path.join(repo_root, 'artifacts', 'reports', self.scenario_name)
         self.charts_data = [] # List of (title, dataframe) tuples
 
     def _add_scenario_label(self, fig):
@@ -38,6 +39,17 @@ class PathFinderReporter:
                  color='white', fontsize=10, weight='bold',
                  ha='right', va='top',
                  bbox=dict(facecolor=color, alpha=0.9, edgecolor='none', boxstyle='round,pad=0.3'))
+
+    def _save_no_data_chart(self, file_name: str, title: str, message: str):
+        """Creates a placeholder chart when a reporting toggle is enabled but no data is available."""
+        fig, ax = plt.subplots(figsize=(11, 7), facecolor='white')
+        ax.axis('off')
+        ax.text(0.5, 0.62, title, ha='center', va='center', fontsize=18, weight='bold', color='#2C3E50', transform=ax.transAxes)
+        ax.text(0.5, 0.45, message, ha='center', va='center', fontsize=12, color='#555555', transform=ax.transAxes)
+        self._add_scenario_label(fig)
+        os.makedirs(self.results_dir, exist_ok=True)
+        plt.savefig(os.path.join(self.results_dir, file_name), dpi=300, bbox_inches='tight')
+        plt.close()
         
     def generate_report(self):
         # 0. Calculate total steps for progress tracking
@@ -1054,6 +1066,11 @@ class PathFinderReporter:
                 'Status':                vals['status'],
             })
 
+        # Build MAC dataframe once so chart gating can safely test emptiness.
+        df_mac = pd.DataFrame(mac_data)
+        if not df_mac.empty:
+            df_mac = df_mac.sort_values(by='MAC (€/tCO2)').reset_index(drop=True)
+
         # 4. Generate Visualizations
         if self.verbose:
             print("  [yellow][Reporter][/yellow] [PLOT] Generating visualizations...")
@@ -1066,8 +1083,15 @@ class PathFinderReporter:
         if toggles.chart_co2_trajectory: 
             self._plot_co2_trajectory(df_emis)
             _step()
-        if toggles.chart_indirect_emissions and not df_indir.empty: 
-            self._plot_indirect_emissions(df_indir)
+        if toggles.chart_indirect_emissions:
+            if not df_indir.empty:
+                self._plot_indirect_emissions(df_indir)
+            else:
+                self._save_no_data_chart(
+                    f'{self.scenario_name}_Indirect_Emissions.png',
+                    'INDIRECT EMISSIONS',
+                    'No indirect emissions data available for this scenario.'
+                )
             _step()
         if toggles.chart_investment_costs: 
             self._plot_investment_costs(df_costs, df_finance)
@@ -1093,8 +1117,15 @@ class PathFinderReporter:
         if toggles.chart_resource_prices: 
             self._plot_prices()
             _step()
-        if toggles.chart_co2_abatement_cost and not df_mac.empty:
-            self._plot_co2_abatement_cost(df_mac)
+        if toggles.chart_co2_abatement_cost:
+            if not df_mac.empty:
+                self._plot_co2_abatement_cost(df_mac)
+            else:
+                self._save_no_data_chart(
+                    f'{self.scenario_name}_CO2_Abatement_Cost.png',
+                    'MARGINAL ABATEMENT COST',
+                    'No valid abatement projects found to build a MAC curve.'
+                )
             _step()
         
         # 4. Final step: Re-run Excel export to include the charts sheet if needed
@@ -1750,7 +1781,12 @@ class PathFinderReporter:
             df_plot['Private Bank Loans'] = private_loans
 
         if df_plot.empty:
-            return  # Nothing to plot
+            self._save_no_data_chart(
+                f'{self.scenario_name}_External_Financing.png',
+                'EXTERNAL FINANCING STRATEGY',
+                'No public aids or private loans were triggered in this scenario.'
+            )
+            return
             
         # Design a dark-themed, highly aesthetic chart
         fig, ax = plt.subplots(figsize=(12, 9), facecolor='#0D0D14')
@@ -1857,7 +1893,7 @@ class PathFinderReporter:
         try:
             # We construct the path absolutely and explicitly to avoid invisible unicode characters
             f_name = f'{self.scenario_name}_External_Financing.png'
-            out_file = os.path.join(os.getcwd(), self.results_dir, f_name)
+            out_file = os.path.join(self.results_dir, f_name)
             plt.savefig(out_file, dpi=300, bbox_inches='tight', facecolor='#0D0D14')
         except Exception as e:
             print(f"  [red][Reporter][/red] [!] Error saving {f_name}: {e}")
@@ -2374,10 +2410,6 @@ class PathFinderReporter:
         # Rename Resource Savings
         if 'Resource Savings' in df_plot.columns:
             df_plot = df_plot.rename(columns={'Resource Savings': 'Resource Mix Change'})
-            
-        # Determine Resource Mix Change coloring (Blue if avg > 0 (cost), Green if avg <= 0 (saving))
-        res_mean = df_plot['Resource Mix Change'].mean() if 'Resource Mix Change' in df_plot.columns else 0
-        res_is_cost = res_mean > 1e-3
         
         # Cumulative Balance: sum(Costs - abs(Benefits)).cumsum()
         # Since Benefits are negative in df_annual, sum(axis=1) is (Costs + Benefits) = (Costs - |Benefits|)
@@ -2385,7 +2417,7 @@ class PathFinderReporter:
         df_net_cumul = df_annual.sum(axis=1).cumsum()
 
         # ── TRANSITION EFFORTS (Positive) ──
-        pos_cols = ['Self-funded CAPEX', 'Financing Interests', 'New Tech & DAC OPEX', 'Voluntary Carbon Credits']
+        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits']
         
         # ── TRANSITION BENEFITS & SAVINGS (Negative) ──
         neg_cols = ['Public Aids (Grants & CCfD)', 'Avoided Carbon Tax']
@@ -2408,6 +2440,7 @@ class PathFinderReporter:
         colors_savings = ['#16A085', '#27AE60', '#A2D149', '#F1C40F']
         
         x = years
+        fig, ax1 = plt.subplots(figsize=(12, 9), facecolor='white')
         
         # Plot stacked areas (Annual) on ax1
         if pos_cols:
@@ -2490,6 +2523,11 @@ class PathFinderReporter:
             df_plot.set_index('Year', inplace=True)
             
         if 'Interest_Paid (M€)' not in df_plot.columns or df_plot['Interest_Paid (M€)'].sum() < 1e-4:
+            self._save_no_data_chart(
+                f'{self.scenario_name}_Interest_Paid.png',
+                'BANK LOANS: INTEREST & CONTRACTED AMOUNTS',
+                'No loan interest was paid in this scenario.'
+            )
             return
             
         fig, ax = plt.subplots(figsize=(12, 9), facecolor='white')

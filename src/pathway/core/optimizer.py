@@ -4,7 +4,7 @@ import time
 from typing import Dict, Any, List
 from rich import print
 from tqdm import tqdm
-from core.model import PathFinderData
+from .model import PathFinderData
 
 MASSIVE_PENALTY_COST = 1e7
 

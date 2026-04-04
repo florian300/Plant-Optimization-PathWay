@@ -1,5 +1,5 @@
-from core.ingestion import PathFinderParser
-from core.optimizer import PathFinderOptimizer
+from pathway.core.ingestion import PathFinderParser
+from pathway.core.optimizer import PathFinderOptimizer
 import pulp
 import time
 

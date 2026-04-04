@@ -1,13 +1,13 @@
 import os
 import sys
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(os.path.join(base_path, 'src'))
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(repo_root, 'src'))
 
-from core.parser import PathFinderParser
+from pathway.core.ingestion import PathFinderParser
 
 def main():
-    parser = PathFinderParser(os.path.join(base_path, 'PathFinder input.xlsx'))
+    parser = PathFinderParser(os.path.join(repo_root, 'data', 'raw', 'excel', 'PathFinder input.xlsx'))
     data = parser.parse()
     
     techs_to_check = ['ERH', 'PEM_H2', 'FUEL_TO_H2', 'CCS_1', 'CCS', 'CCU']

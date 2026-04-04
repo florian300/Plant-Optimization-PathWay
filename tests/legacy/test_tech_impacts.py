@@ -1,4 +1,4 @@
-from core.ingestion import PathFinderParser
+from pathway.core.ingestion import PathFinderParser
 
 def debug_tech():
     parser = PathFinderParser('PathFinder input.xlsx')

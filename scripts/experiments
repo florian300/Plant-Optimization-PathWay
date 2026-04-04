@@ -1,0 +1,33 @@
+from core.ingestion import PathFinderParser
+import pandas as pd
+
+file_path = 'PathFinder input.xlsx'
+parser = PathFinderParser(file_path, verbose=True)
+
+# Try to parse BS scenario
+print("\n--- Parsing BS scenario ---")
+data_bs = parser.parse(scenario_id='BS')
+cp_bs = data_bs.time_series.carbon_prices
+print(f"BS Carbon Prices (first 5 years): {list(cp_bs.items())[:5]}")
+
+# Try to parse another scenario if possible
+# Let's find IDs from Overview
+scenarios = parser._parse_scenarios()
+print(f"Available scenarios: {scenarios}")
+
+for sc in scenarios:
+    sc_id = sc['id']
+    if sc_id != 'BS':
+        print(f"\n--- Parsing {sc_id} scenario ---")
+        data_sc = parser.parse(scenario_id=sc_id)
+        cp_sc = data_sc.time_series.carbon_prices
+        print(f"{sc_id} Carbon Prices (first 5 years): {list(cp_sc.items())[:5]}")
+        
+        # Check if they differ
+        if cp_bs != cp_sc:
+            print(f"SUCCESS: Carbon prices differ between BS and {sc_id}")
+        else:
+            print(f"FAILURE: Carbon prices are identical between BS and {sc_id}")
+        break
+else:
+    print("Only one scenario found or could not find a second scenario to compare.")

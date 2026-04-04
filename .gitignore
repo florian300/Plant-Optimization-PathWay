@@ -1,18 +1,47 @@
-# Environnements virtuels
+# Python environments and cache
+.venv/
 venv/
-
-# Fichiers de cache Python
 __pycache__/
 .pytest_cache/
+*.py[cod]
 
-# Fichiers temporaires et de configuration locale
-tmp/
+# IDE and local tooling
 .vscode/
+.idea/
 
-# Fichiers temporaires Excel (ouverts)
+# Runtime logs and temp
+logs/
+tmp/
+*.log
+
+# Data files (never commit)
+data/raw/**
+data/processed/**
+data/external/**
+*.csv
+*.tsv
+*.xlsx
+*.xls
 ~$*.xlsx
 
-# Results
+# Solver/model artifacts (never commit)
+*.lp
+*.mps
+*.sol
+*.mst
+*.ilp
+main_output.txt
+final_verify.txt
+artifacts/**
 Results/
 
-Input/
+# Legacy debug dump area
+debug_scripts/
+scripts/archive/**
+
+# Keep placeholders if needed
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/external/.gitkeep
+!artifacts/.gitkeep
+!logs/.gitkeep
