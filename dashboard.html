@@ -20,7 +20,7 @@
     <!-- Header -->
     <header class="mb-8">
         <h1 class="text-3xl font-bold text-emerald-400">Plant-Optimization-PathWay Results</h1>
-        <p class="text-slate-400 mt-1" id="generationDate">Generated on: 2026-04-04 17:42:54</p>
+        <p class="text-slate-400 mt-1" id="generationDate">Generated on: 2026-04-04 23:23:08</p>
     </header>
 
     <!-- Control Panel -->
@@ -89,7 +89,7 @@
     <!-- Data Injection -->
     <script>
         // Data injected by Python script
-        const dashboardData = {"data": {"Baseline": {"financial": {"capex": 120.5, "opex": 45.2, "aids": 10.0, "revenues": 200.0, "npv": 44.3}, "hydrogen": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "production": [98, 54, 53, 92, 50, 97, 54, 89, 85, 97], "consumption": [51, 44, 49, 64, 51, 62, 67, 76, 90, 67], "storage_level": [446, 479, 264, 252, 420, 458, 362, 285, 476, 440]}, "power": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "consumption": [43, 30, 40, 39, 10, 45, 44, 38, 33, 27], "spot_price": [147, 49, 150, 109, 121, 73, 139, 62, 61, 47]}, "energy_mix": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "Electricity": {"production": {"Solar PV": [17, 14, 19, 12, 18, 6, 6, 6, 11, 20], "Wind Farm": [25, 10, 10, 10, 23, 24, 16, 16, 14, 20]}, "consumption": {"Electrolyzer": [15, 10, 39, 38, 34, 13, 28, 25, 32, 11], "Base Process": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5]}}, "Hydrogen": {"production": {"Electrolyzer ALK": [33, 35, 21, 35, 38, 27, 45, 27, 38, 38], "SMR Plant": [10, 16, 17, 15, 18, 17, 10, 10, 18, 20]}, "consumption": {"Steel Process Unit": [27, 25, 60, 37, 28, 41, 29, 48, 53, 56]}}}, "co2": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "direct_emissions": [500, 480, 470, 450, 430, 410, 400, 390, 370, 350], "net_emissions": [500, 480, 460, 420, 380, 350, 320, 290, 270, 240], "dac": [0, 0, 10, 20, 25, 30, 40, 50, 50, 60], "credits": [0, 0, 0, 10, 25, 30, 40, 50, 50, 50], "target_time": ["Day 5", "Day 10"], "target_values": [400, 200], "target_names": ["Milestone 1", "Final Objective"]}, "investment": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "capex_by_process_tech": {"Main Furnace (Process) - Electrification (Tech)": [10, 0, 0, 50, 0, 0, 0, 0, 0, 0], "Logistics (Process) - H2 Trucks (Tech)": [0, 0, 15, 0, 0, 30, 0, 0, 0, 0]}}, "transition": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "annual_avoided_co2": [0, 5, 20, 35, 60, 65, 75, 80, 85, 95], "cumulative_net_cost": [0, 10, 35, 70, 130, 185, 250, 330, 420, 520]}}, "Green_Scenario": {"financial": {"capex": 200.0, "opex": 30.0, "aids": 50.0, "revenues": 250.0, "npv": 70.0}, "hydrogen": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "production": [101, 132, 132, 137, 133, 142, 105, 150, 145, 135], "consumption": [91, 94, 107, 118, 112, 118, 97, 83, 95, 107], "storage_level": [437, 303, 396, 328, 497, 541, 300, 533, 566, 558]}, "power": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "consumption": [17, 20, 10, 10, 19, 27, 20, 19, 14, 21], "spot_price": [142, 90, 59, 130, 137, 86, 139, 150, 107, 61]}, "energy_mix": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "Electricity": {"production": {"Wind Farm": [76, 65, 80, 54, 47, 47, 51, 52, 73, 49], "Solar Farm": [41, 43, 33, 37, 49, 26, 30, 42, 43, 23]}, "consumption": {"Electrolyzer PEM": [58, 69, 82, 56, 73, 66, 77, 56, 57, 99]}}, "Hydrogen": {"production": {"Electrolyzer PEM": [132, 129, 139, 127, 102, 116, 119, 124, 117, 93]}, "consumption": {"Chemical Plant": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100]}}}, "co2": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "direct_emissions": [500, 450, 400, 350, 300, 250, 200, 150, 120, 100], "net_emissions": [500, 430, 370, 300, 230, 170, 120, 70, 40, 20], "dac": [0, 10, 15, 20, 30, 40, 40, 50, 50, 50], "credits": [0, 10, 15, 30, 40, 40, 40, 30, 30, 30], "target_time": ["Day 5", "Day 10"], "target_values": [250, 50], "target_names": ["Ambitious M1", "Net Zero"]}, "investment": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "capex_by_process_tech": {"Reactor 1 (Process) - Heat Pump (Tech)": [0, 45, 0, 0, 0, 10, 0, 0, 0, 0], "Power Generation (Process) - Solar Farm (Tech)": [120, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Boiler System (Process) - BioGas Conversion (Tech)": [0, 0, 0, 0, 60, 0, 0, 0, 0, 0]}}, "transition": {"time": ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"], "annual_avoided_co2": [0, 50, 100, 150, 200, 250, 300, 350, 400, 450], "cumulative_net_cost": [0, 120, 130, 130, 190, 195, 195, 195, 195, 195]}}}};
+        const dashboardData = {"data": {"Baseline": {"financial": {"capex": 120.5, "opex": 45.2, "aids": 10.0, "revenues": 200.0, "npv": 44.3}, "hydrogen": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "production": [84, 84, 74, 68, 87, 55, 89, 90, 78, 62, 98, 56, 72, 56, 70, 90, 80, 66, 75, 92, 83, 97, 64, 88, 54, 84], "consumption": [46, 51, 88, 62, 79, 77, 47, 56, 77, 71, 50, 73, 50, 75, 68, 50, 67, 86, 70, 73, 54, 45, 48, 65, 88, 57], "storage_level": [262, 297, 228, 295, 342, 267, 387, 287, 417, 303, 424, 300, 281, 456, 473, 374, 374, 363, 397, 303, 246, 382, 358, 226, 481, 304]}, "power": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "consumption": [43, 49, 35, 21, 29, 11, 49, 17, 50, 16, 12, 46, 32, 38, 45, 23, 38, 20, 25, 14, 26, 38, 34, 29, 17, 25], "spot_price": [138, 90, 102, 61, 65, 84, 25, 62, 99, 147, 90, 117, 120, 126, 42, 51, 148, 24, 87, 135, 137, 24, 96, 65, 37, 94]}, "energy_mix": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "Electricity": {"production": {"Solar PV": [19, 13, 10, 8, 6, 15, 11, 10, 16, 5, 15, 5, 14, 11, 15, 13, 14, 9, 12, 12, 9, 14, 19, 8, 6, 20], "Wind Farm": [25, 26, 23, 16, 16, 10, 14, 26, 22, 22, 23, 15, 29, 11, 22, 23, 22, 15, 20, 17, 23, 16, 15, 13, 17, 13]}, "consumption": {"Electrolyzer": [19, 32, 14, 24, 31, 19, 25, 26, 19, 24, 25, 29, 10, 32, 36, 27, 29, 25, 31, 20, 12, 33, 24, 15, 10, 36], "Base Process": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]}}, "Hydrogen": {"production": {"Electrolyzer ALK": [20, 41, 40, 38, 43, 21, 39, 50, 37, 44, 42, 44, 40, 48, 28, 47, 38, 45, 33, 30, 49, 29, 43, 30, 48, 27], "SMR Plant": [18, 20, 13, 20, 12, 10, 20, 16, 15, 12, 13, 16, 18, 19, 20, 16, 20, 18, 18, 14, 17, 16, 17, 12, 12, 10]}, "consumption": {"Steel Process Unit": [41, 39, 36, 34, 41, 51, 30, 38, 39, 51, 33, 59, 57, 35, 35, 34, 46, 46, 34, 54, 59, 56, 29, 44, 47, 57]}}}, "co2": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "direct_emissions": [3200, 3100, 2900, 2800, 2600, 2500, 2300, 2200, 2000, 1900, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850, 1850], "indirect_emissions": [100, 95, 90, 85, 80, 75, 70, 65, 60, 50, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40], "total_emissions": [3300, 3195, 2990, 2885, 2680, 2575, 2370, 2265, 2060, 1950, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890, 1890], "net_direct_emissions": [2800, 2700, 2400, 2200, 1800, 1600, 1200, 1000, 600, 400, 300, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200], "free_quotas_direct": [400, 400, 400, 500, 600, 700, 800, 900, 1000, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100], "taxed_emissions": [0, 50, 200, 250, 400, 450, 600, 650, 800, 850, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900], "dac": [0, 20, 150, 200, 300, 350, 500, 550, 700, 750, 800, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900, 900], "credits": [0, 0, 50, 100, 250, 300, 450, 500, 650, 700, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750, 750], "target_time": [2030, 2040, 2050], "target_values": [2500, 1500, 500], "target_names": ["Milestone 2030", "Milestone 2040", "Net Zero Objective"]}, "investment": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "capex_by_process_tech": {"Main Furnace (Process) - Electrification (Tech)": [10, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Logistics (Process) - H2 Trucks (Tech)": [0, 0, 15, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}}, "transition": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "cumulative_net_cost": [0, 10, 35, 70, 130, 185, 250, 330, 420, 520, 600, 650, 670, 690, 710, 730, 750, 770, 790, 810, 830, 850, 870, 890, 910, 930], "self_funded_capex": [0, 5, 10, 15, 25, 30, 40, 50, 60, 70, 80, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85], "bank_loan_service": [0, 3, 8, 15, 25, 35, 45, 55, 65, 75, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80], "tech_dac_opex": [0, 2, 5, 10, 15, 20, 30, 40, 50, 60, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70], "resource_mix_change": [0, 0, 5, 15, 30, 40, 50, 60, 70, 80, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90], "voluntary_carbon_credits": [0, 0, 2, 8, 15, 20, 25, 30, 35, 40, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45, 45], "annual_avoided_co2": [0, 5, 20, 35, 60, 65, 75, 80, 85, 95, 100, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120]}}, "Green_Scenario": {"financial": {"capex": 200.0, "opex": 30.0, "aids": 50.0, "revenues": 250.0, "npv": 70.0}, "hydrogen": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "production": [139, 109, 103, 131, 126, 138, 119, 121, 150, 137, 137, 115, 138, 138, 128, 132, 119, 149, 140, 141, 136, 144, 103, 137, 101, 117], "consumption": [82, 120, 120, 112, 108, 104, 99, 111, 91, 91, 117, 111, 97, 80, 119, 90, 90, 85, 114, 119, 112, 120, 117, 93, 87, 111], "storage_level": [481, 360, 556, 499, 514, 546, 465, 694, 302, 613, 609, 451, 689, 489, 561, 354, 657, 573, 542, 309, 488, 356, 646, 563, 349, 663]}, "power": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "consumption": [24, 29, 28, 18, 25, 9, 9, 17, 21, 11, 21, 20, 28, 29, 24, 5, 5, 12, 16, 27, 25, 22, 9, 5, 20, 9], "spot_price": [66, 32, 30, 116, 76, 47, 39, 127, 117, 35, 23, 101, 50, 147, 125, 130, 53, 123, 78, 78, 21, 124, 137, 22, 41, 140]}, "energy_mix": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "Electricity": {"production": {"Wind Farm": [53, 79, 44, 51, 44, 48, 41, 59, 60, 75, 57, 48, 79, 56, 61, 60, 72, 54, 55, 47, 78, 44, 62, 61, 49, 46], "Solar Farm": [35, 26, 21, 30, 56, 46, 28, 58, 41, 47, 28, 20, 57, 27, 47, 24, 27, 27, 42, 44, 45, 26, 35, 60, 26, 57]}, "consumption": {"Electrolyzer PEM": [90, 96, 63, 74, 92, 58, 93, 71, 85, 75, 74, 68, 73, 75, 55, 83, 97, 71, 65, 90, 95, 52, 53, 93, 54, 87]}}, "Hydrogen": {"production": {"Electrolyzer PEM": [103, 84, 97, 82, 118, 87, 84, 112, 139, 97, 83, 134, 126, 116, 95, 114, 113, 115, 101, 80, 104, 132, 133, 124, 114, 111]}, "consumption": {"Chemical Plant": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]}}}, "co2": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "direct_emissions": [3200, 2900, 2600, 2300, 2000, 1700, 1400, 1100, 800, 500, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "indirect_emissions": [100, 95, 85, 75, 65, 55, 45, 35, 25, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "total_emissions": [3300, 2995, 2685, 2375, 2065, 1755, 1445, 1135, 825, 515, 205, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "net_direct_emissions": [2200, 1900, 1600, 1300, 1000, 700, 400, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "free_quotas_direct": [800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800], "taxed_emissions": [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000], "dac": [0, 100, 250, 400, 500, 600, 700, 800, 900, 1000, 1200, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500], "credits": [0, 50, 150, 350, 500, 650, 800, 950, 1100, 1200, 1300, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500], "target_time": [2030, 2040, 2050], "target_values": [2000, 500, 0], "target_names": ["French Target", "EU Target", "Net Zero"]}, "investment": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "capex_by_process_tech": {"Reactor 1 (Process) - Heat Pump (Tech)": [0, 45, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Power Generation (Process) - Solar Farm (Tech)": [120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "Boiler System (Process) - BioGas Conversion (Tech)": [0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}}, "transition": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "cumulative_net_cost": [0, 120, 130, 130, 190, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195, 195], "self_funded_capex": [0, 60, 5, 0, 30, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "bank_loan_service": [0, 30, 10, 5, 20, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "tech_dac_opex": [0, 20, 8, 10, 15, 10, 8, 5, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "resource_mix_change": [0, 8, 3, 5, 15, 10, 5, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "voluntary_carbon_credits": [0, 2, 4, 5, 10, 10, 8, 5, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "annual_avoided_co2": [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500]}}}};
 
         // Methodology mapping
         const methodologies = {
@@ -165,7 +165,7 @@
                 paper_bgcolor: darkBg,
                 plot_bgcolor: darkBg,
                 font: { color: textColor, family: 'Arial, sans-serif' },
-                margin: { t: 50, b: 60, l: 70, r: 70 },
+                margin: { t: 50, b: 60, l: 80, r: 80 },
                 xaxis: { 
                     gridcolor: gridColor, 
                     gridwidth: 1, 
@@ -173,7 +173,12 @@
                     showline: true,
                     linecolor: spineColor,
                     linewidth: 1,
-                    tickfont: { color: textColor }
+                    tickfont: { color: textColor },
+                    tickangle: 0,
+                    dtick: 5,
+                    tick0: 2025, // Make sure sequence starts cleanly
+                    range: sData.hydrogen && sData.hydrogen.time ? 
+                           [sData.hydrogen.time[0], sData.hydrogen.time[sData.hydrogen.time.length - 1]] : undefined
                 },
                 yaxis: { 
                     gridcolor: gridColor, 
@@ -187,9 +192,9 @@
                 legend: { 
                     orientation: 'h', 
                     y: -0.2, 
-                    bgcolor: darkBg,
-                    bordercolor: gridColor,
-                    borderwidth: 1,
+                    bgcolor: darkBg, // using exact same dark background to avoid box effect
+                    bordercolor: 'rgba(0,0,0,0)', // Remove border
+                    borderwidth: 0,
                     font: { color: textColor }
                 },
                 hovermode: 'x unified'
@@ -350,51 +355,118 @@
                 graphTitle.textContent = "CO2 Trajectory & Emission Targets";
                 const timeStr = sData.co2.time;
 
-                const traceDirect = {
+                // Color palette matching the design
+                const colorPaletteC02 = {
+                    'Direct Emissions': '#1B4965',        // Dark Blue
+                    'Indirect Emissions': '#A9A9A9',      // Grey (dotted line)
+                    'Total Emissions (Net Direct + Indirect)': '#BEBEBE', // Light Grey
+                    'Net Direct Emissions': '#1E3A8A',    // Deep Blue
+                    'Free Quotas (Direct)': '#81C784',    // Light Green
+                    'Taxed Emissions (Surface)': '#90A4AE', // Blue-Grey
+                    'DAC Captured (ktCO2)': '#42A5F5',    // Bright Blue
+                    'Voluntary Credits (ktCO2)': '#66BB6A'  // Green
+                };
+
+                // Stacked Areas - building from bottom to top
+                const traceDirectEmissions = {
                     x: timeStr, y: sData.co2.direct_emissions,
-                    type: 'scatter', mode: 'lines',
-                    name: 'Direct CO2', line: { color: '#E0E0E0', width: 2, dash: 'dot' } // light grey
+                    type: 'scatter', mode: 'none',
+                    name: 'Direct Emissions',
+                    fill: 'tozeroy', fillcolor: colorPaletteC02['Direct Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
                 };
 
-                const traceNet = {
-                    x: timeStr, y: sData.co2.net_emissions,
-                    type: 'scatter', mode: 'lines',
-                    name: 'Net CO2', line: { color: '#E74C3C', width: 3 } // reporting.py darkred
+                const traceIndirectEmissions = {
+                    x: timeStr, y: sData.co2.indirect_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Indirect Emissions',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Indirect Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
                 };
 
-                // Display reductions negatively
+                const traceTotalEmissions = {
+                    x: timeStr, y: sData.co2.total_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Total Emissions (Net Direct + Indirect)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Total Emissions (Net Direct + Indirect)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceNetDirectEmissions = {
+                    x: timeStr, y: sData.co2.net_direct_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Net Direct Emissions',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Net Direct Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceFreeQuotasDirect = {
+                    x: timeStr, y: sData.co2.free_quotas_direct,
+                    type: 'scatter', mode: 'none',
+                    name: 'Free Quotas (Direct)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Free Quotas (Direct)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceTaxedEmissions = {
+                    x: timeStr, y: sData.co2.taxed_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Taxed Emissions (Surface)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Taxed Emissions (Surface)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                // Negative areas for reductions (DAC and Credits)
                 const traceDAC = {
                     x: timeStr, y: sData.co2.dac.map(v => -v),
-                    type: 'bar', name: 'DAC Captured',
-                    marker: { color: '#3498DB', opacity: 0.85 } // reporting.py dac_color
+                    type: 'scatter', mode: 'none',
+                    name: 'DAC Captured (ktCO2)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['DAC Captured (ktCO2)'],
+                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
                 };
 
                 const traceCredits = {
                     x: timeStr, y: sData.co2.credits.map(v => -v),
-                    type: 'bar', name: 'Voluntary Credits',
-                    marker: { color: '#27AE60', opacity: 0.85 } // reporting.py cred_color
+                    type: 'scatter', mode: 'none',
+                    name: 'Voluntary Credits (ktCO2)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Voluntary Credits (ktCO2)'],
+                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
                 };
 
-                const traceTargets = {
-                    x: sData.co2.target_time, y: sData.co2.target_values,
-                    text: sData.co2.target_names,
-                    type: 'scatter', mode: 'markers+text',
-                    name: 'Objectives',
-                    marker: { symbol: 'x', size: 14, color: '#F39C12', line: {width: 3} },
-                    textposition: 'top center',
-                    textfont: {color: '#F39C12', weight: 'bold'},
-                    cliponaxis: false
-                };
+                // Target markers with distinct colors per target
+                const traceTargets = sData.co2.target_names.map((name, i) => {
+                    const color = name.includes('French') ? '#E74C3C' : '#9b59b6'; // Red for French, Purple for EU/Others
+                    return {
+                        x: [sData.co2.target_time[i]], 
+                        y: [sData.co2.target_values[i]],
+                        text: [name],
+                        type: 'scatter', 
+                        mode: 'markers',
+                        name: name,
+                        marker: { symbol: 'x', size: 16, color: color, line: {width: 4, color: color} },
+                        cliponaxis: false,
+                        hovertemplate: '<b>%{text}</b><br>Target: %{y} ktCO2<extra></extra>',
+                        showlegend: true
+                    };
+                });
 
-                Plotly.newPlot('plotlyChart', [traceDAC, traceCredits, traceDirect, traceNet, traceTargets], {
+                Plotly.newPlot('plotlyChart', 
+                    [traceDirectEmissions, traceIndirectEmissions, traceTotalEmissions, 
+                     traceNetDirectEmissions, traceFreeQuotasDirect, traceTaxedEmissions,
+                     traceDAC, traceCredits, ...traceTargets], {
                     ...commonLayout,
-                    barmode: 'stack', // Stack negative reductions
                     yaxis: { 
                         ...commonLayout.yaxis, 
-                        title: 'CO2 Emissions / Capture (ktCO2)',
+                        title: 'Emissions / Capture (ktCO2)',
                         zeroline: true, zerolinecolor: spineColor 
+                    },
+                    legend: { 
+                        ...commonLayout.legend, 
+                        y: -0.25, 
+                        x: 0,
+                        orientation: 'h'
                     }
-                }, { responsive: true });
+                }, { responsive: true, autosize: true });
                 
             } else if (graphType === 'investment') {
                 graphTitle.textContent = "Investment Plan: Tech applied to Process";
@@ -459,40 +531,91 @@
                     return;
                 }
 
-                // Bar for Annual Avoided CO2 (y2 axis, on the right)
-                const traceAvoidedCO2 = {
-                    x: timeStr, y: transData.annual_avoided_co2,
-                    type: 'bar', name: 'Annual Avoided CO2',
-                    marker: { color: '#2ecc71', opacity: 0.7 }, // green from reporting
-                    yaxis: 'y2',
-                    hovertemplate: `<b>%{x}</b><br>Avoided: %{y} ktCO2<extra></extra>`
+                // Color palette for cost breakdown
+                const colorPaletteTransition = {
+                    'Self-funded CAPEX': '#0D47A1',          // Deep Blue
+                    'Bank Loan Service': '#1565C0',           // Blue
+                    'Tech & DAC OPEX': '#1976D2',             // Medium Blue
+                    'Resource Mix Change': '#1E88E5',         // Light Blue
+                    'Voluntary Carbon Credits': '#64B5F6'     // Very Light Blue
                 };
 
-                // Line for Cumulative Transition Cost (y1 axis, left)
+                // Stacked negative areas for costs
+                const traceSelfFundedCapex = {
+                    x: timeStr, y: transData.self_funded_capex.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Self-funded CAPEX',
+                    fill: 'tozeroy', fillcolor: colorPaletteTransition['Self-funded CAPEX'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceBankLoanService = {
+                    x: timeStr, y: transData.bank_loan_service.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Bank Loan Service',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Bank Loan Service'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceTechDacOpex = {
+                    x: timeStr, y: transData.tech_dac_opex.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Tech & DAC OPEX',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Tech & DAC OPEX'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceResourceMixChange = {
+                    x: timeStr, y: transData.resource_mix_change.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Resource Mix Change',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Resource Mix Change'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceVoluntaryCarbonCredits = {
+                    x: timeStr, y: transData.voluntary_carbon_credits.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Voluntary Carbon Credits',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Voluntary Carbon Credits'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                // Line for Cumulative Transition Cost (top, in red)
                 const traceCumCost = {
                     x: timeStr, y: transData.cumulative_net_cost,
-                    type: 'scatter', mode: 'lines+markers', name: 'Cumulative Transition Cost',
-                    line: { color: '#e74c3c', width: 3 }, // red from reporting
-                    marker: { size: 8, color: '#e74c3c', line: { color: darkBg, width: 2 } },
-                    hovertemplate: `<b>%{x}</b><br>Cumul Cost: %{y} M€<extra></extra>`
+                    type: 'scatter', mode: 'lines+markers', name: 'Net Transition Cost (Cumulative) (M€)',
+                    line: { color: '#E74C3C', width: 4 }, // Red
+                    marker: { size: 8, color: '#E74C3C', line: { color: darkBg, width: 2 } },
+                    yaxis: 'y',
+                    hovertemplate: '<b>%{x}</b><br>Cumul Cost: %{y} M€<extra></extra>'
                 };
 
-                Plotly.newPlot('plotlyChart', [traceAvoidedCO2, traceCumCost], {
+                Plotly.newPlot('plotlyChart', 
+                    [traceSelfFundedCapex, traceBankLoanService, traceTechDacOpex, 
+                     traceResourceMixChange, traceVoluntaryCarbonCredits, traceCumCost], {
                     ...commonLayout,
                     yaxis: { 
                         ...commonLayout.yaxis, 
-                        title: 'Cumulative Transition Cost (M€)' 
+                        title: 'Annual delta (Area) (M€)',
+                        zeroline: true, zerolinecolor: spineColor 
                     },
                     yaxis2: {
-                        title: 'Annual Avoided CO2 (ktCO2/yr)',
-                        titlefont: { color: '#2ecc71', weight: 'bold' },
-                        tickfont: { color: '#2ecc71' },
+                        title: 'Cumulative Net Cost (Line) (M€)',
+                        titlefont: { color: '#E74C3C', weight: 'bold' },
+                        tickfont: { color: '#333333' },
                         overlaying: 'y', side: 'right',
                         gridcolor: 'rgba(0,0,0,0)',
                         showline: true, linecolor: spineColor
                     },
+                    legend: { 
+                        ...commonLayout.legend, 
+                        y: -0.25, 
+                        x: 0,
+                        orientation: 'h'
+                    },
                     hovermode: 'x unified'
-                }, { responsive: true });
+                }, { responsive: true, autosize: true });
             }
         }
 

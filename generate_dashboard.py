@@ -172,7 +172,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 paper_bgcolor: darkBg,
                 plot_bgcolor: darkBg,
                 font: { color: textColor, family: 'Arial, sans-serif' },
-                margin: { t: 50, b: 60, l: 70, r: 70 },
+                margin: { t: 50, b: 60, l: 80, r: 80 },
                 xaxis: { 
                     gridcolor: gridColor, 
                     gridwidth: 1, 
@@ -180,7 +180,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     showline: true,
                     linecolor: spineColor,
                     linewidth: 1,
-                    tickfont: { color: textColor }
+                    tickfont: { color: textColor },
+                    tickangle: 0,
+                    dtick: 5,
+                    tick0: 2025, // Make sure sequence starts cleanly
+                    range: sData.hydrogen && sData.hydrogen.time ? 
+                           [sData.hydrogen.time[0], sData.hydrogen.time[sData.hydrogen.time.length - 1]] : undefined
                 },
                 yaxis: { 
                     gridcolor: gridColor, 
@@ -194,9 +199,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 legend: { 
                     orientation: 'h', 
                     y: -0.2, 
-                    bgcolor: darkBg,
-                    bordercolor: gridColor,
-                    borderwidth: 1,
+                    bgcolor: darkBg, // using exact same dark background to avoid box effect
+                    bordercolor: 'rgba(0,0,0,0)', // Remove border
+                    borderwidth: 0,
                     font: { color: textColor }
                 },
                 hovermode: 'x unified'
@@ -357,51 +362,118 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 graphTitle.textContent = "CO2 Trajectory & Emission Targets";
                 const timeStr = sData.co2.time;
 
-                const traceDirect = {
+                // Color palette matching the design
+                const colorPaletteC02 = {
+                    'Direct Emissions': '#1B4965',        // Dark Blue
+                    'Indirect Emissions': '#A9A9A9',      // Grey (dotted line)
+                    'Total Emissions (Net Direct + Indirect)': '#BEBEBE', // Light Grey
+                    'Net Direct Emissions': '#1E3A8A',    // Deep Blue
+                    'Free Quotas (Direct)': '#81C784',    // Light Green
+                    'Taxed Emissions (Surface)': '#90A4AE', // Blue-Grey
+                    'DAC Captured (ktCO2)': '#42A5F5',    // Bright Blue
+                    'Voluntary Credits (ktCO2)': '#66BB6A'  // Green
+                };
+
+                // Stacked Areas - building from bottom to top
+                const traceDirectEmissions = {
                     x: timeStr, y: sData.co2.direct_emissions,
-                    type: 'scatter', mode: 'lines',
-                    name: 'Direct CO2', line: { color: '#E0E0E0', width: 2, dash: 'dot' } // light grey
+                    type: 'scatter', mode: 'none',
+                    name: 'Direct Emissions',
+                    fill: 'tozeroy', fillcolor: colorPaletteC02['Direct Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
                 };
 
-                const traceNet = {
-                    x: timeStr, y: sData.co2.net_emissions,
-                    type: 'scatter', mode: 'lines',
-                    name: 'Net CO2', line: { color: '#E74C3C', width: 3 } // reporting.py darkred
+                const traceIndirectEmissions = {
+                    x: timeStr, y: sData.co2.indirect_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Indirect Emissions',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Indirect Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
                 };
 
-                // Display reductions negatively
+                const traceTotalEmissions = {
+                    x: timeStr, y: sData.co2.total_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Total Emissions (Net Direct + Indirect)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Total Emissions (Net Direct + Indirect)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceNetDirectEmissions = {
+                    x: timeStr, y: sData.co2.net_direct_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Net Direct Emissions',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Net Direct Emissions'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceFreeQuotasDirect = {
+                    x: timeStr, y: sData.co2.free_quotas_direct,
+                    type: 'scatter', mode: 'none',
+                    name: 'Free Quotas (Direct)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Free Quotas (Direct)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                const traceTaxedEmissions = {
+                    x: timeStr, y: sData.co2.taxed_emissions,
+                    type: 'scatter', mode: 'none',
+                    name: 'Taxed Emissions (Surface)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Taxed Emissions (Surface)'],
+                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
+                };
+
+                // Negative areas for reductions (DAC and Credits)
                 const traceDAC = {
                     x: timeStr, y: sData.co2.dac.map(v => -v),
-                    type: 'bar', name: 'DAC Captured',
-                    marker: { color: '#3498DB', opacity: 0.85 } // reporting.py dac_color
+                    type: 'scatter', mode: 'none',
+                    name: 'DAC Captured (ktCO2)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['DAC Captured (ktCO2)'],
+                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
                 };
 
                 const traceCredits = {
                     x: timeStr, y: sData.co2.credits.map(v => -v),
-                    type: 'bar', name: 'Voluntary Credits',
-                    marker: { color: '#27AE60', opacity: 0.85 } // reporting.py cred_color
+                    type: 'scatter', mode: 'none',
+                    name: 'Voluntary Credits (ktCO2)',
+                    fill: 'tonexty', fillcolor: colorPaletteC02['Voluntary Credits (ktCO2)'],
+                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
                 };
 
-                const traceTargets = {
-                    x: sData.co2.target_time, y: sData.co2.target_values,
-                    text: sData.co2.target_names,
-                    type: 'scatter', mode: 'markers+text',
-                    name: 'Objectives',
-                    marker: { symbol: 'x', size: 14, color: '#F39C12', line: {width: 3} },
-                    textposition: 'top center',
-                    textfont: {color: '#F39C12', weight: 'bold'},
-                    cliponaxis: false
-                };
+                // Target markers with distinct colors per target
+                const traceTargets = sData.co2.target_names.map((name, i) => {
+                    const color = name.includes('French') ? '#E74C3C' : '#9b59b6'; // Red for French, Purple for EU/Others
+                    return {
+                        x: [sData.co2.target_time[i]], 
+                        y: [sData.co2.target_values[i]],
+                        text: [name],
+                        type: 'scatter', 
+                        mode: 'markers',
+                        name: name,
+                        marker: { symbol: 'x', size: 16, color: color, line: {width: 4, color: color} },
+                        cliponaxis: false,
+                        hovertemplate: '<b>%{text}</b><br>Target: %{y} ktCO2<extra></extra>',
+                        showlegend: true
+                    };
+                });
 
-                Plotly.newPlot('plotlyChart', [traceDAC, traceCredits, traceDirect, traceNet, traceTargets], {
+                Plotly.newPlot('plotlyChart', 
+                    [traceDirectEmissions, traceIndirectEmissions, traceTotalEmissions, 
+                     traceNetDirectEmissions, traceFreeQuotasDirect, traceTaxedEmissions,
+                     traceDAC, traceCredits, ...traceTargets], {
                     ...commonLayout,
-                    barmode: 'stack', // Stack negative reductions
                     yaxis: { 
                         ...commonLayout.yaxis, 
-                        title: 'CO2 Emissions / Capture (ktCO2)',
+                        title: 'Emissions / Capture (ktCO2)',
                         zeroline: true, zerolinecolor: spineColor 
+                    },
+                    legend: { 
+                        ...commonLayout.legend, 
+                        y: -0.25, 
+                        x: 0,
+                        orientation: 'h'
                     }
-                }, { responsive: true });
+                }, { responsive: true, autosize: true });
                 
             } else if (graphType === 'investment') {
                 graphTitle.textContent = "Investment Plan: Tech applied to Process";
@@ -466,40 +538,91 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     return;
                 }
 
-                // Bar for Annual Avoided CO2 (y2 axis, on the right)
-                const traceAvoidedCO2 = {
-                    x: timeStr, y: transData.annual_avoided_co2,
-                    type: 'bar', name: 'Annual Avoided CO2',
-                    marker: { color: '#2ecc71', opacity: 0.7 }, // green from reporting
-                    yaxis: 'y2',
-                    hovertemplate: `<b>%{x}</b><br>Avoided: %{y} ktCO2<extra></extra>`
+                // Color palette for cost breakdown
+                const colorPaletteTransition = {
+                    'Self-funded CAPEX': '#0D47A1',          // Deep Blue
+                    'Bank Loan Service': '#1565C0',           // Blue
+                    'Tech & DAC OPEX': '#1976D2',             // Medium Blue
+                    'Resource Mix Change': '#1E88E5',         // Light Blue
+                    'Voluntary Carbon Credits': '#64B5F6'     // Very Light Blue
                 };
 
-                // Line for Cumulative Transition Cost (y1 axis, left)
+                // Stacked negative areas for costs
+                const traceSelfFundedCapex = {
+                    x: timeStr, y: transData.self_funded_capex.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Self-funded CAPEX',
+                    fill: 'tozeroy', fillcolor: colorPaletteTransition['Self-funded CAPEX'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceBankLoanService = {
+                    x: timeStr, y: transData.bank_loan_service.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Bank Loan Service',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Bank Loan Service'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceTechDacOpex = {
+                    x: timeStr, y: transData.tech_dac_opex.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Tech & DAC OPEX',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Tech & DAC OPEX'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceResourceMixChange = {
+                    x: timeStr, y: transData.resource_mix_change.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Resource Mix Change',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Resource Mix Change'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                const traceVoluntaryCarbonCredits = {
+                    x: timeStr, y: transData.voluntary_carbon_credits.map(v => -v),
+                    type: 'scatter', mode: 'none',
+                    name: 'Voluntary Carbon Credits',
+                    fill: 'tonexty', fillcolor: colorPaletteTransition['Voluntary Carbon Credits'],
+                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
+                };
+
+                // Line for Cumulative Transition Cost (top, in red)
                 const traceCumCost = {
                     x: timeStr, y: transData.cumulative_net_cost,
-                    type: 'scatter', mode: 'lines+markers', name: 'Cumulative Transition Cost',
-                    line: { color: '#e74c3c', width: 3 }, // red from reporting
-                    marker: { size: 8, color: '#e74c3c', line: { color: darkBg, width: 2 } },
-                    hovertemplate: `<b>%{x}</b><br>Cumul Cost: %{y} M€<extra></extra>`
+                    type: 'scatter', mode: 'lines+markers', name: 'Net Transition Cost (Cumulative) (M€)',
+                    line: { color: '#E74C3C', width: 4 }, // Red
+                    marker: { size: 8, color: '#E74C3C', line: { color: darkBg, width: 2 } },
+                    yaxis: 'y',
+                    hovertemplate: '<b>%{x}</b><br>Cumul Cost: %{y} M€<extra></extra>'
                 };
 
-                Plotly.newPlot('plotlyChart', [traceAvoidedCO2, traceCumCost], {
+                Plotly.newPlot('plotlyChart', 
+                    [traceSelfFundedCapex, traceBankLoanService, traceTechDacOpex, 
+                     traceResourceMixChange, traceVoluntaryCarbonCredits, traceCumCost], {
                     ...commonLayout,
                     yaxis: { 
                         ...commonLayout.yaxis, 
-                        title: 'Cumulative Transition Cost (M€)' 
+                        title: 'Annual delta (Area) (M€)',
+                        zeroline: true, zerolinecolor: spineColor 
                     },
                     yaxis2: {
-                        title: 'Annual Avoided CO2 (ktCO2/yr)',
-                        titlefont: { color: '#2ecc71', weight: 'bold' },
-                        tickfont: { color: '#2ecc71' },
+                        title: 'Cumulative Net Cost (Line) (M€)',
+                        titlefont: { color: '#E74C3C', weight: 'bold' },
+                        tickfont: { color: '#333333' },
                         overlaying: 'y', side: 'right',
                         gridcolor: 'rgba(0,0,0,0)',
                         showline: true, linecolor: spineColor
                     },
+                    legend: { 
+                        ...commonLayout.legend, 
+                        y: -0.25, 
+                        x: 0,
+                        orientation: 'h'
+                    },
                     hovermode: 'x unified'
-                }, { responsive: true });
+                }, { responsive: true, autosize: true });
             }
         }
 
@@ -592,7 +715,7 @@ def parse_excel_scenarios(data_dir: str) -> dict:
 def generate_mock_data() -> dict:
     """Generate mock data if no Excel files are present for testing out of the box."""
     import random
-    times = [f"Day {i}" for i in range(1, 11)]
+    times = [year for year in range(2025, 2051)] # 26 years from 2025 to 2050
     return {
         "data": {
             "Baseline": {
@@ -632,25 +755,34 @@ def generate_mock_data() -> dict:
                 },
                 "co2": {
                     "time": times,
-                    "direct_emissions": [500, 480, 470, 450, 430, 410, 400, 390, 370, 350],
-                    "net_emissions": [500, 480, 460, 420, 380, 350, 320, 290, 270, 240],
-                    "dac": [0, 0, 10, 20, 25, 30, 40, 50, 50, 60],
-                    "credits": [0, 0, 0, 10, 25, 30, 40, 50, 50, 50],
-                    "target_time": ["Day 5", "Day 10"],
-                    "target_values": [400, 200],
-                    "target_names": ["Milestone 1", "Final Objective"]
+                    "direct_emissions": [3200, 3100, 2900, 2800, 2600, 2500, 2300, 2200, 2000, 1900, 1850] + [1850]*15,
+                    "indirect_emissions": [100, 95, 90, 85, 80, 75, 70, 65, 60, 50, 40] + [40]*15,
+                    "total_emissions": [3300, 3195, 2990, 2885, 2680, 2575, 2370, 2265, 2060, 1950, 1890] + [1890]*15,
+                    "net_direct_emissions": [2800, 2700, 2400, 2200, 1800, 1600, 1200, 1000, 600, 400, 300] + [200]*15,
+                    "free_quotas_direct": [400, 400, 400, 500, 600, 700, 800, 900, 1000, 1100, 1100] + [1100]*15,
+                    "taxed_emissions": [0, 50, 200, 250, 400, 450, 600, 650, 800, 850, 900] + [900]*15,
+                    "dac": [0, 20, 150, 200, 300, 350, 500, 550, 700, 750, 800] + [900]*15,
+                    "credits": [0, 0, 50, 100, 250, 300, 450, 500, 650, 700, 750] + [750]*15,
+                    "target_time": [2030, 2040, 2050],
+                    "target_values": [2500, 1500, 500],
+                    "target_names": ["Milestone 2030", "Milestone 2040", "Net Zero Objective"]
                 },
                 "investment": {
                     "time": times,
                     "capex_by_process_tech": {
-                        "Main Furnace (Process) - Electrification (Tech)": [10, 0, 0, 50, 0, 0, 0, 0, 0, 0],
-                        "Logistics (Process) - H2 Trucks (Tech)": [0, 0, 15, 0, 0, 30, 0, 0, 0, 0]
+                        "Main Furnace (Process) - Electrification (Tech)": [10, 0, 0, 50, 0, 0] + [0]*20,
+                        "Logistics (Process) - H2 Trucks (Tech)": [0, 0, 15, 0, 0, 30] + [0]*20
                     }
                 },
                 "transition": {
                     "time": times,
-                    "annual_avoided_co2": [0, 5, 20, 35, 60, 65, 75, 80, 85, 95], 
-                    "cumulative_net_cost": [0, 10, 35, 70, 130, 185, 250, 330, 420, 520] 
+                    "cumulative_net_cost": [0, 10, 35, 70, 130, 185, 250, 330, 420, 520, 600] + [650 + 20*i for i in range(15)],
+                    "self_funded_capex": [0, 5, 10, 15, 25, 30, 40, 50, 60, 70, 80] + [85]*15,
+                    "bank_loan_service": [0, 3, 8, 15, 25, 35, 45, 55, 65, 75, 80] + [80]*15,
+                    "tech_dac_opex": [0, 2, 5, 10, 15, 20, 30, 40, 50, 60, 70] + [70]*15,
+                    "resource_mix_change": [0, 0, 5, 15, 30, 40, 50, 60, 70, 80, 90] + [90]*15,
+                    "voluntary_carbon_credits": [0, 0, 2, 8, 15, 20, 25, 30, 35, 40, 45] + [45]*15,
+                    "annual_avoided_co2": [0, 5, 20, 35, 60, 65, 75, 80, 85, 95, 100] + [120]*15
                 }
             },
             "Green_Scenario": {
@@ -688,26 +820,35 @@ def generate_mock_data() -> dict:
                 },
                 "co2": {
                     "time": times,
-                    "direct_emissions": [500, 450, 400, 350, 300, 250, 200, 150, 120, 100],
-                    "net_emissions": [500, 430, 370, 300, 230, 170, 120, 70, 40, 20],
-                    "dac": [0, 10, 15, 20, 30, 40, 40, 50, 50, 50],
-                    "credits": [0, 10, 15, 30, 40, 40, 40, 30, 30, 30],
-                    "target_time": ["Day 5", "Day 10"],
-                    "target_values": [250, 50],
-                    "target_names": ["Ambitious M1", "Net Zero"]
+                    "direct_emissions": [3200, 2900, 2600, 2300, 2000, 1700, 1400, 1100, 800, 500, 200] + [0]*15,
+                    "indirect_emissions": [100, 95, 85, 75, 65, 55, 45, 35, 25, 15, 5] + [0]*15,
+                    "total_emissions": [3300, 2995, 2685, 2375, 2065, 1755, 1445, 1135, 825, 515, 205] + [0]*15,
+                    "net_direct_emissions": [2200, 1900, 1600, 1300, 1000, 700, 400, 150, 0, 0, 0] + [0]*15,
+                    "free_quotas_direct": [800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800] + [800]*15,
+                    "taxed_emissions": [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1000, 1000] + [1000]*15,
+                    "dac": [0, 100, 250, 400, 500, 600, 700, 800, 900, 1000, 1200] + [1500]*15,
+                    "credits": [0, 50, 150, 350, 500, 650, 800, 950, 1100, 1200, 1300] + [1500]*15,
+                    "target_time": [2030, 2040, 2050],
+                    "target_values": [2000, 500, 0],
+                    "target_names": ["French Target", "EU Target", "Net Zero"]
                 },
                 "investment": {
                     "time": times,
                     "capex_by_process_tech": {
-                        "Reactor 1 (Process) - Heat Pump (Tech)": [0, 45, 0, 0, 0, 10, 0, 0, 0, 0],
-                        "Power Generation (Process) - Solar Farm (Tech)": [120, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                        "Boiler System (Process) - BioGas Conversion (Tech)": [0, 0, 0, 0, 60, 0, 0, 0, 0, 0]
+                        "Reactor 1 (Process) - Heat Pump (Tech)": [0, 45, 0, 0, 0, 10] + [0]*20,
+                        "Power Generation (Process) - Solar Farm (Tech)": [120, 0, 0, 0, 0, 0] + [0]*20,
+                        "Boiler System (Process) - BioGas Conversion (Tech)": [0, 0, 0, 0, 60, 0] + [0]*20
                     }
                 },
                 "transition": {
                     "time": times,
-                    "annual_avoided_co2": [0, 50, 100, 150, 200, 250, 300, 350, 400, 450], 
-                    "cumulative_net_cost": [0, 120, 130, 130, 190, 195, 195, 195, 195, 195] 
+                    "cumulative_net_cost": [0, 120, 130, 130, 190, 195, 195, 195, 195, 195, 195] + [195]*15,
+                    "self_funded_capex": [0, 60, 5, 0, 30, 5, 0, 0, 0, 0, 0] + [0]*15,
+                    "bank_loan_service": [0, 30, 10, 5, 20, 10, 5, 0, 0, 0, 0] + [0]*15,
+                    "tech_dac_opex": [0, 20, 8, 10, 15, 10, 8, 5, 3, 2, 1] + [0]*15,
+                    "resource_mix_change": [0, 8, 3, 5, 15, 10, 5, 3, 2, 1, 0] + [0]*15,
+                    "voluntary_carbon_credits": [0, 2, 4, 5, 10, 10, 8, 5, 3, 2, 1] + [0]*15,
+                    "annual_avoided_co2": [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500] + [500]*15
                 }
             }
         }
