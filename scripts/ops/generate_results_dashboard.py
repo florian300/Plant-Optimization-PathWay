@@ -661,36 +661,50 @@ def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any
     total_kt = to_float_list(pd.to_numeric(df_co2.get("Total_CO2", 0.0), errors="coerce").fillna(0.0), scale=1000.0)
     free_quota_kt = to_float_list(pd.to_numeric(df_co2.get("Free_Quota", 0.0), errors="coerce").fillna(0.0), scale=1000.0)
     taxed_kt = to_float_list(pd.to_numeric(df_co2.get("Taxed_CO2", 0.0), errors="coerce").fillna(0.0), scale=1000.0)
+    
+    dac_kt = to_float_list(pd.to_numeric(df_co2.get("DAC_Captured_kt", 0.0), errors="coerce").fillna(0.0), scale=1.0)
+    credits_kt = to_float_list(pd.to_numeric(df_co2.get("Credits_Purchased_kt", 0.0), errors="coerce").fillna(0.0), scale=1.0)
+
+    # Net Direct Balance calculation: Direct - DAC - Credits
+    net_direct_bal = [round(d - dc - c, 6) for d, dc, c in zip(direct_kt, dac_kt, credits_kt)]
 
     traces = [
+        # Negative Sinks
+        {
+            "type": "bar",
+            "name": "DAC Captured",
+            "x": years,
+            "y": [round(-abs(x), 6) for x in dac_kt],
+            "marker": {"color": "rgba(52, 152, 219, 0.6)"},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        {
+            "type": "bar",
+            "name": "Voluntary Credits",
+            "x": years,
+            "y": [round(-abs(x), 6) for x in credits_kt],
+            "marker": {"color": "rgba(39, 174, 96, 0.6)"},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        # Positive Emissions
         {
             "type": "scatter",
             "mode": "lines+markers",
-            "name": "Direct CO2",
+            "name": "Net Direct Emissions (Net)",
+            "x": years,
+            "y": net_direct_bal,
+            "line": {"width": 4, "color": "#2980B9", "dash": "dashdot"},
+            "marker": {"size": 6, "color": "#2980B9"},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        {
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Direct Emissions (Gross)",
             "x": years,
             "y": direct_kt,
             "line": {"width": 3, "color": "#111827"},
             "marker": {"size": 5, "color": "#111827"},
-            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Indirect CO2",
-            "x": years,
-            "y": indirect_kt,
-            "line": {"width": 2.5, "dash": "dot", "color": "#0284C7"},
-            "marker": {"size": 5, "color": "#0284C7"},
-            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Total CO2",
-            "x": years,
-            "y": total_kt,
-            "line": {"width": 3, "color": "#DC2626"},
-            "marker": {"size": 5, "color": "#DC2626"},
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
         {
@@ -709,8 +723,21 @@ def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any
             "marker": {"color": "rgba(71,85,105,0.45)"},
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
+        {
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Total CO2 (Direct+Ind)",
+            "x": years,
+            "y": total_kt,
+            "line": {"width": 3, "color": "#DC2626"},
+            "marker": {"size": 5, "color": "#DC2626"},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
     ]
-    layout = base_layout(title, "ktCO2", years, barmode="stack")
+    layout = base_layout(title, "ktCO2 (Carbon Balance)", years, barmode="relative")
+    layout["yaxis"]["zeroline"] = True
+    layout["yaxis"]["zerolinewidth"] = 2
+    layout["yaxis"]["zerolinecolor"] = "#333"
     description = (
         "The trajectory combines direct, indirect, and total emissions with the free-quota and taxed-emissions "
         "decomposition from CO2_Trajectory. Emission values are displayed in ktCO2 for readability."
@@ -1130,27 +1157,71 @@ def build_data_used_graph(df_data_used: pd.DataFrame) -> Tuple[Dict[str, Any], s
         "title": "CO2 Emissions (tCO2/unit)",
         "overlaying": "y",
         "side": "right",
-        "showgrid": False,
-        "zeroline": False
     }
 
     return {"data": traces, "layout": layout}, description
 
 
-def build_transition_cost_graph(df_financing: pd.DataFrame, df_costs: pd.DataFrame, df_co2: pd.DataFrame, df_transition_balance: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
+def _calculate_resource_costs(df_energy: pd.DataFrame, df_prices: pd.DataFrame) -> List[float]:
+    """Calculates annual resource costs in M€ from consumption and price data."""
+    if df_energy.empty or df_prices.empty or "Year" not in df_energy.columns:
+        return []
+
+    years = year_axis(df_energy["Year"])
+    p_map = {}
+    for _, row in df_prices.iterrows():
+        try:
+            r_id = str(row.get("Resource", "")).strip()
+            y_id = int(float(row.get("Year", 0)))
+            p_val = float(row.get("Price", 0.0))
+            if r_id and y_id > 0:
+                p_map[(r_id, y_id)] = p_val
+        except (TypeError, ValueError):
+            continue
+
+    costs = []
+    for i, yr in enumerate(years):
+        s_cost = 0.0
+        yr_int = int(yr) if yr is not None else 0
+        for col in [c for c in df_energy.columns if c != "Year"]:
+            con = clean_numeric(df_energy.iloc[i].get(col, 0.0))
+            pri = p_map.get((col, yr_int), 0.0)
+            if pri == 0:  # Fuzzy match
+                short_id = col.replace("EN_", "")
+                for (pr_res, pr_yr), pr_val in p_map.items():
+                    if pr_yr == yr_int and (short_id in pr_res or pr_res in col):
+                        pri = pr_val
+                        break
+            if con != 0 and pri != 0:
+                s_cost += (con * pri) / 1_000_000.0
+        costs.append(round(s_cost, 6))
+    return costs
+
+
+def build_transition_cost_graph(df_financing: pd.DataFrame, df_costs: pd.DataFrame, df_co2: pd.DataFrame, df_transition_balance: pd.DataFrame, df_energy: pd.DataFrame = None, df_prices: pd.DataFrame = None, bau_res_costs: List[float] = None) -> Tuple[Dict[str, Any], str]:
     title = "TRANSITION COST"
     if df_financing.empty or "Year" not in df_financing.columns:
-        return (
-            placeholder_figure(title, "No Financing data is available."),
-            "This graph requires financing + cost sheets to reconstruct transition effort.",
-        )
+        return (placeholder_figure(title, "No data."), "No financing data.")
 
-    years = year_axis(df_financing["Year"])
-    col_oop = find_column(df_financing, ["out_of_pocket_capex"])
-    col_annuity = find_column(df_financing, ["total_annuity"])
+    def safe_get_col(df, options, default_val=0.0):
+        for opt in options:
+            # Check for substring match too because of M€ icons and encoding
+            for col in df.columns:
+                if opt.lower() in col.lower():
+                    return pd.to_numeric(df[col], errors="coerce").fillna(default_val)
+        return pd.Series(default_val, index=df.index)
 
-    self_funded = to_float_list(pd.to_numeric(df_financing[col_oop], errors="coerce").fillna(0.0)) if col_oop else [0.0] * len(years)
-    loan_service = to_float_list(pd.to_numeric(df_financing[col_annuity], errors="coerce").fillna(0.0)) if col_annuity else [0.0] * len(years)
+    years = df_financing["Year"].tolist()
+    n_yrs = len(years)
+
+    self_funded = to_float_list(safe_get_col(df_financing, ["Out_of_Pocket_CAPEX", "Self-funded"]))
+    loan_service = to_float_list(safe_get_col(df_financing, ["Total_Annuity", "Bank Loan Service"]))
+    tech_opex = to_float_list(safe_get_col(df_costs, ["Tech & DAC OPEX", "Operational_Costs", "Total_OPEX"]))
+    
+    # Avoided Tax and Resource Saving (Deltas)
+    avoided_tax_annual = [0.0] * n_yrs
+    if df_transition_balance is not None:
+        avoided_tax_annual = to_float_list(safe_get_col(df_transition_balance, ["Avoided Carbon Tax", "Carbon_Tax_Saving"]))
 
     tech_opex_map = {}
     credits_map = {}
@@ -1164,122 +1235,82 @@ def build_transition_cost_graph(df_financing: pd.DataFrame, df_costs: pd.DataFra
             for yr, val in interest_map.items():
                 tech_opex_map[yr] = round(tech_opex_map.get(yr, 0.0) + val, 6)
 
-    net_tax_map = _series_map_by_year(df_co2, "Net_Tax_Cost_MEuros", scale=1.0)
-
     tech_opex = _aligned_from_map(years, tech_opex_map)
     credits = _aligned_from_map(years, credits_map)
-    net_tax = _aligned_from_map(years, net_tax_map)
+
+    # 2. Tax & Resource Savings (Deltas)
+    # Calculate Avoided Tax Saving robustly from CO2 data
+    avoided_co2 = _aligned_from_map(years, _series_map_by_year(df_co2, "Avoided_Total_CO2_kt"))
+    tax_price = _aligned_from_map(years, _series_map_by_year(df_co2, "Tax_Price"))
+    tax_delta_annual = [round(-(a * p / 1000.0), 6) for a, p in zip(avoided_co2, tax_price)]
+
+    # Autonomous Resource delta engine
+    res_delta_annual = [0.0] * n_yrs
+    if df_energy is not None and df_prices is not None and bau_res_costs is not None:
+        s_res_costs = _calculate_resource_costs(df_energy, df_prices)
+        for i, s_cost in enumerate(s_res_costs):
+            if i < n_yrs:
+                b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
+                res_delta_annual[i] = round(s_cost - b_cost, 6)
+
+    add_res_annual = [max(0, x) for x in res_delta_annual]
+    avoid_res_annual = [min(0, x) for x in res_delta_annual]
+
+    # Transform to Cumulative
+    def _to_cumul(arr):
+        c = 0
+        r = []
+        for v in arr:
+            c += v
+            r.append(round(c, 6))
+        return r
+
+    cum_self_funded = _to_cumul(self_funded)
+    cum_loan_service = _to_cumul(loan_service)
+    cum_tech_opex = _to_cumul(tech_opex)
+    cum_credits = _to_cumul(credits)
+    cum_tax_saving = _to_cumul(tax_delta_annual)
+    cum_add_res = _to_cumul(add_res_annual)
+    cum_avoid_res = _to_cumul(avoid_res_annual)
+
+    # Net result: (Self-funded + Loan + OPEX + Credits + Resource_Delta + Tax_Delta)
+    net_annual = [
+        round(a + b + c + d + e + f, 6)
+        for a, b, c, d, e, f in zip(
+            self_funded, loan_service, tech_opex, credits, res_delta_annual, tax_delta_annual
+        )
+    ]
+    cum_net = _to_cumul(net_annual)
 
     traces = [
+        {"type": "bar", "name": "Self-funded CAPEX", "x": years, "y": cum_self_funded, "marker": {"color": "#1F3A93"}},
+        {"type": "bar", "name": "Bank Loan", "x": years, "y": cum_loan_service, "marker": {"color": "#2C3E50"}},
+        {"type": "bar", "name": "Tech & DAC OPEX", "x": years, "y": cum_tech_opex, "marker": {"color": "#6741D9"}},
+        {"type": "bar", "name": "Additional Resources", "x": years, "y": cum_add_res, "marker": {"color": "#8B5CF6"}},
+        {"type": "bar", "name": "Voluntary Credits", "x": years, "y": cum_credits, "marker": {"color": "#9C36B5"}},
+        {"type": "bar", "name": "Tax Saving", "x": years, "y": cum_tax_saving, "marker": {"color": "#3E4444"}},
+        {"type": "bar", "name": "Avoided Resources", "x": years, "y": cum_avoid_res, "marker": {"color": "#10B981"}},
         {
-            "type": "bar",
-            "name": "Self-funded CAPEX",
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Net Transition Balance",
             "x": years,
-            "y": self_funded,
-            "marker": {"color": "#1D4ED8"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Bank loan service",
-            "x": years,
-            "y": loan_service,
-            "marker": {"color": "#0284C7"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Tech & DAC OPEX",
-            "x": years,
-            "y": tech_opex,
-            "marker": {"color": "#14B8A6"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Voluntary carbon credits",
-            "x": years,
-            "y": credits,
-            "marker": {"color": "#EA580C"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Net carbon tax",
-            "x": years,
-            "y": net_tax,
-            "marker": {"color": "#475569"},
+            "y": cum_net,
+            "line": {"width": 4, "color": "#E11D48"},
+            "marker": {"size": 8, "color": "#E11D48"},
             "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
         },
     ]
 
-    total = [round(a + b + c + d + e, 6) for a, b, c, d, e in zip(self_funded, loan_service, tech_opex, credits, net_tax)]
+    layout = base_layout(title, "Cumulative M€", years, barmode="relative")
+    layout["shapes"] = [
+        {"type": "line", "x0": years[0], "x1": years[-1], "y0": 0, "y1": 0, "line": {"color": "#000", "width": 1.5}}
+    ]
 
-    # Add extra new metrics if available
-    if not df_transition_balance.empty and "Year" in df_transition_balance.columns:
-        # Align by Year index
-        temp_tb = df_transition_balance.copy()
-        temp_tb['Year'] = temp_tb['Year'].astype(str)
-        temp_tb.set_index('Year', inplace=True)
-        aligned_rmc = []
-        aligned_avoid = []
-        
-        for y in years:
-            y_str = str(y)
-            if y_str in temp_tb.index:
-                aligned_rmc.append(float(temp_tb.loc[y_str].get("Resource Mix Change", 0.0)))
-                aligned_avoid.append(float(temp_tb.loc[y_str].get("Avoided Carbon Tax", 0.0)))
-            else:
-                aligned_rmc.append(0.0)
-                aligned_avoid.append(0.0)
-
-        res_plus = [round(max(0, x), 6) for x in aligned_rmc]
-        res_moins = [round(min(0, x), 6) for x in aligned_rmc]
-        
-        traces.append({
-            "type": "bar",
-            "name": "Ressources en plus",
-            "x": years,
-            "y": res_plus,
-            "marker": {"color": "#8B5CF6"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        })
-        traces.append({
-            "type": "bar",
-            "name": "Ressources en moins",
-            "x": years,
-            "y": res_moins,
-            "marker": {"color": "#10B981"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        })
-        traces.append({
-            "type": "bar",
-            "name": "Taxe carbone évitée",
-            "x": years,
-            "y": [round(x, 6) for x in aligned_avoid],
-            "marker": {"color": "#F59E0B"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        })
-        
-        total = [round(t + rp + rm + a, 6) for t, rp, rm, a in zip(total, res_plus, res_moins, aligned_avoid)]
-
-    traces.append(
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Total transition cost",
-            "x": years,
-            "y": total,
-            "line": {"width": 3, "color": "#0F172A"},
-            "marker": {"size": 6, "color": "#0F172A"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        }
-    )
-
-    layout = base_layout(title, "MEUR", years, barmode="stack")
     description = (
-        "Transition cost stacks self-funded CAPEX, debt service, technology OPEX proxies, voluntary carbon-credit cost, "
-        "and net carbon-tax burden, then overlays the yearly total effort."
+        "This graph shows the cumulative cost of the ecological transition. "
+        "Bars represent the cumulative components of investments, OPEX, and savings (taxes and resources). "
+        "The red line represents the net cumulative balance."
     )
     return {"data": traces, "layout": layout}, description
 
@@ -1312,7 +1343,7 @@ def build_total_annual_opex_graph(df_costs: pd.DataFrame, df_co2: pd.DataFrame) 
             "type": "bar",
             "name": "Credit cost",
             "x": years,
-            "y": credits,
+            "y": [round(v if v > 0 else -abs(v), 6) for v in credits],
             "marker": {"color": "#EA580C"},
             "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
         },
@@ -1344,7 +1375,7 @@ def build_total_annual_opex_graph(df_costs: pd.DataFrame, df_co2: pd.DataFrame) 
         },
     ]
 
-    layout = base_layout(title, "MEUR", years, barmode="stack")
+    layout = base_layout(title, "MEUR", years, barmode="relative")
     description = (
         "Total annual OPEX is reconstructed as DAC_Opex + Credit_Cost + Financing Interests + Net_Tax_Cost_MEuros. "
         "It provides a yearly operating-cost burden proxy in MEUR."
@@ -1527,6 +1558,17 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
     generation_date = datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d %H:%M:%S")
 
     scenarios: Dict[str, Any] = {}
+    
+    # 1. First pass to find BAU costs for resource delta calculation
+    bau_name = next((n for n in workbooks if any(b in n.upper() for b in ["BUSINESS AS USUAL", "BASELINE", "BAU"])), None)
+    bau_res_costs = None
+    if bau_name:
+        wb = workbooks[bau_name]
+        df_en_bau = load_sheet(wb, "Energy_Mix")
+        df_du_bau = load_sheet(wb, "Data_Used")
+        if not df_en_bau.empty and not df_du_bau.empty:
+            bau_res_costs = _calculate_resource_costs(df_en_bau, df_du_bau)
+
     for scenario_name, workbook in workbooks.items():
         df_energy = load_sheet(workbook, "Energy_Mix")
         df_costs = load_sheet(workbook, "Technology_Costs")
@@ -1547,7 +1589,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         invest_fig, invest_desc = build_investment_plan_graph(df_invest)
         resources_opex_fig, resources_opex_desc = build_resources_opex_graph(df_costs)
         data_used_fig, data_used_desc = build_data_used_graph(df_data_used)
-        transition_fig, transition_desc = build_transition_cost_graph(df_financing, df_costs, df_co2, df_transition_balance)
+        transition_fig, transition_desc = build_transition_cost_graph(df_financing, df_costs, df_co2, df_transition_balance, df_energy, df_data_used, bau_res_costs)
         total_opex_fig, total_opex_desc = build_total_annual_opex_graph(df_costs, df_co2)
         co2_abatement_fig, co2_abatement_desc = build_co2_abatement_graph(df_mac)
 

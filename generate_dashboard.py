@@ -10,873 +10,620 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plant-Optimization-PathWay Dashboard</title>
+    <title>PathWay - Premium Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #0D0D14; color: #FFFFFF; } /* Premium Dark Theme bg */
+        :root {
+            --bg-dark: #0D0D14;
+            --card-bg: rgba(22, 22, 30, 0.7);
+            --accent-green: #00FF7F;
+            --accent-blue: #3498DB;
+            --accent-red: #E74C3C;
+            --text-main: #EEEEEE;
+            --text-dim: #94A3B8;
+            --grid-color: #2B2B36;
+        }
+        body { 
+            background-color: var(--bg-dark); 
+            color: var(--text-main); 
+            font-family: 'Inter', sans-serif;
+            background-image: radial-gradient(circle at 50% 50%, #161622 0%, #0D0D14 100%);
+        }
         .glass-card {
-            background: rgba(43, 43, 54, 0.4); /* #2B2B36 overlay */
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        select, option {
+            background-color: #1E293B !important;
+            border-color: #334155 !important;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        
+        /* Premium Glow Effects */
+        .glow-text { text-shadow: 0 0 10px rgba(0, 255, 127, 0.3); }
+        .btn-premium {
+            background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-premium:hover {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 15px rgba(0, 255, 127, 0.2);
+            transform: translateY(-1px);
         }
     </style>
 </head>
-<body class="min-h-screen p-6 font-sans">
+<body class="min-h-screen p-8 custom-scrollbar">
 
-    <!-- Header -->
-    <header class="mb-8">
-        <h1 class="text-3xl font-bold text-emerald-400">Plant-Optimization-PathWay Results</h1>
-        <p class="text-slate-400 mt-1" id="generationDate">Generated on: {{GENERATION_DATE}}</p>
-    </header>
-
-    <!-- Control Panel -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="glass-card rounded-xl shadow-lg p-5">
-            <label class="block text-sm font-medium text-slate-300 mb-2">Select Scenario</label>
-            <select id="scenarioSelect" class="w-full bg-slate-700 text-white rounded-lg p-2.5 border border-slate-600 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition">
-                <!-- Populated dynamically -->
-            </select>
-        </div>
-
-        <div class="glass-card rounded-xl shadow-lg p-5">
-            <label class="block text-sm font-medium text-slate-300 mb-2">Select Visualization</label>
-            <select id="graphSelect" class="w-full bg-slate-700 text-white rounded-lg p-2.5 border border-slate-600 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
-                <option value="financial">Financial Summary (NPV)</option>
-                <option value="hydrogen">H2 Mass Balance</option>
-                <option value="power">Power Market & Consumption</option>
-                <option value="energy_mix">Energy Mix (Detailed)</option>
-                <option value="co2">CO2 Trajectory & Targets</option>
-                <option value="investment">Investment Plan (Process/Tech Mapping)</option>
-                <option value="transition">Ecological Transition Costs</option>
-            </select>
-        </div>
-
-        <!-- Energy Mix Sub-controls (Hidden initially) -->
-        <div id="energyMixControls" class="glass-card rounded-xl shadow-lg p-5 hidden col-span-1 md:col-span-3 grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-slate-300 mb-2">Resource Category</label>
-                <select id="mixCategorySelect" class="w-full bg-slate-700 text-white rounded-lg p-2.5 border border-slate-600 focus:ring-purple-500 focus:border-purple-500 outline-none transition">
-                    <option value="Electricity">Electricity</option>
-                    <option value="Hydrogen">Hydrogen</option>
-                </select>
+    <!-- Header Section -->
+    <header class="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <div class="flex items-center gap-3 mb-2">
+                <div class="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)]">
+                    <span class="text-white font-bold text-xl">P</span>
+                </div>
+                <h1 class="text-4xl font-bold tracking-tight text-white glow-text">PathWay <span class="text-emerald-400">Intelligence</span></h1>
             </div>
-            <div>
-                <label class="block text-sm font-medium text-slate-300 mb-2">Flow Direction</label>
-                <select id="mixDirectionSelect" class="w-full bg-slate-700 text-white rounded-lg p-2.5 border border-slate-600 focus:ring-purple-500 focus:border-purple-500 outline-none transition">
-                    <option value="production">Production</option>
-                    <option value="consumption">Consumption</option>
-                </select>
-            </div>
+            <p class="text-slate-400 font-medium" id="generationDate">Report generated on: {{GENERATION_DATE}}</p>
         </div>
-
-        <!-- Methodology Box -->
-        <div class="glass-card rounded-xl shadow-lg p-5 flex flex-col justify-center col-span-1 md:col-span-3">
-            <h3 class="text-sm font-bold text-emerald-400 mb-2 flex items-center">
-                <span class="mr-2">🧠</span> How this graph is constructed
-            </h3>
-            <p id="methodologyText" class="text-sm text-slate-300">
-                Methodology description will appear here.
-            </p>
-        </div>
-    </div>
-
-    <!-- Graph Container -->
-    <div class="glass-card rounded-xl shadow-xl p-6 relative">
-        <div class="flex justify-between items-center mb-4">
-            <h2 id="graphTitle" class="text-xl font-semibold text-white">Interactive Graph</h2>
-            <button onclick="downloadGraph()" class="bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-4 rounded-lg text-sm border border-slate-500 transition shadow hover:shadow-md flex items-center gap-2">
-                📸 Export PNG
+        <div class="flex gap-3">
+             <button onclick="downloadGraph()" class="btn-premium px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Export PNG
             </button>
         </div>
-        
-        <div id="plotlyChart" class="w-full h-[500px]"></div>
-    </div>
+    </header>
 
-    <!-- Data Injection -->
+    <main class="max-w-7xl mx-auto grid grid-cols-12 gap-8">
+        
+        <!-- Sidebar Controls -->
+        <aside class="col-span-12 lg:col-span-3 space-y-6">
+            <div class="glass-card rounded-2xl p-6">
+                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4">Configuration</h3>
+                
+                <div class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-300 mb-2">Scenario Analysis</label>
+                        <select id="scenarioSelect" class="w-full bg-slate-900 text-white rounded-xl p-3 border border-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/50 transition duration-300">
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-300 mb-2">Insight Category</label>
+                        <select id="graphSelect" class="w-full bg-slate-900 text-white rounded-xl p-3 border border-slate-700 outline-none focus:ring-2 focus:ring-blue-500/50 transition duration-300">
+                            <optgroup label="Core Trajectories">
+                                <option value="co2">CO2 Emissions & Targets</option>
+                                <option value="mac">Marginal Abatement Cost (MAC)</option>
+                                <option value="carbon_policy">Carbon Price & CCfD</option>
+                            </optgroup>
+                            <optgroup label="Economic Balance">
+                                <option value="financial">Financial Balance (NPV)</option>
+                                <option value="transition">Ecological Transition Costs</option>
+                                <option value="investment">Investment Plan (CAPEX)</option>
+                            </optgroup>
+                            <optgroup label="Resource Flows">
+                                <option value="hydrogen">Hydrogen Mass Balance</option>
+                                <option value="power">Power & Market Pricing</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Context Card -->
+            <div class="glass-card rounded-2xl p-6 border-l-4 border-l-emerald-500">
+                <h3 class="text-sm font-bold text-emerald-400 mb-2 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Methodology
+                </h3>
+                <p id="methodologyText" class="text-sm text-slate-400 leading-relaxed italic">
+                    Loading methodology parameters...
+                </p>
+            </div>
+        </aside>
+
+        <!-- Main Chart Display -->
+        <section class="col-span-12 lg:col-span-9 space-y-6">
+            <div class="glass-card rounded-[2rem] p-8 min-h-[650px] flex flex-col">
+                <div class="flex items-center justify-between mb-8">
+                    <h2 id="graphTitle" class="text-2xl font-bold text-white tracking-tight">Strategy Overview</h2>
+                    <div class="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-full border border-white/5">
+                        <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Interactive Result</span>
+                    </div>
+                </div>
+                
+                <div id="plotlyChart" class="flex-1 w-full"></div>
+            </div>
+        </section>
+
+    </main>
+
     <script>
-        // Data injected by Python script
         const dashboardData = {{INJECTED_JSON_HERE}};
 
-        // Methodology mapping
         const methodologies = {
-            'financial': "Global financial balance. CAPEX/OPEX (-), Aids/Revenues (+). Highlights the Net Present Value Waterfall.",
-            'hydrogen': "Synchronization between H2 production, consumption, and storage buffering across the simulation timeframe.",
-            'power': "Highlights grid power consumption behavior relative to spot market electricity prices.",
-            'energy_mix': "Detailed Energy Mix showing individual technological processes producing or consuming the selected category of resource.",
-            'co2': "CO2 trajectory vs Objectives (indicated by crosses), including net emission reductions through DAC (Direct Air Capture) and Voluntary Credits (plotted as negative values).",
-            'investment': "Interactive visual mapping of CAPEX allocations, detailing exactly which existing process has received which decarbonization technology across the timeframe.",
-            'transition': "Plots the cumulative net cost of the ecological transition alongside the volume of avoided emissions (relative to baseline) for each specific year."
+            'co2': "Comprehensive CO2 trajectory. Areas represent the gross emissions and the taxed/unquoted portions, while lines track the Net emissions after DAC/Credits sequestration.",
+            'mac': "Marginal Abatement Cost curve identifying the most cost-effective technologies. Sorted from lowest to highest cost per abated ton of CO2.",
+            'carbon_policy': "Trajectory of market carbon prices and the effective strike prices for any active Carbon Contract for Difference (CCfD).",
+            'financial': "Macro-financial waterfall showing the balance between investments (CAPEX), operational costs (OPEX), and returns (Aids/Revenues).",
+            'transition': "Cumulative cost of the ecological transition. Areas break down annual deltas (Sunk CAPEX, interests, credits) against the cumulative net total line.",
+            'investment': "Detailed annual CAPEX allocation. Highlights technological application to specific industrial processes, monitored against self-funding and loan limits.",
+            'hydrogen': "Mass balance for the H2 ecosystem, integrating production units, user processes, and storage buffering capacity.",
+            'power': "Grid interaction profile. Compares power consumption units against the volatile spot market prices."
         };
 
-        const scenarioSelect = document.getElementById('scenarioSelect');
-        const graphSelect = document.getElementById('graphSelect');
-        const mixCategorySelect = document.getElementById('mixCategorySelect');
-        const mixDirectionSelect = document.getElementById('mixDirectionSelect');
-        const energyMixControls = document.getElementById('energyMixControls');
-        const methodologyText = document.getElementById('methodologyText');
-        const plotlyChart = document.getElementById('plotlyChart');
-        const graphTitle = document.getElementById('graphTitle');
-
-        // Initialize Options
-        function init() {
-            const scenarios = Object.keys(dashboardData.data || {});
-            if (scenarios.length === 0) {
-                scenarioSelect.innerHTML = '<option value="">No data available</option>';
-                return;
+        // Layout Constants from Reporting.py
+        const darkTheme = {
+            bg: '#0D0D14',
+            grid: '#2B2B36',
+            text: '#FFFFFF',
+            spine: '#EEEEEE',
+            palettes: {
+                standard: ['#1A5276', '#E67E22', '#2980B9', '#8E44AD', '#16A085', '#D35400'],
+                neon: ['#00E5FF', '#FF007F', '#00FF7F', '#FFD700', '#9D00FF', '#FF00FF'],
+                co2: {
+                    direct: '#1B4965',
+                    indirect: '#A9A9A9',
+                    total: '#BEBEBE',
+                    net: '#3498DB',
+                    free: 'rgba(0, 255, 127, 0.2)',
+                    taxed: 'rgba(148, 163, 184, 0.3)',
+                    dac: '#3498DB',
+                    credits: '#27AE60'
+                }
             }
-            
-            scenarios.forEach(sc => {
-                const opt = document.createElement('option');
-                opt.value = sc;
-                opt.textContent = sc;
-                scenarioSelect.appendChild(opt);
-            });
+        };
 
-            // Listeners
-            scenarioSelect.addEventListener('change', updateDashboard);
-            graphSelect.addEventListener('change', updateDashboard);
-            mixCategorySelect.addEventListener('change', updateDashboard);
-            mixDirectionSelect.addEventListener('change', updateDashboard);
-
-            // First render
-            updateDashboard();
-        }
-
-        // Main Render Logic
         function updateDashboard() {
-            const scenario = scenarioSelect.value;
-            const graphType = graphSelect.value;
-            
-            if (!scenario || !dashboardData.data[scenario]) return;
-            
-            const sData = dashboardData.data[scenario];
-            methodologyText.textContent = methodologies[graphType];
+            const scenario = document.getElementById('scenarioSelect').value;
+            const type = document.getElementById('graphSelect').value;
+            if (!dashboardData.data[scenario]) return;
+            const data = dashboardData.data[scenario];
 
-            // Toggle visibility of Energy Mix sub-controls
-            if (graphType === 'energy_mix') {
-                energyMixControls.classList.remove('hidden');
-                energyMixControls.classList.add('grid');
-            } else {
-                energyMixControls.classList.add('hidden');
-                energyMixControls.classList.remove('grid');
-            }
+            document.getElementById('methodologyText').textContent = methodologies[type] || "No methodology defined.";
+            document.getElementById('graphTitle').textContent = document.querySelector(`#graphSelect option[value="${type}"]`)?.textContent || "Chart";
 
-            // Common Layout settings aligning with the premium dark theme of reporting.py
-            const darkBg = '#0D0D14';
-            const gridColor = '#2B2B36';
-            const textColor = '#FFFFFF';
-            const spineColor = '#EEEEEE';
-
-            const commonLayout = {
-                paper_bgcolor: darkBg,
-                plot_bgcolor: darkBg,
-                font: { color: textColor, family: 'Arial, sans-serif' },
-                margin: { t: 50, b: 60, l: 80, r: 80 },
+            const layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: darkTheme.text, family: 'Inter, Arial, sans-serif' },
+                margin: { t: 20, b: 80, l: 60, r: 60 },
                 xaxis: { 
-                    gridcolor: gridColor, 
-                    gridwidth: 1, 
-                    zerolinecolor: gridColor,
-                    showline: true,
-                    linecolor: spineColor,
-                    linewidth: 1,
-                    tickfont: { color: textColor },
-                    tickangle: 0,
-                    dtick: 5,
-                    tick0: 2025, // Make sure sequence starts cleanly
-                    range: sData.hydrogen && sData.hydrogen.time ? 
-                           [sData.hydrogen.time[0], sData.hydrogen.time[sData.hydrogen.time.length - 1]] : undefined
+                    gridcolor: darkTheme.grid, 
+                    showline: true, linecolor: darkTheme.spine,
+                    tickfont: { size: 10 }
                 },
                 yaxis: { 
-                    gridcolor: gridColor, 
-                    gridwidth: 1, 
-                    zerolinecolor: gridColor,
-                    showline: true,
-                    linecolor: spineColor,
-                    linewidth: 1,
-                    tickfont: { color: textColor }
+                    gridcolor: darkTheme.grid, 
+                    showline: true, linecolor: darkTheme.spine,
+                    tickfont: { size: 10 }
                 },
-                legend: { 
-                    orientation: 'h', 
-                    y: -0.2, 
-                    bgcolor: darkBg, // using exact same dark background to avoid box effect
-                    bordercolor: 'rgba(0,0,0,0)', // Remove border
-                    borderwidth: 0,
-                    font: { color: textColor }
-                },
+                legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center', font: {size: 11} },
                 hovermode: 'x unified'
             };
 
-            if (graphType === 'financial') {
-                graphTitle.textContent = "Financial Summary & NPV";
+            if (type === 'co2') {
+                const c = darkTheme.palettes.co2;
+                const traces = [
+                    // Negative Sinks (DAC/Credits) - Plotted first to be at physical bottom
+                    { x: data.co2.time, y: data.co2.dac.map(v => -v), name: 'DAC Captured', type: 'scatter', fill: 'tozeroy', fillcolor: 'rgba(52, 152, 219, 0.4)', line: {width:0}, stackgroup: 'sinks' },
+                    { x: data.co2.time, y: data.co2.credits.map(v => -v), name: 'Voluntary Credits', type: 'scatter', fill: 'tonexty', fillcolor: 'rgba(39, 174, 96, 0.4)', line: {width:0}, stackgroup: 'sinks' },
+
+                    // Positive Emissions (Areas)
+                    { x: data.co2.time, y: data.co2.free_quotas_direct, name: 'Free Quotas', type: 'scatter', fill: 'tozeroy', fillcolor: c.free, line: {width:0} },
+                    { x: data.co2.time, y: data.co2.taxed_emissions, name: 'Taxed Emissions', type: 'scatter', fill: 'tonexty', fillcolor: c.taxed, line: {width:0} },
+                    
+                    // Main lines
+                    { x: data.co2.time, y: data.co2.direct_emissions, name: 'Direct Emissions', line: {color: '#FFFFFF', width: 3} },
+                    { x: data.co2.time, y: data.co2.indirect_emissions, name: 'Indirect Emissions', line: {color: '#888888', width: 2, dash: 'dot'} },
+                    { x: data.co2.time, y: data.co2.net_direct_emissions, name: 'Net Direct Emissions', line: {color: c.net, width: 3, dash: 'dashdot'} }
+                ];
+
+                // Targets
+                if (data.co2.target_time && data.co2.target_time.length > 0) {
+                    traces.push({
+                        x: data.co2.target_time, y: data.co2.target_values,
+                        mode: 'markers', name: 'Goals',
+                        marker: { symbol: 'x', size: 14, color: '#FF0000', line: {width: 3} },
+                        text: data.co2.target_names
+                    });
+                }
+
+                const yMax = Math.max(...data.co2.direct_emissions, ...data.co2.taxed_emissions.map((v,i) => v + (data.co2.free_quotas_direct[i]||0))) * 1.25;
+                const yMin = Math.min(...data.co2.dac.map(v => -v), ...data.co2.credits.map(v => -v)) * 1.3;
+
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    yaxis: { ...layout.yaxis, title: 'ktCO2 (Carbon Balance)', range: [yMin < -5 ? yMin : -5, yMax] },
+                    shapes: [{ type: 'line', x0: data.co2.time[0], x1: data.co2.time[data.co2.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.5)', width: 1.5, dash: 'solid'} }]
+                }, {responsive: true});
+
+            } else if (type === 'mac') {
+                if (!data.mac) return showNoData();
+                const trace = {
+                    type: 'bar', orientation: 'h',
+                    y: data.mac.projects, x: data.mac.mac_values,
+                    marker: {
+                        color: data.mac.mac_values.map(v => v < 50 ? '#27AE60' : v < 150 ? '#F1C40F' : '#E74C3C'),
+                        line: { color: 'white', width: 0.5 }
+                    },
+                    text: data.mac.mac_values.map(v => v.toFixed(0) + ' €/t'),
+                    textposition: 'outside'
+                };
+                Plotly.newPlot('plotlyChart', [trace], {
+                    ...layout,
+                    xaxis: { ...layout.xaxis, title: 'MAC (€/tCO2)' },
+                    margin: { ...layout.margin, l: 200 }
+                }, {responsive: true});
+
+            } else if (type === 'investment') {
+                const traces = [];
+                const p = darkTheme.palettes.standard;
+                let i = 0;
+                for (const [name, vals] of Object.entries(data.investment.capex_by_process_tech)) {
+                    if (vals.some(v => v > 0)) {
+                        traces.push({
+                            x: data.investment.time, y: vals.map(v => v/1e6),
+                            name: name.split('##')[0], type: 'bar',
+                            marker: { color: p[i % p.length] }
+                        });
+                        i++;
+                    }
+                }
+                // Limits
+                if (data.investment.budget_limit && data.investment.budget_limit.length > 0) {
+                    traces.push({
+                        x: data.investment.time, y: data.investment.budget_limit.map(v => v/1e6),
+                        name: 'Self-Funded Limit', mode: 'lines', line: {color: '#2ECC71', dash: 'dash', shape: 'hv', width: 3}
+                    });
+                    traces.push({
+                        x: data.investment.time, y: data.investment.total_limit.map(v => v/1e6),
+                        name: 'Total Limit', mode: 'lines', line: {color: '#E74C3C', dash: 'dot', shape: 'hv', width: 3}
+                    });
+                }
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    barmode: 'stack',
+                    yaxis: { ...layout.yaxis, title: 'CAPEX (M€)' }
+                }, {responsive: true});
+
+            } else if (type === 'carbon_policy') {
+                if (!data.carbon_policy) return showNoData();
+                const traces = [
+                    { x: data.carbon_policy.time, y: data.carbon_policy.tax_price, name: 'Market Carbon Price', line: {color: '#00E5FF', width: 3} }
+                ];
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    yaxis: { ...layout.yaxis, title: '€/tCO2' }
+                }, {responsive: true});
+
+            } else if (type === 'transition') {
+                if (!data.transition) return showNoData();
+                const p = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#3E4444'];
                 
+                const traces = [
+                    { x: data.transition.time, y: data.transition.self_funded_capex, name: 'Self-funded CAPEX', type: 'bar', marker: {color: p[0]} },
+                    { x: data.transition.time, y: data.transition.bank_loan_service, name: 'Bank Loan', type: 'bar', marker: {color: p[1]} },
+                    { x: data.transition.time, y: data.transition.tech_dac_opex, name: 'Tech & DAC OPEX', type: 'bar', marker: {color: p[2]} },
+                    { x: data.transition.time, y: data.transition.additional_resource_cost, name: 'Additional Resources', type: 'bar', marker: {color: '#8B5CF6'} },
+                    { x: data.transition.time, y: data.transition.voluntary_carbon_credits, name: 'Voluntary Credits', type: 'bar', marker: {color: p[3]} },
+                    { x: data.transition.time, y: data.transition.annual_avoided_tax.map(v => -Math.abs(v)), name: 'Tax Saving', type: 'bar', marker: {color: p[4]} },
+                    { x: data.transition.time, y: data.transition.avoided_resource_saving.map(v => -Math.abs(v)), name: 'Avoided Resources', type: 'bar', marker: {color: '#10B981'} },
+                    { x: data.transition.time, y: data.transition.cumulative_net_cost, name: 'Net Transition Balance (Total)', line: {color: '#E74C3C', width: 4}, mode: 'lines+markers', type: 'scatter' }
+                ];
+                
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    barmode: 'relative',
+                    yaxis: { ...layout.yaxis, title: 'Cumulative M€' },
+                    shapes: [{ type: 'line', x0: data.transition.time[0], x1: data.transition.time[data.transition.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.8)', width: 1.5} }]
+                }, {responsive: true});
+                
+            } else if (type === 'financial') {
                 const trace = {
                     type: "waterfall",
                     orientation: "v",
                     measure: ["relative", "relative", "relative", "relative", "total"],
-                    x: ["CAPEX", "OPEX", "Public Aids", "Revenues", "NPV"],
-                    textposition: "outside",
-                    textfont: { color: textColor, size: 13, weight: "bold" },
-                    y: [
-                        -sData.financial.capex, 
-                        -sData.financial.opex, 
-                        sData.financial.aids, 
-                        sData.financial.revenues, 
-                        0 // Total computed automatically
-                    ],
-                    text: [
-                        -sData.financial.capex, 
-                        -sData.financial.opex, 
-                        sData.financial.aids, 
-                        sData.financial.revenues, 
-                        sData.financial.npv
-                    ].map(v => v.toFixed(2) + ' M€'),
-                    connector: { line: { color: gridColor, width: 2 } },
-                    decreasing: { marker: { color: "#E74C3C" } }, // red from reporting.py
-                    increasing: { marker: { color: "#27AE60" } }, // green from reporting.py
-                    totals: { marker: { color: "#3498DB" } } // blue from reporting.py
+                    x: ["CAPEX", "OPEX", "Aids", "Revenues", "NPV"],
+                    y: [-data.financial.capex, -data.financial.opex, data.financial.aids, data.financial.revenues, data.financial.npv],
+                    connector: { line: { color: "rgb(63, 63, 63)" } },
+                    increasing: { marker: { color: "#27AE60" } },
+                    decreasing: { marker: { color: "#E74C3C" } },
+                    totals: { marker: { color: "#2980B9" } }
                 };
+                Plotly.newPlot('plotlyChart', [trace], { ...layout, yaxis: { ...layout.yaxis, title: 'Amount (M€)' } }, {responsive: true});
 
-                Plotly.newPlot('plotlyChart', [trace], {
-                    ...commonLayout,
-                    yaxis: { ...commonLayout.yaxis, title: 'Amount (M€)' }
-                }, { responsive: true });
+            } else if (type === 'hydrogen') {
+                const h = data.hydrogen;
+                Plotly.newPlot('plotlyChart', [
+                    { x: h.time, y: h.production, name: 'H2 Produced', line: {color: '#00FF7F', width: 3}, type: 'scatter' },
+                    { x: h.time, y: h.consumption, name: 'H2 Consumed', line: {color: '#FF007F', width: 2, dash: 'dash'}, type: 'scatter' },
+                    { x: h.time, y: h.storage_level, name: 'Storage', fill: 'tozeroy', fillcolor: 'rgba(0, 229, 255, 0.15)', yaxis: 'y2', line: {width:0}, type: 'scatter' }
+                ], {
+                    ...layout,
+                    yaxis: { title: 'kg/h' },
+                    yaxis2: { overlaying: 'y', side: 'right', title: 'Storage (kg)', showgrid: false }
+                }, {responsive: true});
 
-            } else if (graphType === 'hydrogen') {
-                graphTitle.textContent = "Hydrogen Mass Balance";
-                const timeStr = sData.hydrogen.time;
-                
-                const traceProd = {
-                    x: timeStr, y: sData.hydrogen.production,
-                    type: 'scatter', mode: 'lines',
-                    name: 'H2 Produced', line: { color: '#00FF7F', width: 3 } // neon green from reporting.py
-                };
-                
-                const traceCons = {
-                    x: timeStr, y: sData.hydrogen.consumption,
-                    type: 'scatter', mode: 'lines',
-                    name: 'H2 Consumed', line: { color: '#FF007F', dash: 'dash', width: 3 } // neon pink/red
-                };
-
-                const traceStorage = {
-                    x: timeStr, y: sData.hydrogen.storage_level,
-                    type: 'scatter', mode: 'none', fill: 'tozeroy',
-                    name: 'Storage Level', fillcolor: 'rgba(0, 229, 255, 0.25)', // neon cyan with opacity
-                    yaxis: 'y2'
-                };
-
-                Plotly.newPlot('plotlyChart', [traceStorage, traceProd, traceCons], {
-                    ...commonLayout,
-                    yaxis: { ...commonLayout.yaxis, title: 'H2 Flow (kg/h)' },
-                    yaxis2: {
-                        title: 'Storage Level (kg)',
-                        titlefont: { color: '#00E5FF', weight: 'bold' },
-                        tickfont: { color: '#00E5FF' },
-                        overlaying: 'y', side: 'right',
-                        gridcolor: 'rgba(0,0,0,0)',
-                        showline: true, linecolor: spineColor
-                    }
-                }, { responsive: true });
-
-            } else if (graphType === 'power') {
-                graphTitle.textContent = "Power Market & Consumption";
-                const timeStr = sData.power.time;
-
-                const tracePower = {
-                    x: timeStr, y: sData.power.consumption,
-                    type: 'bar', name: 'Power Consumed',
-                    marker: { color: '#9D00FF', opacity: 0.8 }, // neon purple from reporting.py
-                    marker_line_width: 0 
-                };
-
-                const tracePrice = {
-                    x: timeStr, y: sData.power.spot_price,
-                    type: 'scatter', mode: 'lines', name: 'Spot Price',
-                    line: { color: '#FFD700', width: 3 }, // neon yellow
-                    yaxis: 'y2'
-                };
-
-                Plotly.newPlot('plotlyChart', [tracePower, tracePrice], {
-                    ...commonLayout,
-                    yaxis: { ...commonLayout.yaxis, title: 'Power Consumed (MW)' },
-                    yaxis2: {
-                        title: 'Spot Price (€/MWh)',
-                        titlefont: { color: '#FFD700', weight: 'bold' },
-                        tickfont: { color: '#FFD700' },
-                        overlaying: 'y', side: 'right',
-                        gridcolor: 'rgba(0,0,0,0)',
-                        showline: true, linecolor: spineColor
-                    },
-                    barmode: 'stack'
-                }, { responsive: true });
-
-            } else if (graphType === 'energy_mix') {
-                const category = mixCategorySelect.value;
-                const direction = mixDirectionSelect.value; // 'production' or 'consumption'
-                
-                const properDirectionLabel = direction.charAt(0).toUpperCase() + direction.slice(1);
-                graphTitle.textContent = `Energy Mix: ${properDirectionLabel} of ${category}`;
-
-                const mixData = sData.energy_mix?.[category]?.[direction];
-                const timeStr = sData.energy_mix?.time || sData.hydrogen.time;
-                
-                if (!mixData || Object.keys(mixData).length === 0) {
-                    Plotly.newPlot('plotlyChart', [], {
-                        ...commonLayout,
-                        annotations: [{
-                            text: `No ${properDirectionLabel} data available for ${category}`,
-                            xref: 'paper', yref: 'paper',
-                            x: 0.5, y: 0.5, showarrow: false,
-                            font: { size: 16, color: '#f87171' }
-                        }]
-                    }, { responsive: true });
-                    return;
-                }
-
-                // Premium stacked area chart for Energy Mix
-                const traces = [];
-                const colorPalette = ['#e74c3c', '#9b59b6', '#f39c12', '#1abc9c', '#34495e', '#d35400', '#2ecc71', '#3498DB'];
-                let idx = 0;
-                
-                for (const [techName, values]  of Object.entries(mixData)) {
-                    traces.push({
-                        x: timeStr,
-                        y: values,
-                        name: techName,
-                        type: 'scatter',
-                        mode: 'none', // fills don't need lines by default in stacked layout, but we'll adapt
-                        fill: 'tonexty',
-                        stackgroup: 'one',
-                        fillcolor: colorPalette[idx % colorPalette.length],
-                        line: { color: colorPalette[idx % colorPalette.length], width: 1 }
-                    });
-                    idx++;
-                }
-
-                Plotly.newPlot('plotlyChart', Object.values(traces), {
-                    ...commonLayout,
-                    yaxis: { ...commonLayout.yaxis, title: `Quantity (MWh)` },
-                    hovermode: 'x unified'
-                }, { responsive: true });
-            } else if (graphType === 'co2') {
-                graphTitle.textContent = "CO2 Trajectory & Emission Targets";
-                const timeStr = sData.co2.time;
-
-                // Color palette matching the design
-                const colorPaletteC02 = {
-                    'Direct Emissions': '#1B4965',        // Dark Blue
-                    'Indirect Emissions': '#A9A9A9',      // Grey (dotted line)
-                    'Total Emissions (Net Direct + Indirect)': '#BEBEBE', // Light Grey
-                    'Net Direct Emissions': '#1E3A8A',    // Deep Blue
-                    'Free Quotas (Direct)': '#81C784',    // Light Green
-                    'Taxed Emissions (Surface)': '#90A4AE', // Blue-Grey
-                    'DAC Captured (ktCO2)': '#42A5F5',    // Bright Blue
-                    'Voluntary Credits (ktCO2)': '#66BB6A'  // Green
-                };
-
-                // Stacked Areas - building from bottom to top
-                const traceDirectEmissions = {
-                    x: timeStr, y: sData.co2.direct_emissions,
-                    type: 'scatter', mode: 'none',
-                    name: 'Direct Emissions',
-                    fill: 'tozeroy', fillcolor: colorPaletteC02['Direct Emissions'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                const traceIndirectEmissions = {
-                    x: timeStr, y: sData.co2.indirect_emissions,
-                    type: 'scatter', mode: 'none',
-                    name: 'Indirect Emissions',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Indirect Emissions'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                const traceTotalEmissions = {
-                    x: timeStr, y: sData.co2.total_emissions,
-                    type: 'scatter', mode: 'none',
-                    name: 'Total Emissions (Net Direct + Indirect)',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Total Emissions (Net Direct + Indirect)'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                const traceNetDirectEmissions = {
-                    x: timeStr, y: sData.co2.net_direct_emissions,
-                    type: 'scatter', mode: 'none',
-                    name: 'Net Direct Emissions',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Net Direct Emissions'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                const traceFreeQuotasDirect = {
-                    x: timeStr, y: sData.co2.free_quotas_direct,
-                    type: 'scatter', mode: 'none',
-                    name: 'Free Quotas (Direct)',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Free Quotas (Direct)'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                const traceTaxedEmissions = {
-                    x: timeStr, y: sData.co2.taxed_emissions,
-                    type: 'scatter', mode: 'none',
-                    name: 'Taxed Emissions (Surface)',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Taxed Emissions (Surface)'],
-                    stackgroup: 'positive', legendgroup: 'positive', showlegend: true
-                };
-
-                // Negative areas for reductions (DAC and Credits)
-                const traceDAC = {
-                    x: timeStr, y: sData.co2.dac.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'DAC Captured (ktCO2)',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['DAC Captured (ktCO2)'],
-                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
-                };
-
-                const traceCredits = {
-                    x: timeStr, y: sData.co2.credits.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Voluntary Credits (ktCO2)',
-                    fill: 'tonexty', fillcolor: colorPaletteC02['Voluntary Credits (ktCO2)'],
-                    stackgroup: 'negative', legendgroup: 'negative', showlegend: true
-                };
-
-                // Target markers with distinct colors per target
-                const traceTargets = sData.co2.target_names.map((name, i) => {
-                    const color = name.includes('French') ? '#E74C3C' : '#9b59b6'; // Red for French, Purple for EU/Others
-                    return {
-                        x: [sData.co2.target_time[i]], 
-                        y: [sData.co2.target_values[i]],
-                        text: [name],
-                        type: 'scatter', 
-                        mode: 'markers',
-                        name: name,
-                        marker: { symbol: 'x', size: 16, color: color, line: {width: 4, color: color} },
-                        cliponaxis: false,
-                        hovertemplate: '<b>%{text}</b><br>Target: %{y} ktCO2<extra></extra>',
-                        showlegend: true
-                    };
-                });
-
-                Plotly.newPlot('plotlyChart', 
-                    [traceDirectEmissions, traceIndirectEmissions, traceTotalEmissions, 
-                     traceNetDirectEmissions, traceFreeQuotasDirect, traceTaxedEmissions,
-                     traceDAC, traceCredits, ...traceTargets], {
-                    ...commonLayout,
-                    yaxis: { 
-                        ...commonLayout.yaxis, 
-                        title: 'Emissions / Capture (ktCO2)',
-                        zeroline: true, zerolinecolor: spineColor 
-                    },
-                    legend: { 
-                        ...commonLayout.legend, 
-                        y: -0.25, 
-                        x: 0,
-                        orientation: 'h'
-                    }
-                }, { responsive: true, autosize: true });
-                
-            } else if (graphType === 'investment') {
-                graphTitle.textContent = "Investment Plan: Tech applied to Process";
-                const invData = sData.investment;
-                const timeStr = invData.time || sData.hydrogen.time;
-                
-                if (!invData || Object.keys(invData.capex_by_process_tech || {}).length === 0) {
-                    Plotly.newPlot('plotlyChart', [], {
-                        ...commonLayout,
-                        annotations: [{
-                            text: 'No investment data found for this scenario.',
-                            xref: 'paper', yref: 'paper', x: 0.5, y: 0.5, showarrow: false,
-                            font: { size: 16, color: '#f87171' }
-                        }]
-                    }, { responsive: true });
-                    return;
-                }
-
-                const traces = [];
-                const colorPalette = ['#e74c3c', '#3498DB', '#f39c12', '#1abc9c', '#9b59b6', '#d35400', '#27AE60', '#F1C40F', '#34495e'];
-                let idx = 0;
-
-                // Create a stacked bar trace for each "Process - Technology" pairing
-                for (const [processTechCombo, values] of Object.entries(invData.capex_by_process_tech)) {
-                    traces.push({
-                        x: timeStr,
-                        y: values,
-                        name: processTechCombo,
-                        type: 'bar',
-                        marker: { color: colorPalette[idx % colorPalette.length], opacity: 0.9 },
-                        text: values.map(v => v > 0 ? `${v.toFixed(1)} M€` : ''),
-                        textposition: 'inside',
-                        hovertemplate: `<b>${processTechCombo}</b><br>CAPEX: %{y} M€<extra></extra>`
-                    });
-                    idx++;
-                }
-
-                Plotly.newPlot('plotlyChart', traces, {
-                    ...commonLayout,
-                    barmode: 'stack',
-                    yaxis: { 
-                        ...commonLayout.yaxis, 
-                        title: 'CAPEX (M€)' 
-                    },
-                    hovermode: 'x'
-                }, { responsive: true });
-
-            } else if (graphType === 'transition') {
-                graphTitle.textContent = "Ecological Transition Costs vs Avoided CO2";
-                const transData = sData.transition;
-                const timeStr = transData.time || sData.hydrogen.time;
-
-                if (!transData || !transData.cumulative_net_cost) {
-                    Plotly.newPlot('plotlyChart', [], {
-                        ...commonLayout,
-                        annotations: [{
-                            text: 'No transition cost data available.',
-                            xref: 'paper', yref: 'paper', x: 0.5, y: 0.5, showarrow: false,
-                            font: { size: 16, color: '#f87171' }
-                        }]
-                    }, { responsive: true });
-                    return;
-                }
-
-                // Color palette for cost breakdown
-                const colorPaletteTransition = {
-                    'Self-funded CAPEX': '#0D47A1',          // Deep Blue
-                    'Bank Loan Service': '#1565C0',           // Blue
-                    'Tech & DAC OPEX': '#1976D2',             // Medium Blue
-                    'Resource Mix Change': '#1E88E5',         // Light Blue
-                    'Voluntary Carbon Credits': '#64B5F6'     // Very Light Blue
-                };
-
-                // Stacked negative areas for costs
-                const traceSelfFundedCapex = {
-                    x: timeStr, y: transData.self_funded_capex.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Self-funded CAPEX',
-                    fill: 'tozeroy', fillcolor: colorPaletteTransition['Self-funded CAPEX'],
-                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
-                };
-
-                const traceBankLoanService = {
-                    x: timeStr, y: transData.bank_loan_service.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Bank Loan Service',
-                    fill: 'tonexty', fillcolor: colorPaletteTransition['Bank Loan Service'],
-                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
-                };
-
-                const traceTechDacOpex = {
-                    x: timeStr, y: transData.tech_dac_opex.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Tech & DAC OPEX',
-                    fill: 'tonexty', fillcolor: colorPaletteTransition['Tech & DAC OPEX'],
-                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
-                };
-
-                const traceResourceMixChange = {
-                    x: timeStr, y: transData.resource_mix_change.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Resource Mix Change',
-                    fill: 'tonexty', fillcolor: colorPaletteTransition['Resource Mix Change'],
-                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
-                };
-
-                const traceVoluntaryCarbonCredits = {
-                    x: timeStr, y: transData.voluntary_carbon_credits.map(v => -v),
-                    type: 'scatter', mode: 'none',
-                    name: 'Voluntary Carbon Credits',
-                    fill: 'tonexty', fillcolor: colorPaletteTransition['Voluntary Carbon Credits'],
-                    stackgroup: 'costs', legendgroup: 'costs', showlegend: true
-                };
-
-                // Line for Cumulative Transition Cost (top, in red)
-                const traceCumCost = {
-                    x: timeStr, y: transData.cumulative_net_cost,
-                    type: 'scatter', mode: 'lines+markers', name: 'Net Transition Cost (Cumulative) (M€)',
-                    line: { color: '#E74C3C', width: 4 }, // Red
-                    marker: { size: 8, color: '#E74C3C', line: { color: darkBg, width: 2 } },
-                    yaxis: 'y',
-                    hovertemplate: '<b>%{x}</b><br>Cumul Cost: %{y} M€<extra></extra>'
-                };
-
-                Plotly.newPlot('plotlyChart', 
-                    [traceSelfFundedCapex, traceBankLoanService, traceTechDacOpex, 
-                     traceResourceMixChange, traceVoluntaryCarbonCredits, traceCumCost], {
-                    ...commonLayout,
-                    yaxis: { 
-                        ...commonLayout.yaxis, 
-                        title: 'Annual delta (Area) (M€)',
-                        zeroline: true, zerolinecolor: spineColor 
-                    },
-                    yaxis2: {
-                        title: 'Cumulative Net Cost (Line) (M€)',
-                        titlefont: { color: '#E74C3C', weight: 'bold' },
-                        tickfont: { color: '#333333' },
-                        overlaying: 'y', side: 'right',
-                        gridcolor: 'rgba(0,0,0,0)',
-                        showline: true, linecolor: spineColor
-                    },
-                    legend: { 
-                        ...commonLayout.legend, 
-                        y: -0.25, 
-                        x: 0,
-                        orientation: 'h'
-                    },
-                    hovermode: 'x unified'
-                }, { responsive: true, autosize: true });
+            } else if (type === 'power') {
+                Plotly.newPlot('plotlyChart', [
+                    { x: data.power.time, y: data.power.consumption, name: 'Power Mix', type: 'bar', marker: {color: '#9D00FF'} },
+                    { x: data.power.time, y: data.power.spot_price, name: 'Spot Price', yaxis: 'y2', line: {color: '#FFD700', width: 3}, type: 'scatter' }
+                ], {
+                    ...layout,
+                    yaxis: { title: 'MW' },
+                    yaxis2: { overlaying: 'y', side: 'right', title: 'Price (€/MWh)', showgrid: false }
+                }, {responsive: true});
             }
         }
 
-        // Export image
-        function downloadGraph() {
-            Plotly.downloadImage('plotlyChart', {format: 'png', width: 1200, height: 800, filename: 'PathWay_Graph'});
+        function showNoData() {
+            Plotly.newPlot('plotlyChart', [], {
+                annotations: [{ text: "No data available for this visualization.", xref: "paper", yref: "paper", showarrow: false, font: {size: 20} }]
+            });
         }
 
-        // Boot
-        init();
+        function init() {
+            const select = document.getElementById('scenarioSelect');
+            Object.keys(dashboardData.data).forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', updateDashboard);
+            document.getElementById('graphSelect').addEventListener('change', updateDashboard);
+            updateDashboard();
+        }
+
+        function downloadGraph() {
+            Plotly.downloadImage('plotlyChart', {format: 'png', width: 1200, height: 800, filename: 'PathWay_Insight'});
+        }
+
+        window.onload = init;
     </script>
 </body>
-</html>
-"""
+</html>"""
 
 # --- PYTHON EXTRACTOR ---
 
 def parse_excel_scenarios(data_dir: str) -> dict:
     """
     Parses Excel files in the given directory to build the master JSON dictionary.
+    Exhaustively extracts data from Master_Plan.xlsx format generated by reporting.py.
+    """
+def parse_excel_scenarios(data_dir: str) -> dict:
+    """
+    Search results directories for Master_Plan.xlsx and build a structured dictionary.
     """
     master_data = {"data": {}}
-    excel_files = glob.glob(os.path.join(data_dir, "*.xlsx"))
+    excel_files = glob.glob(os.path.join(data_dir, "**", "Master_Plan.xlsx"), recursive=True)
 
     if not excel_files:
-        print(f"Warning: No Excel files found in {data_dir}. Generating mock data for demonstration.")
+        print(f"Warning: No Master_Plan.xlsx found in {data_dir}. Generating mock data.")
         return generate_mock_data()
 
     for file_path in excel_files:
-        filename = os.path.basename(file_path)
-        scenario_name = filename.replace(".xlsx", "").replace("Results_", "")
+        scenario_name = os.path.basename(os.path.dirname(file_path))
         print(f"Processing Scenario: {scenario_name}")
-        
         try:
-            # We attempt to load specific sheets. 
-            # Replace these sheet names / columns with your actual mappings.
-            # 1. Financial Data
-            df_invest = pd.read_excel(file_path, sheet_name='Bilan_Investissement')
-            df_opex = pd.read_excel(file_path, sheet_name='Bilan_Opex')
-            df_synth = pd.read_excel(file_path, sheet_name='Synthèse')
+            xl = pd.ExcelFile(file_path)
+            dfs = {name: pd.read_excel(xl, name) for name in xl.sheet_names}
+            s_data = {}
 
-            # Naive extraction - adjust logic based on exact Excel structure
-            capex = abs(df_invest['Value'].sum()) if 'Value' in df_invest.columns else 100.0
-            opex = abs(df_opex['Value'].sum()) if 'Value' in df_opex.columns else 20.0
-            aids = df_synth.loc[df_synth['Metric'] == 'Aids', 'Value'].values[0] if 'Metric' in df_synth.columns else 15.0
-            revenues = df_synth.loc[df_synth['Metric'] == 'Revenues', 'Value'].values[0] if 'Metric' in df_synth.columns else 150.0
-            npv = revenues + aids - capex - opex
-
-            # 2. Hydrogen Flow
-            df_h2 = pd.read_excel(file_path, sheet_name='Bilan_H2')
-            time_h2 = df_h2['Time'].tolist() if 'Time' in df_h2.columns else list(range(len(df_h2)))
-            prod_h2 = df_h2['Production'].tolist() if 'Production' in df_h2.columns else [0] * len(df_h2)
-            cons_h2 = df_h2['Consumption'].tolist() if 'Consumption' in df_h2.columns else [0] * len(df_h2)
-            stor_h2 = df_h2['Storage_Level'].tolist() if 'Storage_Level' in df_h2.columns else [0] * len(df_h2)
-
-            # 3. Power Consumption
-            # Assuming power data might be in the same or separate time-series sheet
-            df_power = pd.read_excel(file_path, sheet_name='Bilan_Elec')
-            time_pwr = df_power['Time'].tolist() if 'Time' in df_power.columns else list(range(len(df_power)))
-            cons_pwr = df_power['Grid_Consumption'].tolist() if 'Grid_Consumption' in df_power.columns else [0] * len(df_power)
-            spot_pwr = df_power['Spot_Price'].tolist() if 'Spot_Price' in df_power.columns else [0] * len(df_power)
-
-            master_data["data"][scenario_name] = {
-                "financial": {
-                    "capex": float(capex),
-                    "opex": float(opex),
-                    "aids": float(aids),
-                    "revenues": float(revenues),
-                    "npv": float(npv)
-                },
-                "hydrogen": {
-                    "time": time_h2,
-                    "production": prod_h2,
-                    "consumption": cons_h2,
-                    "storage_level": stor_h2
-                },
-                "power": {
-                    "time": time_pwr,
-                    "consumption": cons_pwr,
-                    "spot_price": spot_pwr
+            # --- CO2 Trajectory ---
+            if 'CO2_Trajectory' in dfs:
+                df_co2 = dfs['CO2_Trajectory']
+                n = len(df_co2)
+                def get_col(col):
+                    if col in df_co2.columns: return pd.to_numeric(df_co2[col], errors='coerce').fillna(0.0).tolist()
+                    return [0.0] * n
+                s_data["co2"] = {
+                    "time": [int(y) for y in df_co2['Year']],
+                    "direct_emissions": get_col('Direct_CO2'),
+                    "net_direct_emissions": get_col('Net_Direct_Emissions'),
+                    "taxed_emissions": get_col('Taxed_CO2'),
+                    "tax_cost": get_col('Tax_Cost_MEuros'), # Vital for baseline delta
+                    "dac": get_col('DAC_Captured_kt'),
+                    "credits": get_col('Credits_Purchased_kt')
                 }
-            }
 
-        except Exception as e:
-            print(f"Error reading {filename}: {e}. (Falling back to empty/mock data for this scenario)")
-            # You can inject a fallback mock here if needed.
+            # --- Financial & Opex proxies ---
+            if 'Technology_Costs' in dfs:
+                df_costs = dfs['Technology_Costs']
+                n_costs = len(df_costs)
+                def get_fin(col):
+                    if col in df_costs.columns: return pd.to_numeric(df_costs[col], errors='coerce').fillna(0.0).tolist()
+                    return [0.0] * n_costs
+                s_data["financial"] = {
+                    "self_funded_capex": get_fin('Self-funded_Capex'),
+                    "loan_service": get_fin('Financing Interests'),
+                    "tech_dac_opex": get_fin('DAC_Opex'),
+                    "credit_cost": get_fin('Credit_Cost')
+                }
+
+            # --- Resource & Energy Mix ---
+            if 'Energy_Mix' in dfs:
+                df_mix = dfs['Energy_Mix']
+                s_data["res_cons"] = {col: df_mix[col].tolist() for col in df_mix.columns if col != 'Year'}
+            if 'Data_Used' in dfs:
+                df_data = dfs['Data_Used']
+                p_map = {}
+                for idx, row in df_data.iterrows():
+                    try:
+                        r_id = str(row.get('Resource', '')).strip()
+                        y_id = int(float(row.get('Year', 0)))
+                        p_val = float(row.get('Price', 0.0))
+                        if r_id and y_id > 0:
+                            p_map[(r_id, y_id)] = p_val
+                    except: continue
+                s_data["res_prices"] = p_map
+                # print(f"  [DEBUG] Found {len(p_map)} price entries in {scenario_name}")
+
+            # --- Charts extraction (Try to find the table if it exists) ---
+            if 'Charts' in dfs:
+                df_charts = dfs['Charts']
+                try:
+                    trans_idx = df_charts[df_charts.iloc[:, 0].str.contains("Ecological Transition", na=False)].index
+                    if not trans_idx.empty:
+                        idx = trans_idx[0]
+                        header = df_charts.iloc[idx+1].tolist()
+                        df_trans_raw = df_charts.iloc[idx+2:].copy()
+                        end_idx = df_trans_raw[df_trans_raw.iloc[:, 0].isna()].index
+                        if not end_idx.empty: df_trans_raw = df_trans_raw.loc[:end_idx[0]-1]
+                        df_trans_raw.columns = header
+                        df_trans_raw = df_trans_raw.set_index(header[0])
+                        s_data["transition"] = {
+                            "time": [int(float(y)) for y in df_trans_raw.index],
+                            "self_funded_capex": pd.to_numeric(df_trans_raw.get('Self-funded CAPEX', 0), errors='coerce').fillna(0.0).tolist(),
+                            "bank_loan_service": pd.to_numeric(df_trans_raw.get('Bank Loan Service', 0), errors='coerce').fillna(0.0).tolist(),
+                            "tech_dac_opex": pd.to_numeric(df_trans_raw.get('Tech & DAC OPEX', 0), errors='coerce').fillna(0.0).tolist(),
+                            "additional_resource_cost": pd.to_numeric(df_trans_raw.get('Additional Resource Cost', 0), errors='coerce').fillna(0.0).tolist(),
+                            "avoided_resource_saving": pd.to_numeric(df_trans_raw.get('Avoided Resource Saving', 0), errors='coerce').fillna(0.0).tolist(),
+                            "voluntary_carbon_credits": pd.to_numeric(df_trans_raw.get('Voluntary Carbon Credits', 0), errors='coerce').fillna(0.0).tolist(),
+                            "annual_avoided_tax": pd.to_numeric(df_trans_raw.get('Avoided Carbon Tax', 0), errors='coerce').fillna(0.0).tolist(),
+                            "cumulative_net_cost": pd.to_numeric(df_trans_raw.get('Net Transition Balance (Cumulative)', 0), errors='coerce').fillna(0.0).tolist()
+                        }
+                except: pass
+
+            master_data["data"][scenario_name] = s_data
+        except Exception as e: print(f"Error reading {file_path}: {e}")
+
+    # --- Robust Autonomous Delta Calculation ---
+    baseline_scenario_name = next((n for n in master_data["data"] if any(b in n.upper() for b in ["BUSINESS AS USUAL", "BASELINE", "BAU"])), None)
+    baseline_scenario = master_data["data"].get(baseline_scenario_name)
+    if not baseline_scenario: print(f"  [WARNING] No baseline scenario found for delta calculation! (Checked: {list(master_data['data'].keys())})")
+    else: print(f"  [DEBUG] Using '{baseline_scenario_name}' as baseline for resource deltas.")
+
+    def calculate_scenario_resource_costs(data, scen_name=""):
+        if "res_cons" not in data or "co2" not in data: return []
+        years = [int(float(y)) for y in data["co2"]["time"]]
+        cons_data = data["res_cons"]
+        prices = data.get("res_prices", {}) 
+        if not prices and baseline_scenario: prices = baseline_scenario.get("res_prices", {})
+
+        total_costs = []
+        for i, yr in enumerate(years):
+            yr_cost = 0.0
+            for res_id, cons_list in cons_data.items():
+                if i < len(cons_list):
+                    val = float(cons_list[i])
+                    p = prices.get((res_id, yr), 0.0)
+                    if p == 0:
+                        short_id = res_id.replace('EN_', '')
+                        for (pr_res, pr_yr), pr_val in prices.items():
+                            if pr_yr == yr and (short_id in pr_res or pr_res in res_id):
+                                p = pr_val
+                                break
+                    
+                    if val != 0 and p != 0:
+                        yr_cost += (val * p) / 1_000_000.0
+            total_costs.append(round(yr_cost, 6))
+        
+        # Log a sample for Electricity if found
+        if scen_name:
+            e_cons = cons_data.get('EN_ELEC', [0])[0]
+            e_price = prices.get(('EN_ELEC', 2025), 0)
+            if e_price == 0: # Try fuzzy for log
+                for (pr_res, pr_yr), pr_val in prices.items():
+                    if pr_yr == 2025 and ('ELEC' in pr_res): e_price = pr_val; break
+            # print(f"    - {scen_name} (2025): Elec Cons {e_cons:.1f}, Price {e_price:.2f}")
+
+        return total_costs
+
+    if baseline_scenario:
+        bau_costs = calculate_scenario_resource_costs(baseline_scenario, baseline_scenario_name)
+        bau_tax_cost = baseline_scenario.get("co2", {}).get("tax_cost", [0]*26)
+        
+        for name, data in master_data["data"].items():
+            is_bau = (name == baseline_scenario_name)
+            if is_bau:
+                if "transition" in data:
+                    z = [0.0] * len(data["transition"]["time"])
+                    data["transition"]["annual_avoided_tax"] = z
+                    data["transition"]["avoided_resource_saving"] = z
+                    data["transition"]["additional_resource_cost"] = z
+                continue
+            
+            years = [int(float(y)) for y in data["co2"]["time"]]
+            n_yrs = len(years)
+            
+            s_tax = data["co2"].get("tax_cost", [0.0]*n_yrs)
+            b_tax = bau_tax_cost[:n_yrs] if len(bau_tax_cost) >= n_yrs else bau_tax_cost + [0.0]*(n_yrs - len(bau_tax_cost))
+            tax_savings_annual = [round(float(s) - float(b), 6) for s, b in zip(s_tax, b_tax)]
+            
+            s_res_costs = calculate_scenario_resource_costs(data)
+            b_res_costs = bau_costs[:n_yrs] if len(bau_costs) >= n_yrs else bau_costs + [0.0]*(n_yrs - len(bau_costs))
+            res_delta_annual = [round(float(s) - float(b), 6) for s, b in zip(s_res_costs, b_res_costs)]
+            
+            add_res_annual = [max(0, x) for x in res_delta_annual]
+            avoid_res_annual = [min(0, x) for x in res_delta_annual]
+
+            def to_cumul(l):
+                c = 0
+                res = []
+                for x in l:
+                    c += float(x)
+                    res.append(round(c, 6))
+                return res
+
+            if "transition" not in data:
+                self_funded = data.get("financial", {}).get("self_funded_capex", [0.0]*n_yrs)
+                loan_service = data.get("financial", {}).get("loan_service", [0.0]*n_yrs)
+                tech_opex = data.get("financial", {}).get("tech_dac_opex", [0.0]*n_yrs)
+                credits = data.get("financial", {}).get("credit_cost", [0.0]*n_yrs)
+                
+                data["transition"] = {
+                    "time": years,
+                    "self_funded_capex": to_cumul(self_funded),
+                    "bank_loan_service": to_cumul(loan_service),
+                    "tech_dac_opex": to_cumul(tech_opex),
+                    "voluntary_carbon_credits": to_cumul(credits),
+                    "annual_avoided_tax": to_cumul(tax_savings_annual),
+                }
+
+            data["transition"]["additional_resource_cost"] = to_cumul(add_res_annual)
+            data["transition"]["avoided_resource_saving"] = to_cumul(avoid_res_annual)
+            
+            sf = [float(x) for x in data.get("financial", {}).get("self_funded_capex", [0.0]*n_yrs)]
+            ls = [float(x) for x in data.get("financial", {}).get("loan_service", [0.0]*n_yrs)]
+            to = [float(x) for x in data.get("financial", {}).get("tech_dac_opex", [0.0]*n_yrs)]
+            cr = [float(x) for x in data.get("financial", {}).get("credit_cost", [0.0]*n_yrs)]
+            
+            net_annual = [(sf[i] + ls[i] + to[i] + cr[i] + res_delta_annual[i] + tax_savings_annual[i]) for i in range(n_yrs)]
+            data["transition"]["cumulative_net_cost"] = to_cumul(net_annual)
+
+    for data in master_data["data"].values():
+        data.pop("res_prices", None)
+        data.pop("res_cons", None)
 
     return master_data
 
-def generate_mock_data() -> dict:
-    """Generate mock data if no Excel files are present for testing out of the box."""
-    import random
-    times = [year for year in range(2025, 2051)] # 26 years from 2025 to 2050
-    return {
-        "data": {
-            "Baseline": {
-                "financial": { "capex": 120.5, "opex": 45.2, "aids": 10.0, "revenues": 200.0, "npv": 44.3 },
-                "hydrogen": {
-                    "time": times,
-                    "production": [random.randint(50, 100) for _ in times],
-                    "consumption": [random.randint(40, 90) for _ in times],
-                    "storage_level": [random.randint(200, 500) for _ in times]
-                },
-                "power": {
-                    "time": times,
-                    "consumption": [random.randint(10, 50) for _ in times],
-                    "spot_price": [random.randint(20, 150) for _ in times]
-                },
-                "energy_mix": {
-                    "time": times,
-                    "Electricity": {
-                        "production": {
-                            "Solar PV": [random.randint(5, 20) for _ in times],
-                            "Wind Farm": [random.randint(10, 30) for _ in times]
-                        },
-                        "consumption": {
-                            "Electrolyzer": [random.randint(10, 40) for _ in times],
-                            "Base Process": [5 for _ in times]
-                        }
-                    },
-                    "Hydrogen": {
-                        "production": {
-                            "Electrolyzer ALK": [random.randint(20, 50) for _ in times],
-                            "SMR Plant": [random.randint(10, 20) for _ in times]
-                        },
-                        "consumption": {
-                            "Steel Process Unit": [random.randint(25, 60) for _ in times]
-                        }
-                    }
-                },
-                "co2": {
-                    "time": times,
-                    "direct_emissions": [3200, 3100, 2900, 2800, 2600, 2500, 2300, 2200, 2000, 1900, 1850] + [1850]*15,
-                    "indirect_emissions": [100, 95, 90, 85, 80, 75, 70, 65, 60, 50, 40] + [40]*15,
-                    "total_emissions": [3300, 3195, 2990, 2885, 2680, 2575, 2370, 2265, 2060, 1950, 1890] + [1890]*15,
-                    "net_direct_emissions": [2800, 2700, 2400, 2200, 1800, 1600, 1200, 1000, 600, 400, 300] + [200]*15,
-                    "free_quotas_direct": [400, 400, 400, 500, 600, 700, 800, 900, 1000, 1100, 1100] + [1100]*15,
-                    "taxed_emissions": [0, 50, 200, 250, 400, 450, 600, 650, 800, 850, 900] + [900]*15,
-                    "dac": [0, 20, 150, 200, 300, 350, 500, 550, 700, 750, 800] + [900]*15,
-                    "credits": [0, 0, 50, 100, 250, 300, 450, 500, 650, 700, 750] + [750]*15,
-                    "target_time": [2030, 2040, 2050],
-                    "target_values": [2500, 1500, 500],
-                    "target_names": ["Milestone 2030", "Milestone 2040", "Net Zero Objective"]
-                },
-                "investment": {
-                    "time": times,
-                    "capex_by_process_tech": {
-                        "Main Furnace (Process) - Electrification (Tech)": [10, 0, 0, 50, 0, 0] + [0]*20,
-                        "Logistics (Process) - H2 Trucks (Tech)": [0, 0, 15, 0, 0, 30] + [0]*20
-                    }
-                },
-                "transition": {
-                    "time": times,
-                    "cumulative_net_cost": [0, 10, 35, 70, 130, 185, 250, 330, 420, 520, 600] + [650 + 20*i for i in range(15)],
-                    "self_funded_capex": [0, 5, 10, 15, 25, 30, 40, 50, 60, 70, 80] + [85]*15,
-                    "bank_loan_service": [0, 3, 8, 15, 25, 35, 45, 55, 65, 75, 80] + [80]*15,
-                    "tech_dac_opex": [0, 2, 5, 10, 15, 20, 30, 40, 50, 60, 70] + [70]*15,
-                    "resource_mix_change": [0, 0, 5, 15, 30, 40, 50, 60, 70, 80, 90] + [90]*15,
-                    "voluntary_carbon_credits": [0, 0, 2, 8, 15, 20, 25, 30, 35, 40, 45] + [45]*15,
-                    "annual_avoided_co2": [0, 5, 20, 35, 60, 65, 75, 80, 85, 95, 100] + [120]*15
-                }
-            },
-            "Green_Scenario": {
-                "financial": { "capex": 200.0, "opex": 30.0, "aids": 50.0, "revenues": 250.0, "npv": 70.0 },
-                "hydrogen": {
-                    "time": times,
-                    "production": [random.randint(100, 150) for _ in times],
-                    "consumption": [random.randint(80, 120) for _ in times],
-                    "storage_level": [random.randint(300, 700) for _ in times]
-                },
-                "power": {
-                    "time": times,
-                    "consumption": [random.randint(5, 30) for _ in times],
-                    "spot_price": [random.randint(20, 150) for _ in times]
-                },
-                "energy_mix": {
-                    "time": times,
-                    "Electricity": {
-                        "production": {
-                            "Wind Farm": [random.randint(40, 80) for _ in times],
-                            "Solar Farm": [random.randint(20, 60) for _ in times]
-                        },
-                        "consumption": {
-                            "Electrolyzer PEM": [random.randint(50, 100) for _ in times]
-                        }
-                    },
-                    "Hydrogen": {
-                        "production": {
-                            "Electrolyzer PEM": [random.randint(80, 140) for _ in times]
-                        },
-                        "consumption": {
-                            "Chemical Plant": [100 for _ in times]
-                        }
-                    }
-                },
-                "co2": {
-                    "time": times,
-                    "direct_emissions": [3200, 2900, 2600, 2300, 2000, 1700, 1400, 1100, 800, 500, 200] + [0]*15,
-                    "indirect_emissions": [100, 95, 85, 75, 65, 55, 45, 35, 25, 15, 5] + [0]*15,
-                    "total_emissions": [3300, 2995, 2685, 2375, 2065, 1755, 1445, 1135, 825, 515, 205] + [0]*15,
-                    "net_direct_emissions": [2200, 1900, 1600, 1300, 1000, 700, 400, 150, 0, 0, 0] + [0]*15,
-                    "free_quotas_direct": [800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800] + [800]*15,
-                    "taxed_emissions": [200, 300, 400, 500, 600, 700, 800, 900, 1000, 1000, 1000] + [1000]*15,
-                    "dac": [0, 100, 250, 400, 500, 600, 700, 800, 900, 1000, 1200] + [1500]*15,
-                    "credits": [0, 50, 150, 350, 500, 650, 800, 950, 1100, 1200, 1300] + [1500]*15,
-                    "target_time": [2030, 2040, 2050],
-                    "target_values": [2000, 500, 0],
-                    "target_names": ["French Target", "EU Target", "Net Zero"]
-                },
-                "investment": {
-                    "time": times,
-                    "capex_by_process_tech": {
-                        "Reactor 1 (Process) - Heat Pump (Tech)": [0, 45, 0, 0, 0, 10] + [0]*20,
-                        "Power Generation (Process) - Solar Farm (Tech)": [120, 0, 0, 0, 0, 0] + [0]*20,
-                        "Boiler System (Process) - BioGas Conversion (Tech)": [0, 0, 0, 0, 60, 0] + [0]*20
-                    }
-                },
-                "transition": {
-                    "time": times,
-                    "cumulative_net_cost": [0, 120, 130, 130, 190, 195, 195, 195, 195, 195, 195] + [195]*15,
-                    "self_funded_capex": [0, 60, 5, 0, 30, 5, 0, 0, 0, 0, 0] + [0]*15,
-                    "bank_loan_service": [0, 30, 10, 5, 20, 10, 5, 0, 0, 0, 0] + [0]*15,
-                    "tech_dac_opex": [0, 20, 8, 10, 15, 10, 8, 5, 3, 2, 1] + [0]*15,
-                    "resource_mix_change": [0, 8, 3, 5, 15, 10, 5, 3, 2, 1, 0] + [0]*15,
-                    "voluntary_carbon_credits": [0, 2, 4, 5, 10, 10, 8, 5, 3, 2, 1] + [0]*15,
-                    "annual_avoided_co2": [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500] + [500]*15
-                }
-            }
-        }
-    }
+def generate_mock_data():
+    return {"data": {"Baseline": {"co2": {"time": [2025, 2030, 2050], "direct_emissions": [3000, 2500, 500]}}}}
 
 def main():
-    print("🚀 Starting Dashboard Generation...")
-    
-    # Define folder containing Excel Results
+    print("--- Starting Dashboard Generation ---")
     RESULTS_DIR = "./artifacts/reports/"
-    
-    # 1. Parse Excel into Dictionary
     dashboard_dict = parse_excel_scenarios(RESULTS_DIR)
-    
-    # 2. Serialize to JSON
     json_string = json.dumps(dashboard_dict)
     
-    # 3. Inject into HTML Template
-    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    html_output = HTML_TEMPLATE.replace('{{INJECTED_JSON_HERE}}', json_string)
-    html_output = html_output.replace('{{GENERATION_DATE}}', current_date)
-    
-    # 4. Save Final HTML
-    output_filename = "dashboard.html"
-    with open(output_filename, "w", encoding="utf-8") as f:
-        f.write(html_output)
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f:
+            html = f.read()
+    except:
+        html = "<html><body><script>const scenarioData = {{INJECTED_JSON_HERE}};</script></body></html>"
         
-    print(f"✅ Dashboard generated successfully: {output_filename}")
+    html = html.replace('{{INJECTED_JSON_HERE}}', json_string)
+    with open("dashboard.html", "w", encoding="utf-8") as f:
+        f.write(html)
+    print("[OK] Dashboard generated successfully: dashboard.html")
 
 if __name__ == "__main__":
     main()

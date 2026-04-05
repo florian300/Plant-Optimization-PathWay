@@ -1462,57 +1462,31 @@ class PathFinderReporter:
         self._apply_premium_style(ax1)
         
         if has_dac_or_cred:
-            ax2 = ax1.twinx()
-            
-            # ── SCALE LOGIC: ax2 inverted, Origin at Top, 3x scale of max abatement ──
-            max_abated = (dac_cap + cred).max()
-            if max_abated < 1e-4: max_abated = 1.0
-            
-            # 3 times larger than the maximum of (voluntary credit + DAC Captured)
-            ymax2_limit = 3 * max_abated
-            
-            # Origin at the top (0) and pointing downward (ymax2_limit)
-            # In matplotlib, set_ylim(bottom, top) -> to invert we do (max, 0)
-            ax2.set_ylim(ymax2_limit, 0)
-            
-            # Set ax1 limits normally (0 to max emissions + 10% margin)
-            ymax1 = max(df['Direct_CO2'].max(), df['Indirect_CO2'].max(), net_direct.max(), (df['Free_Quota'] + df['Taxed_CO2']).max()) * 1.1
-            if ymax1 < 1e-4: ymax1 = 1.0
-            ax1.set_ylim(0, ymax1)
-            
-            # Use a slightly more professional palette for DAC/Credits
+            # Use a professional palette for DAC/Credits (Negative Sinks)
             dac_color = '#3498DB'
             cred_color = '#27AE60'
 
-            # Plot filling DOWNWARDS from the top (0)
-            # Since ax2 is inverted [ymax2, 0], values 0 -> ymax2 move DOWN
-            ax2.fill_between(df['Year'], 0, dac_cap, color=dac_color, alpha=0.6, label='DAC Captured (ktCO2)', zorder=2)
-            ax2.fill_between(df['Year'], dac_cap, dac_cap + cred, color=cred_color, alpha=0.6, label='Voluntary Credits (ktCO2)', zorder=2)
+            # Plot negative areas on the main axis to show "removals"
+            ax1.fill_between(df['Year'], 0, -dac_cap, color=dac_color, alpha=0.6, label='DAC Captured (ktCO2)', zorder=2)
+            ax1.fill_between(df['Year'], -dac_cap, -(dac_cap + cred), color=cred_color, alpha=0.6, label='Voluntary Credits (ktCO2)', zorder=2)
             
-            ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.0f}'))
-            ax2.set_ylabel('DAC & CREDITS (ktCO2)', fontsize=11, color=cred_color, weight='bold')
-            ax2.tick_params(axis='y', labelcolor=cred_color)
+            # Adjust Y-limits to show the full balance (emissions vs removals)
+            ymax = max(df['Direct_CO2'].max(), df['Indirect_CO2'].max(), (df['Free_Quota'] + df['Taxed_CO2']).max(), net_total.max()) * 1.15
+            ymin = -(dac_cap + cred).max() * 1.3
+            ax1.set_ylim(ymin if ymin < -1 else -1, ymax if ymax > 1 else 1)
             
-            # Premium styling for ax2
-            for spine in ['top', 'right', 'bottom']:
-                ax2.spines[spine].set_visible(False)
-            ax2.spines['left'].set_visible(True)
-            ax2.spines['left'].set_position(('outward', 60))
-            ax2.spines['left'].set_color(cred_color)
-            ax2.yaxis.set_label_position('left')
-            ax2.yaxis.set_ticks_position('left')
+            # Add a zero line for balance clarity
+            ax1.axhline(0, color='black', linewidth=1.2, alpha=0.8, zorder=3)
             
-            # Combine legends with premium look
-            lines_1, labels_1 = ax1.get_legend_handles_labels()
-            lines_2, labels_2 = ax2.get_legend_handles_labels()
-            by_label = dict(zip(labels_1 + labels_2, lines_1 + lines_2))
-            ax1.legend(by_label.values(), by_label.keys(), loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                       ncol=min(4, len(by_label)), frameon=True, shadow=False, fontsize=12)
-            
-        else:
-            ax1.set_ylim(bottom=0)
+            # Standard labels & legends
             ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                       ncol=min(4, len(by_label)) if 'by_label' in locals() else 3, frameon=True, shadow=False, fontsize=12)
+                       ncol=min(4, len(ax1.get_legend_handles_labels()[0])), frameon=True, shadow=False, fontsize=12)
+            
+            # Allow the y-axis to expand naturally for negative sinks (DAC/Credits)
+            # ax1.set_ylim(bottom=0)
+            ax1.axhline(0, color='black', linewidth=1.0, zorder=2)
+            ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
+                       ncol=3, frameon=True, shadow=False, fontsize=12)
 
         plt.tight_layout()
         fig.subplots_adjust(bottom=0.20) # Make room for the legend
@@ -2430,7 +2404,9 @@ class PathFinderReporter:
                 price = self.data.time_series.resource_prices.get(res_id, {}).get(t, 0.0)
                 if price > 0: r_cost += cons_val * price
             actual_res_cost.append(r_cost / 1_000_000.0)
-        df_annual['Resource Savings'] = np.array(actual_res_cost) - df_b['Baseline_Resource_Cost']
+        res_delta = np.array(actual_res_cost) - df_b['Baseline_Resource_Cost'].values
+        df_annual['Additional Resource Cost'] = [max(0, x) for x in res_delta]
+        df_annual['Avoided Resource Saving'] = [min(0, x) for x in res_delta]
         
         # 3. Hybrid Transformation
         df_plot = df_annual.copy() # Areas use annual values
@@ -2445,18 +2421,11 @@ class PathFinderReporter:
         df_net_cumul = df_annual.sum(axis=1).cumsum()
 
         # ── TRANSITION EFFORTS (Positive) ──
-        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits']
+        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits', 'Additional Resource Cost']
         
         # ── TRANSITION BENEFITS & SAVINGS (Negative) ──
-        neg_cols = ['Public Aids (Grants & CCfD)', 'Avoided Carbon Tax']
+        neg_cols = ['Public Aids (Grants & CCfD)', 'Avoided Carbon Tax', 'Avoided Resource Saving']
         
-        # Determine Resource Mix Change coloring (Blue if avg > 0 (cost), Green if avg <= 0 (saving))
-        res_mean = df_plot['Resource Mix Change'].mean() if 'Resource Mix Change' in df_plot.columns else 0
-        if res_mean > 1e-3:
-            pos_cols.append('Resource Mix Change')
-        else:
-            neg_cols.append('Resource Mix Change')
-            
         # Clean columns to remove near-zero ones
         pos_cols = [c for c in pos_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
         neg_cols = [c for c in neg_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
@@ -2470,16 +2439,20 @@ class PathFinderReporter:
         x = years
         fig, ax1 = plt.subplots(figsize=(12, 9), facecolor='white')
         
-        # Plot stacked areas (Annual) on ax1
+        # Transform to cumulative for stacked area chart per user request
+        # This shows the total effort/saving accumulated over time
+        df_cumul_stack = df_plot[pos_cols + neg_cols].cumsum()
+        
+        # Plot stacked areas (Cumulative) on ax1
         if pos_cols:
-            y_pos = df_plot[pos_cols].values.T
+            y_pos = df_cumul_stack[pos_cols].values.T
             ax1.stackplot(x, y_pos, labels=pos_cols, colors=colors_efforts[:len(pos_cols)], alpha=0.85, zorder=3)
             
         if neg_cols:
-            y_neg = df_plot[neg_cols].values.T
+            y_neg = df_cumul_stack[neg_cols].values.T
             ax1.stackplot(x, y_neg, labels=neg_cols, colors=colors_savings[:len(neg_cols)], alpha=0.85, zorder=3)
             
-        # Create secondary axis for Cumulative Line
+        # Create secondary axis for Cumulative Line (The Red Balance line)
         ax2 = ax1.twinx()
         
         # Plot Net Cumulative Cost Line on ax2
@@ -2495,8 +2468,8 @@ class PathFinderReporter:
             ax1.axhline(cap_val, color='#E74C3C', linestyle='--', linewidth=1.5, 
                         label=f'Annual Effort Cap ({cap_val} M€)', zorder=4)
 
-        ax1.set_title("ECOLOGICAL TRANSITION: ANNUAL INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
-        ax1.set_ylabel("Annual Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
+        ax1.set_title("ECOLOGICAL TRANSITION: CUMULATIVE INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
+        ax1.set_ylabel("Cumulative Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
         ax1.set_xlabel("Year", fontsize=12, weight='semibold')
         
         ax1.yaxis.set_major_formatter(plt.FormatStrFormatter('%g M€'))
@@ -2539,10 +2512,10 @@ class PathFinderReporter:
         plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Transition_Costs.png'), dpi=300, bbox_inches='tight')
         plt.close()
         
-        # Store data
-        df_store = df_plot.copy()
-        df_store['Net_Cumulative_Cost'] = df_net_cumul
-        self.charts_data.append(("Ecological Transition: Annual & Cumulative Balance", df_store))
+        # Store data for Excel per user request (Cumulative)
+        df_store = df_cumul_stack.copy() 
+        df_store['Net Transition Balance (Cumulative)'] = df_net_cumul
+        self.charts_data.append(("Ecological Transition Cumulative Balance", df_store))
 
     def _plot_interest_paid(self, df_finance: pd.DataFrame):
         """Plots the annual and cumulative interest paid for bank loans."""
