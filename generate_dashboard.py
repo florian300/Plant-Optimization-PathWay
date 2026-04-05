@@ -306,24 +306,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             } else if (type === 'transition') {
                 if (!data.transition) return showNoData();
-                const p = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#3E4444'];
+                const colors = ['#1D4ED8', '#2C3E50', '#6D28D9', '#9D174D', '#16A34A'];
                 
                 const traces = [
-                    { x: data.transition.time, y: data.transition.self_funded_capex, name: 'Self-funded CAPEX', type: 'bar', marker: {color: p[0]} },
-                    { x: data.transition.time, y: data.transition.bank_loan_service, name: 'Bank Loan', type: 'bar', marker: {color: p[1]} },
-                    { x: data.transition.time, y: data.transition.tech_dac_opex, name: 'Tech & DAC OPEX', type: 'bar', marker: {color: p[2]} },
-                    { x: data.transition.time, y: data.transition.additional_resource_cost, name: 'Additional Resources', type: 'bar', marker: {color: '#8B5CF6'} },
-                    { x: data.transition.time, y: data.transition.voluntary_carbon_credits, name: 'Voluntary Credits', type: 'bar', marker: {color: p[3]} },
-                    { x: data.transition.time, y: data.transition.annual_avoided_tax.map(v => -Math.abs(v)), name: 'Tax Saving', type: 'bar', marker: {color: p[4]} },
-                    { x: data.transition.time, y: data.transition.avoided_resource_saving.map(v => -Math.abs(v)), name: 'Avoided Resources', type: 'bar', marker: {color: '#10B981'} },
-                    { x: data.transition.time, y: data.transition.cumulative_net_cost, name: 'Net Transition Balance (Total)', line: {color: '#E74C3C', width: 4}, mode: 'lines+markers', type: 'scatter' }
+                    { x: data.transition.time, y: data.transition.self_funded_capex, name: 'Self-Funded CAPEX', type: 'bar', marker: {color: colors[0]} },
+                    { x: data.transition.time, y: data.transition.bank_loan_service, name: 'Loan Service', type: 'bar', marker: {color: colors[1]} },
+                    { x: data.transition.time, y: data.transition.tech_dac_opex, name: 'OPEX', type: 'bar', marker: {color: colors[2]} },
+                    { x: data.transition.time, y: data.transition.additional_resource_cost, name: 'Add. Resources', type: 'bar', marker: {color: '#8B5CF6'} },
+                    { x: data.transition.time, y: data.transition.voluntary_carbon_credits, name: 'Credits', type: 'bar', marker: {color: colors[3]} },
+                    { x: data.transition.time, y: data.transition.annual_avoided_tax, name: 'Tax Savings', type: 'bar', marker: {color: '#16A085'} },
+                    { x: data.transition.time, y: data.transition.avoided_resource_saving, name: 'Resource Savings', type: 'bar', marker: {color: '#10B981'} },
+                    { x: data.transition.time, y: data.transition.cumulative_net_cost, name: 'Cumulative Balance', line: {color: '#FF4D4D', width: 4}, mode: 'lines+markers', type: 'scatter' }
                 ];
                 
                 Plotly.newPlot('plotlyChart', traces, {
                     ...layout,
+                    title: 'Ecological Transition Costs',
                     barmode: 'relative',
-                    yaxis: { ...layout.yaxis, title: 'Cumulative M€' },
-                    shapes: [{ type: 'line', x0: data.transition.time[0], x1: data.transition.time[data.transition.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.8)', width: 1.5} }]
+                    yaxis: { ...layout.yaxis, title: 'Amount (M€)' },
+                    shapes: [{ type: 'line', x0: data.transition.time[0], x1: data.transition.time[data.transition.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.4)', width: 1} }]
                 }, {responsive: true});
                 
             } else if (type === 'financial') {
@@ -546,9 +547,14 @@ def parse_excel_scenarios(data_dir: str) -> dict:
             if is_bau:
                 if "transition" in data:
                     z = [0.0] * len(data["transition"]["time"])
+                    data["transition"]["self_funded_capex"] = z
+                    data["transition"]["bank_loan_service"] = z
+                    data["transition"]["tech_dac_opex"] = z
+                    data["transition"]["voluntary_carbon_credits"] = z
                     data["transition"]["annual_avoided_tax"] = z
                     data["transition"]["avoided_resource_saving"] = z
                     data["transition"]["additional_resource_cost"] = z
+                    data["transition"]["cumulative_net_cost"] = z
                 continue
             
             years = [int(float(y)) for y in data["co2"]["time"]]
@@ -581,15 +587,15 @@ def parse_excel_scenarios(data_dir: str) -> dict:
                 
                 data["transition"] = {
                     "time": years,
-                    "self_funded_capex": to_cumul(self_funded),
-                    "bank_loan_service": to_cumul(loan_service),
-                    "tech_dac_opex": to_cumul(tech_opex),
-                    "voluntary_carbon_credits": to_cumul(credits),
-                    "annual_avoided_tax": to_cumul(tax_savings_annual),
+                    "self_funded_capex": self_funded,
+                    "bank_loan_service": loan_service,
+                    "tech_dac_opex": tech_opex,
+                    "voluntary_carbon_credits": credits,
+                    "annual_avoided_tax": tax_savings_annual,
                 }
 
-            data["transition"]["additional_resource_cost"] = to_cumul(add_res_annual)
-            data["transition"]["avoided_resource_saving"] = to_cumul(avoid_res_annual)
+            data["transition"]["additional_resource_cost"] = add_res_annual
+            data["transition"]["avoided_resource_saving"] = avoid_res_annual
             
             sf = [float(x) for x in data.get("financial", {}).get("self_funded_capex", [0.0]*n_yrs)]
             ls = [float(x) for x in data.get("financial", {}).get("loan_service", [0.0]*n_yrs)]

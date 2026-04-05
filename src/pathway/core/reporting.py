@@ -2284,6 +2284,24 @@ class PathFinderReporter:
         df_costs = df_costs.copy()
         if 'Year' in df_costs.columns:
             df_costs.set_index('Year', inplace=True)
+
+        def get_robust_price(r_id, yr):
+            """Get resource price with exact lookup first, then fuzzy fallback on EN_ prefix."""
+            resource_prices = self.data.time_series.resource_prices
+            exact_price = float(resource_prices.get(r_id, {}).get(yr, 0.0) or 0.0)
+            if exact_price != 0.0:
+                return exact_price
+
+            rid_base = r_id[3:] if isinstance(r_id, str) and r_id.startswith('EN_') else r_id
+            for k, yearly_prices in resource_prices.items():
+                if not isinstance(k, str) or not isinstance(yearly_prices, dict):
+                    continue
+                k_base = k[3:] if k.startswith('EN_') else k
+                if rid_base == k_base or rid_base in k_base or k_base in rid_base:
+                    fuzzy_price = float(yearly_prices.get(yr, 0.0) or 0.0)
+                    if fuzzy_price != 0.0:
+                        return fuzzy_price
+            return 0.0
             
         # 1. Baseline Calculation ("Nothing Done")
         baseline_data = []
@@ -2329,7 +2347,7 @@ class PathFinderReporter:
             # Resource Cost Baseline
             b_res_cost = 0.0
             for res_id, cons_val in b_consumptions.items():
-                price = self.data.time_series.resource_prices.get(res_id, {}).get(t, 0.0)
+                price = get_robust_price(res_id, t)
                 if price > 0: b_res_cost += cons_val * price
             b_res_cost /= 1_000_000.0 # M€
             
@@ -2401,12 +2419,12 @@ class PathFinderReporter:
             for res_id in self.data.resources:
                 if res_id == 'CO2_EM': continue
                 cons_val = self.opt.cons_vars[(t, res_id)].varValue or 0.0
-                price = self.data.time_series.resource_prices.get(res_id, {}).get(t, 0.0)
+                price = get_robust_price(res_id, t)
                 if price > 0: r_cost += cons_val * price
             actual_res_cost.append(r_cost / 1_000_000.0)
         res_delta = np.array(actual_res_cost) - df_b['Baseline_Resource_Cost'].values
-        df_annual['Additional Resource Cost'] = [max(0, x) for x in res_delta]
-        df_annual['Avoided Resource Saving'] = [min(0, x) for x in res_delta]
+        df_annual['Additional Resource Cost'] = [max(0, float(x)) for x in res_delta]
+        df_annual['Avoided Resource Saving'] = [min(0, float(x)) for x in res_delta]
         
         # 3. Hybrid Transformation
         df_plot = df_annual.copy() # Areas use annual values
@@ -2415,11 +2433,6 @@ class PathFinderReporter:
         if 'Resource Savings' in df_plot.columns:
             df_plot = df_plot.rename(columns={'Resource Savings': 'Resource Mix Change'})
         
-        # Cumulative Balance: sum(Costs - abs(Benefits)).cumsum()
-        # Since Benefits are negative in df_annual, sum(axis=1) is (Costs + Benefits) = (Costs - |Benefits|)
-        # Calculate on df_annual to ensure correct signs
-        df_net_cumul = df_annual.sum(axis=1).cumsum()
-
         # ── TRANSITION EFFORTS (Positive) ──
         pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits', 'Additional Resource Cost']
         
@@ -2429,28 +2442,60 @@ class PathFinderReporter:
         # Clean columns to remove near-zero ones
         pos_cols = [c for c in pos_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
         neg_cols = [c for c in neg_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
+
+        # Net annual balance uses only visible plotted columns (neg_cols already carry negative values).
+        annual_pos = df_plot[pos_cols].sum(axis=1) if pos_cols else pd.Series(0.0, index=df_plot.index)
+        annual_neg = df_plot[neg_cols].sum(axis=1) if neg_cols else pd.Series(0.0, index=df_plot.index)
+        df_annual_net = annual_pos + annual_neg
+        df_net_cumul = df_annual_net.cumsum()
         
         # Refined Palette
         # Efforts: Dark Blues / Purples
-        colors_efforts = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#3E4444'] 
+        colors_efforts = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#8B5CF6']
         # Savings/Aids: Fresh Greens / Teals
-        colors_savings = ['#16A085', '#27AE60', '#A2D149', '#F1C40F']
+        colors_savings = ['#3E4444', '#10B981', '#16A085', '#27AE60']
         
         x = years
         fig, ax1 = plt.subplots(figsize=(12, 9), facecolor='white')
-        
-        # Transform to cumulative for stacked area chart per user request
-        # This shows the total effort/saving accumulated over time
-        df_cumul_stack = df_plot[pos_cols + neg_cols].cumsum()
-        
-        # Plot stacked areas (Cumulative) on ax1
+
+        # Relative stacked bars: positive efforts above 0, negative savings/aids below 0.
+        bottom_pos = np.zeros(len(years), dtype=float)
         if pos_cols:
-            y_pos = df_cumul_stack[pos_cols].values.T
-            ax1.stackplot(x, y_pos, labels=pos_cols, colors=colors_efforts[:len(pos_cols)], alpha=0.85, zorder=3)
-            
+            pos_matrix = df_plot[pos_cols].to_numpy(dtype=float)
+            pos_cumul = pos_matrix.cumsum(axis=1)
+            for i, col in enumerate(pos_cols):
+                vals = pos_matrix[:, i]
+                if i > 0:
+                    bottom_pos = pos_cumul[:, i - 1]
+                ax1.bar(
+                    x,
+                    vals,
+                    width=0.6,
+                    bottom=bottom_pos,
+                    label=col,
+                    color=colors_efforts[i % len(colors_efforts)],
+                    alpha=0.9,
+                    zorder=3
+                )
+
+        bottom_neg = np.zeros(len(years), dtype=float)
         if neg_cols:
-            y_neg = df_cumul_stack[neg_cols].values.T
-            ax1.stackplot(x, y_neg, labels=neg_cols, colors=colors_savings[:len(neg_cols)], alpha=0.85, zorder=3)
+            neg_matrix = df_plot[neg_cols].to_numpy(dtype=float)
+            neg_cumul = neg_matrix.cumsum(axis=1)
+            for i, col in enumerate(neg_cols):
+                vals = neg_matrix[:, i]
+                if i > 0:
+                    bottom_neg = neg_cumul[:, i - 1]
+                ax1.bar(
+                    x,
+                    vals,
+                    width=0.6,
+                    bottom=bottom_neg,
+                    label=col,
+                    color=colors_savings[i % len(colors_savings)],
+                    alpha=0.9,
+                    zorder=3
+                )
             
         # Create secondary axis for Cumulative Line (The Red Balance line)
         ax2 = ax1.twinx()
@@ -2468,8 +2513,8 @@ class PathFinderReporter:
             ax1.axhline(cap_val, color='#E74C3C', linestyle='--', linewidth=1.5, 
                         label=f'Annual Effort Cap ({cap_val} M€)', zorder=4)
 
-        ax1.set_title("ECOLOGICAL TRANSITION: CUMULATIVE INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
-        ax1.set_ylabel("Cumulative Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
+        ax1.set_title("ECOLOGICAL TRANSITION: ANNUAL INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
+        ax1.set_ylabel("Annual Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
         ax1.set_xlabel("Year", fontsize=12, weight='semibold')
         
         ax1.yaxis.set_major_formatter(plt.FormatStrFormatter('%g M€'))
@@ -2512,8 +2557,11 @@ class PathFinderReporter:
         plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Transition_Costs.png'), dpi=300, bbox_inches='tight')
         plt.close()
         
-        # Store data for Excel per user request (Cumulative)
-        df_store = df_cumul_stack.copy() 
+        # Store cumulative values exported to Excel/dashboard artifacts.
+        # Keep tax saving annual (non-cumulative) to match dashboard expectation.
+        df_store = df_plot[pos_cols + neg_cols].cumsum()
+        if 'Avoided Carbon Tax' in df_store.columns:
+            df_store['Avoided Carbon Tax'] = df_plot['Avoided Carbon Tax']
         df_store['Net Transition Balance (Cumulative)'] = df_net_cumul
         self.charts_data.append(("Ecological Transition Cumulative Balance", df_store))
 
