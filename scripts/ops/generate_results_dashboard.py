@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 import pandas as pd
+import plotly.graph_objects as go
+import sys
+import os
+
+# Ensure we can import from src/
+repo_root = str(Path(__file__).resolve().parents[2])
+if repo_root not in sys.path:
+    sys.path.append(os.path.join(repo_root, "src"))
+
+from pathway.core.plots.financial import build_transition_cost_figure
 
 
 DEFAULT_DISCOUNT_RATE = 0.08
@@ -116,6 +126,15 @@ def split_major_minor(
     df_out[label] = pd.DataFrame({c: pd.to_numeric(df_out[c], errors="coerce").fillna(0.0) for c in minor}).sum(axis=1)
     major.append(label)
     return df_out, major
+
+
+def fig_to_dict(fig: go.Figure) -> Dict[str, Any]:
+    """Converts a Plotly Figure to the {data, layout} format expected by the dashboard."""
+    d = fig.to_dict()
+    return {
+        "data": d.get("data", []),
+        "layout": d.get("layout", {})
+    }
 
 
 def placeholder_figure(title: str, message: str) -> Dict[str, Any]:
@@ -429,115 +448,105 @@ def build_financial_npv_graph(
 
     years = year_axis(df_financing["Year"])
 
+    # 1. Gather positive efforts
     col_oop = find_column(df_financing, ["out_of_pocket_capex", "out of pocket capex"])
-    col_total_capex = find_column(df_financing, ["total_capex"]) 
-    col_annuity = find_column(df_financing, ["total_annuity"])
+    col_principal = find_column(df_financing, ["principal_repayment"])
+    col_interest = find_column(df_financing, ["interest_paid"])
+    
+    capex_effort = pd.Series([0.0] * len(years))
+    if col_oop: capex_effort += pd.to_numeric(df_financing[col_oop], errors="coerce").fillna(0.0)
+    if col_principal: capex_effort += pd.to_numeric(df_financing[col_principal], errors="coerce").fillna(0.0)
+    
+    interest_effort = pd.Series([0.0] * len(years))
+    if col_interest: interest_effort += pd.to_numeric(df_financing[col_interest], errors="coerce").fillna(0.0)
 
-    base_cash_out = pd.Series([0.0] * len(df_financing))
-    if col_oop:
-        base_cash_out += pd.to_numeric(df_financing[col_oop], errors="coerce").fillna(0.0)
-    elif col_total_capex:
-        base_cash_out += pd.to_numeric(df_financing[col_total_capex], errors="coerce").fillna(0.0)
+    opex_effort = pd.Series([0.0] * len(years))
+    tax_effort = pd.Series([0.0] * len(years))
+    aids_saving = pd.Series([0.0] * len(years))
 
-    if col_annuity:
-        base_cash_out += pd.to_numeric(df_financing[col_annuity], errors="coerce").fillna(0.0)
+    # 3. Build traces (matching CO2 TRAJECTORY area style)
+    colors_efforts = ['#1a5276', '#5499c7', '#8e44ad', '#5dade2', '#aed6f1']
+    colors_savings = ['#1e8449', '#58d68d', '#f39c12', '#2ecc71']
+    traces = []
+    
+    # Positive efforts (Area Stack)
+    if capex_effort.sum() > 0.01:
+        traces.append({
+            "type": "scatter", "mode": "lines", "name": "CAPEX & Repayment", 
+            "x": years, "y": capex_effort.tolist(), 
+            "stackgroup": "pos", "fill": "tonexty",
+            "line": {"width": 0.5, "color": "white"},
+            "fillcolor": colors_efforts[0],
+            "marker": {"color": colors_efforts[0]}, "yaxis": "y"
+        })
+    if interest_effort.sum() > 0.01:
+        traces.append({
+            "type": "scatter", "mode": "lines", "name": "Loan Interests", 
+            "x": years, "y": interest_effort.tolist(), 
+            "stackgroup": "pos", "fill": "tonexty",
+            "line": {"width": 0.5, "color": "white"},
+            "fillcolor": colors_efforts[1],
+            "marker": {"color": colors_efforts[1]}, "yaxis": "y"
+        })
+    if opex_effort.sum() > 0.01:
+        traces.append({
+            "type": "scatter", "mode": "lines", "name": "Operational Costs", 
+            "x": years, "y": opex_effort.tolist(), 
+            "stackgroup": "pos", "fill": "tonexty",
+            "line": {"width": 0.5, "color": "white"},
+            "fillcolor": colors_efforts[2],
+            "marker": {"color": colors_efforts[2]}, "yaxis": "y"
+        })
+    if tax_effort.sum() > 0.01:
+        traces.append({
+            "type": "scatter", "mode": "lines", "name": "Carbon Tax (Actual)", 
+            "x": years, "y": tax_effort.tolist(), 
+            "stackgroup": "pos", "fill": "tonexty",
+            "line": {"width": 0.5, "color": "white"},
+            "fillcolor": colors_efforts[3],
+            "marker": {"color": colors_efforts[3]}, "yaxis": "y"
+        })
+    
+    # Negative savings (Area Stack)
+    if aids_saving.sum() > 0.01:
+        traces.append({
+            "type": "scatter", "mode": "lines", "name": "Public Aids", 
+            "x": years, "y": [-v for v in aids_saving.tolist()], 
+            "stackgroup": "neg", "fill": "tonexty",
+            "line": {"width": 0.5, "color": "white"},
+            "fillcolor": colors_savings[0],
+            "marker": {"color": colors_savings[0]}, "yaxis": "y"
+        })
 
-    aids_meur = pd.Series([0.0] * len(df_financing))
-    opex_meur = pd.Series([0.0] * len(df_financing))
+    # Cumulative NPV line
+    traces.append({
+        "type": "scatter", "mode": "lines+markers", "name": "Cumulative NPV / Balance",
+        "x": years, "y": [round(v, 4) for v in cumulative_npv],
+        "line": {"width": 4, "color": "#e74c3c"},
+        "marker": {"size": 8, "color": "#e74c3c", "line": {"marker_color": "white", "width": 1.5}},
+        "yaxis": "y2",
+        "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>"
+    })
 
-    if not df_costs.empty and "Year" in df_costs.columns:
-        aid_cols = [col for col in df_costs.columns if str(col).startswith("Aid_")]
-        aid_cols = non_zero_columns(df_costs, aid_cols)
-        if aid_cols:
-            aids_by_year = pd.DataFrame(
-                {col: pd.to_numeric(df_costs[col], errors="coerce").fillna(0.0) for col in aid_cols}
-            ).sum(axis=1)
-            by_year = dict(zip(year_axis(df_costs["Year"]), to_float_list(aids_by_year, scale=1_000_000.0)))
-            aids_meur = pd.Series([by_year.get(y, 0.0) for y in years])
-
-        opex_cols = [col for col in ["DAC_Opex", "Credit_Cost"] if col in df_costs.columns]
-        opex_cols = non_zero_columns(df_costs, opex_cols)
-        if opex_cols:
-            opex_by_year = pd.DataFrame(
-                {col: pd.to_numeric(df_costs[col], errors="coerce").fillna(0.0) for col in opex_cols}
-            ).sum(axis=1)
-            by_year = dict(zip(year_axis(df_costs["Year"]), to_float_list(opex_by_year, scale=1_000_000.0)))
-            opex_meur = pd.Series([by_year.get(y, 0.0) for y in years])
-
-    tax_meur = pd.Series([0.0] * len(df_financing))
-    if not df_co2.empty and "Year" in df_co2.columns:
-        tax_col = find_column(df_co2, ["net_tax_cost_meuros", "tax_cost_meuros"]) 
-        if tax_col:
-            tax_by_year = dict(
-                zip(
-                    year_axis(df_co2["Year"]),
-                    to_float_list(pd.to_numeric(df_co2[tax_col], errors="coerce").fillna(0.0)),
-                )
-            )
-            tax_meur = pd.Series([tax_by_year.get(y, 0.0) for y in years])
-
-    # Keep every term in MEUR before discounting to avoid unit drift.
-    annual_cash_flow_meur = -(base_cash_out + opex_meur + tax_meur)
-    annual_cash_flow_meur += aids_meur
-
-    discounted_cf = []
-    cumulative = []
-    run = 0.0
-    for idx, cash_flow in enumerate(annual_cash_flow_meur):
-        disc = cash_flow / ((1.0 + discount_rate) ** idx)
-        discounted_cf.append(round(disc, 6))
-        run += disc
-        cumulative.append(round(run, 6))
-
-    traces = [
-        {
-            "type": "bar",
-            "name": "Annual net cash flow",
-            "x": years,
-            "y": [round(v, 6) for v in annual_cash_flow_meur.tolist()],
-            "marker": {"color": "#0EA5E9"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            "yaxis": "y",
-        },
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Discounted cash flow",
-            "x": years,
-            "y": discounted_cf,
-            "line": {"width": 2, "dash": "dot", "color": "#0F766E"},
-            "marker": {"size": 5, "color": "#0F766E"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            "yaxis": "y",
-        },
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Cumulative NPV",
-            "x": years,
-            "y": cumulative,
-            "line": {"width": 3, "color": "#1D4ED8"},
-            "marker": {"size": 6, "color": "#1D4ED8"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            "yaxis": "y2",
-        },
-    ]
-
-    layout = base_layout(title, "Annual values (MEUR)", years, barmode="relative")
+    layout = base_layout(title, "Annual Impact (MEUR)", years, barmode="relative")
+    layout["template"] = "plotly_white"
+    layout["yaxis"]["gridcolor"] = "#eeeeee"
+    layout["xaxis"]["gridcolor"] = "#eeeeee"
     layout["yaxis2"] = {
-        "title": "Cumulative NPV (MEUR)",
+        "title": {"text": "Cumulative NPV (MEUR)", "font": {"color": "#e74c3c"}},
         "overlaying": "y",
         "side": "right",
         "automargin": True,
+        "tickfont": {"color": "#e74c3c"},
         "gridcolor": "rgba(0,0,0,0)",
     }
     layout["barmode"] = "relative"
 
     description = (
-        "The annual net cash flow is approximated as: -(Out_of_Pocket_CAPEX + Total_Annuity + DAC/Credit OPEX + carbon tax) "
-        "+ public aids. Cumulative NPV is then computed from discounted cash flows using the configured discount rate. "
-        "This provides a scenario-level financial trajectory from model outputs without external files."
+        "This chart displays the annual investment efforts (CAPEX, OPEX, Taxes) vs Savings (Aids). "
+        "The red line tracks the Cumulative Net Present Value (NPV) of the transition strategy."
     )
+    return {"data": traces, "layout": layout}, description
     return {"data": traces, "layout": layout}, description
 
 
@@ -669,38 +678,73 @@ def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any
     net_direct_bal = [round(d - dc - c, 6) for d, dc, c in zip(direct_kt, dac_kt, credits_kt)]
 
     traces = [
-        # Negative Sinks
-        {
-            "type": "bar",
-            "name": "DAC Captured",
-            "x": years,
-            "y": [round(-abs(x), 6) for x in dac_kt],
-            "marker": {"color": "rgba(52, 152, 219, 0.6)"},
-            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Voluntary Credits",
-            "x": years,
-            "y": [round(-abs(x), 6) for x in credits_kt],
-            "marker": {"color": "rgba(39, 174, 96, 0.6)"},
-            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
-        },
-        # Positive Emissions
+        # --- 1. AIRES DE RÉFÉRENCE (Remplissages continus) ---
+        
+        # Ombre sous Net Direct
         {
             "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Net Direct Emissions (Net)",
+            "mode": "none",
+            "name": "Net Direct Shade",
             "x": years,
             "y": net_direct_bal,
-            "line": {"width": 4, "color": "#2980B9", "dash": "dashdot"},
-            "marker": {"size": 6, "color": "#2980B9"},
+            "fill": "tozeroy",
+            "fillcolor": "rgba(52, 152, 219, 0.1)",
+            "showlegend": False,
+        },
+        # DAC et Crédits (Aires Négatives)
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "DAC Captured (ktCO2)",
+            "x": years,
+            "y": [round(-abs(x), 6) for x in dac_kt],
+            "fill": "tozeroy",
+            "fillcolor": "rgba(52, 152, 219, 0.6)",
+            "line": {"width": 0},
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
         {
             "type": "scatter",
+            "mode": "lines",
+            "name": "Voluntary Credits (ktCO2)",
+            "x": years,
+            "y": [round(-(abs(d) + abs(c)), 6) for d, c in zip(dac_kt, credits_kt)],
+            "fill": "tonexty",
+            "fillcolor": "rgba(39, 174, 96, 0.6)",
+            "line": {"width": 0},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        # Quotas Gratuits (0 vers Free_Quota)
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Free Quotas (Direct)",
+            "x": years,
+            "y": free_quota_kt,
+            "fill": "tozeroy",
+            "fillcolor": "rgba(0, 128, 0, 0.3)",
+            "line": {"width": 0},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        # Émissions Taxées (Free_Quota vers Total) avec motifs
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "name": "Taxed Emissions (Surface)",
+            "x": years,
+            "y": [round(f + t, 6) for f, t in zip(free_quota_kt, taxed_kt)],
+            "fill": "tonexty",
+            "fillcolor": "rgba(128, 128, 128, 0.4)",
+            "fillpattern": {"shape": ".", "solidity": 0.3},
+            "line": {"width": 0},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+
+        # --- 2. COURBES DE TRAJECTOIRE ---
+        {
+            "type": "scatter",
             "mode": "lines+markers",
-            "name": "Direct Emissions (Gross)",
+            "name": "Direct Emissions",
             "x": years,
             "y": direct_kt,
             "line": {"width": 3, "color": "#111827"},
@@ -708,29 +752,33 @@ def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
         {
-            "type": "bar",
-            "name": "Free quota",
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Indirect Emissions",
             "x": years,
-            "y": free_quota_kt,
-            "marker": {"color": "rgba(16,185,129,0.35)"},
-            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Taxed emissions",
-            "x": years,
-            "y": taxed_kt,
-            "marker": {"color": "rgba(71,85,105,0.45)"},
+            "y": indirect_kt,
+            "line": {"width": 2, "color": "#111827", "dash": "dot"},
+            "marker": {"size": 4, "color": "#111827"},
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
         {
             "type": "scatter",
             "mode": "lines+markers",
-            "name": "Total CO2 (Direct+Ind)",
+            "name": "Total CO2 (Net)",
             "x": years,
-            "y": total_kt,
-            "line": {"width": 3, "color": "#DC2626"},
-            "marker": {"size": 5, "color": "#DC2626"},
+            "y": [round(n + i, 6) for n, i in zip(net_direct_bal, indirect_kt)],
+            "line": {"width": 3, "color": "darkred", "dash": "dash"},
+            "marker": {"size": 5, "color": "darkred"},
+            "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
+        },
+        {
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Net Direct Emissions",
+            "x": years,
+            "y": net_direct_bal,
+            "line": {"width": 3, "color": "#3498db", "dash": "dashdot"},
+            "marker": {"size": 6, "color": "#3498db"},
             "hovertemplate": "%{y:,.2f} ktCO2<extra>%{fullData.name}</extra>",
         },
     ]
@@ -1198,121 +1246,143 @@ def _calculate_resource_costs(df_energy: pd.DataFrame, df_prices: pd.DataFrame) 
     return costs
 
 
-def build_transition_cost_graph(df_financing: pd.DataFrame, df_costs: pd.DataFrame, df_co2: pd.DataFrame, df_transition_balance: pd.DataFrame, df_energy: pd.DataFrame = None, df_prices: pd.DataFrame = None, bau_res_costs: List[float] = None) -> Tuple[Dict[str, Any], str]:
+def build_transition_cost_graph(
+    df_financing: pd.DataFrame, 
+    df_costs: pd.DataFrame, 
+    df_co2: pd.DataFrame, 
+    df_transition_balance: pd.DataFrame, 
+    df_energy: pd.DataFrame = None, 
+    df_data_used: pd.DataFrame = None, 
+    bau_res_costs: List[float] = None, 
+    bau_tax_costs: Dict[Any, float] = None,
+    df_hf_transition: pd.DataFrame = None
+) -> Tuple[Dict[str, Any], str]:
     title = "TRANSITION COST"
+    
+    # CASE 1: High-Fidelity Data available in Excel
+    if df_hf_transition is not None and not df_hf_transition.empty and "Year" in df_hf_transition.columns:
+        years = year_axis(df_hf_transition["Year"])
+        all_cols = [c for c in df_hf_transition.columns if c != "Year" and not str(c).startswith("Unnamed:")]
+        
+        # Exact matching based on prefixes Effort: and Saving:
+        pos_cols = [c for c in all_cols if str(c).startswith("Effort:")]
+        neg_cols = [c for c in all_cols if str(c).startswith("Saving:")]
+
+        # Ensure all used columns are numeric (fix for TypeError: unsupported operand +: int and str)
+        for c in (pos_cols + neg_cols):
+             df_hf_transition[c] = pd.to_numeric(df_hf_transition[c], errors="coerce").fillna(0.0)
+        
+        fig = build_transition_cost_figure(
+            df_annual=df_hf_transition,
+            years=years,
+            pos_cols=pos_cols,
+            neg_cols=neg_cols,
+            title=title
+        )
+        description = "This graph uses high-fidelity data exported directly from the optimizer for perfect consistency."
+        return fig_to_dict(fig), description
+
+    # CASE 2: Fallback manual calculation (if high-fidelity data missing)
     if df_financing.empty or "Year" not in df_financing.columns:
         return (placeholder_figure(title, "No data."), "No financing data.")
 
-    def safe_get_col(df, options, default_val=0.0):
-        for opt in options:
-            # Check for substring match too because of M€ icons and encoding
-            for col in df.columns:
-                if opt.lower() in col.lower():
-                    return pd.to_numeric(df[col], errors="coerce").fillna(default_val)
-        return pd.Series(default_val, index=df.index)
-
-    years = df_financing["Year"].tolist()
+    years = year_axis(df_financing["Year"])
     n_yrs = len(years)
 
-    self_funded = to_float_list(safe_get_col(df_financing, ["Out_of_Pocket_CAPEX", "Self-funded"]))
-    loan_service = to_float_list(safe_get_col(df_financing, ["Total_Annuity", "Bank Loan Service"]))
-    tech_opex = to_float_list(safe_get_col(df_costs, ["Tech & DAC OPEX", "Operational_Costs", "Total_OPEX"]))
+    # efforts
+    col_oop = find_column(df_financing, ["out_of_pocket_capex", "out of pocket capex"])
+    col_principal = find_column(df_financing, ["principal_repayment"])
+    col_interest = find_column(df_financing, ["interest_paid"])
     
-    # Avoided Tax and Resource Saving (Deltas)
-    avoided_tax_annual = [0.0] * n_yrs
-    if df_transition_balance is not None:
-        avoided_tax_annual = to_float_list(safe_get_col(df_transition_balance, ["Avoided Carbon Tax", "Carbon_Tax_Saving"]))
+    capex_effort = pd.Series([0.0] * n_yrs)
+    if col_oop: capex_effort += pd.to_numeric(df_financing[col_oop], errors="coerce").fillna(0.0)
+    if col_principal: capex_effort += pd.to_numeric(df_financing[col_principal], errors="coerce").fillna(0.0)
+    
+    interest_effort = pd.Series([0.0] * n_yrs)
+    if col_interest: interest_effort += pd.to_numeric(df_financing[col_interest], errors="coerce").fillna(0.0)
 
-    tech_opex_map = {}
-    credits_map = {}
+    opex_effort = pd.Series([0.0] * n_yrs)
+    credits_effort = pd.Series([0.0] * n_yrs)
     if not df_costs.empty and "Year" in df_costs.columns:
-        if "DAC_Opex" in df_costs.columns:
-            tech_opex_map = _series_map_by_year(df_costs, "DAC_Opex", scale=1_000_000.0)
-        if "Credit_Cost" in df_costs.columns:
-            credits_map = _series_map_by_year(df_costs, "Credit_Cost", scale=1_000_000.0)
-        if "Financing Interests" in df_costs.columns:
-            interest_map = _series_map_by_year(df_costs, "Financing Interests", scale=1_000_000.0)
-            for yr, val in interest_map.items():
-                tech_opex_map[yr] = round(tech_opex_map.get(yr, 0.0) + val, 6)
+        opex_col = find_column(df_costs, ["Total_OPEX", "opex_cost_meuros"])
+        if opex_col:
+            opex_map = _series_map_by_year(df_costs, opex_col, scale=1_000_000.0)
+            opex_effort = pd.Series([opex_map.get(y, 0.0) for y in years])
+        
+        cred_col = find_column(df_costs, ["Credit_Cost", "carbon_credit_cost"])
+        if cred_col:
+            cred_map = _series_map_by_year(df_costs, cred_col, scale=1_000_000.0)
+            credits_effort = pd.Series([cred_map.get(y, 0.0) for y in years])
 
-    tech_opex = _aligned_from_map(years, tech_opex_map)
-    credits = _aligned_from_map(years, credits_map)
+    tax_actual = pd.Series([0.0] * n_yrs)
+    # Use GROSS tax for efforts (refunds are handled in savings)
+    tax_col = find_column(df_co2, ["tax_cost_meuros"]) 
+    if tax_col:
+        tax_map = _series_map_by_year(df_co2, tax_col)
+        tax_actual = pd.Series([tax_map.get(y, 0.0) for y in years])
 
-    # 2. Tax & Resource Savings (Deltas)
-    # Calculate Avoided Tax Saving robustly from CO2 data
-    avoided_co2 = _aligned_from_map(years, _series_map_by_year(df_co2, "Avoided_Total_CO2_kt"))
-    tax_price = _aligned_from_map(years, _series_map_by_year(df_co2, "Tax_Price"))
-    tax_delta_annual = [round(-(a * p / 1000.0), 6) for a, p in zip(avoided_co2, tax_price)]
+    # savings
+    aids_saving = pd.Series([0.0] * n_yrs)
+    # 1. Direct grants from Tech Costs
+    aid_cols = [col for col in df_costs.columns if str(col).startswith("Aid_")]
+    if aid_cols:
+        aids_df = pd.DataFrame({c: pd.to_numeric(df_costs[c], errors="coerce").fillna(0.0) for c in aid_cols})
+        aids_val = aids_df.sum(axis=1)
+        aids_map = dict(zip(year_axis(df_costs["Year"]), to_float_list(aids_val, scale=1_000_000.0)))
+        aids_saving += pd.Series([aids_map.get(y, 0.0) for y in years])
+    
+    # 2. CCfD refunds from CO2 Trajectory
+    refund_col = find_column(df_co2, ["ccfd_refund_meuros"])
+    if refund_col:
+        refund_map = _series_map_by_year(df_co2, refund_col)
+        aids_saving += pd.Series([refund_map.get(y, 0.0) for y in years])
 
-    # Autonomous Resource delta engine
-    res_delta_annual = [0.0] * n_yrs
-    if df_energy is not None and df_prices is not None and bau_res_costs is not None:
-        s_res_costs = _calculate_resource_costs(df_energy, df_prices)
-        for i, s_cost in enumerate(s_res_costs):
+    tax_offset = pd.Series([0.0] * n_yrs)
+    if bau_tax_costs:
+        tax_offset = pd.Series([-(bau_tax_costs.get(y, 0.0)) for y in years])
+
+    res_add = pd.Series([0.0] * n_yrs)
+    res_avoid = pd.Series([0.0] * n_yrs)
+    if df_energy is not None and df_data_used is not None and bau_res_costs is not None:
+        actual_res = _calculate_resource_costs(df_energy, df_data_used)
+        for i, a_cost in enumerate(actual_res):
             if i < n_yrs:
                 b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
-                res_delta_annual[i] = round(s_cost - b_cost, 6)
+                delta = a_cost - b_cost
+                if delta > 1e-4: res_add[i] = delta
+                elif delta < -1e-4: res_avoid[i] = delta
 
-    add_res_annual = [max(0, x) for x in res_delta_annual]
-    avoid_res_annual = [min(0, x) for x in res_delta_annual]
-
-    # Transform to Cumulative
-    def _to_cumul(arr):
-        c = 0
-        r = []
-        for v in arr:
-            c += v
-            r.append(round(c, 6))
-        return r
-
-    cum_self_funded = _to_cumul(self_funded)
-    cum_loan_service = _to_cumul(loan_service)
-    cum_tech_opex = _to_cumul(tech_opex)
-    cum_credits = _to_cumul(credits)
-    cum_tax_saving = _to_cumul(tax_delta_annual)
-    cum_add_res = _to_cumul(add_res_annual)
-    cum_avoid_res = _to_cumul(avoid_res_annual)
-
-    # Net result: (Self-funded + Loan + OPEX + Credits + Resource_Delta + Tax_Delta)
-    net_annual = [
-        round(a + b + c + d + e + f, 6)
-        for a, b, c, d, e, f in zip(
-            self_funded, loan_service, tech_opex, credits, res_delta_annual, tax_delta_annual
-        )
-    ]
-    cum_net = _to_cumul(net_annual)
-
-    traces = [
-        {"type": "bar", "name": "Self-funded CAPEX", "x": years, "y": cum_self_funded, "marker": {"color": "#1F3A93"}},
-        {"type": "bar", "name": "Bank Loan", "x": years, "y": cum_loan_service, "marker": {"color": "#2C3E50"}},
-        {"type": "bar", "name": "Tech & DAC OPEX", "x": years, "y": cum_tech_opex, "marker": {"color": "#6741D9"}},
-        {"type": "bar", "name": "Additional Resources", "x": years, "y": cum_add_res, "marker": {"color": "#8B5CF6"}},
-        {"type": "bar", "name": "Voluntary Credits", "x": years, "y": cum_credits, "marker": {"color": "#9C36B5"}},
-        {"type": "bar", "name": "Tax Saving", "x": years, "y": cum_tax_saving, "marker": {"color": "#3E4444"}},
-        {"type": "bar", "name": "Avoided Resources", "x": years, "y": cum_avoid_res, "marker": {"color": "#10B981"}},
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Net Transition Balance",
-            "x": years,
-            "y": cum_net,
-            "line": {"width": 4, "color": "#E11D48"},
-            "marker": {"size": 8, "color": "#E11D48"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-    ]
-
-    layout = base_layout(title, "Cumulative M€", years, barmode="relative")
-    layout["shapes"] = [
-        {"type": "line", "x0": years[0], "x1": years[-1], "y0": 0, "y1": 0, "line": {"color": "#000", "width": 1.5}}
-    ]
+    # Build annual DF with Effort/Saving prefixes
+    df_annual = pd.DataFrame({
+        "Year": years,
+        "Effort: Self-funded CAPEX": capex_effort.tolist(),
+        "Effort: Bank Loan Service": interest_effort.tolist(),
+        "Effort: Tech & DAC OPEX": opex_effort.tolist(),
+        "Effort: Voluntary Credits": credits_effort.tolist(),
+        "Effort: Additional Resources": res_add.tolist(),
+        "Effort: Carbon Tax (Actual)": tax_actual.tolist(),
+        "Saving: Public Aids": (-aids_saving).tolist(),
+        "Saving: Baseline Tax Offset": tax_offset.tolist(),
+        "Saving: Avoided Resources": res_avoid.tolist()
+    })
+    
+    all_cols = [c for c in df_annual.columns if c != "Year"]
+    pos_cols = [c for c in all_cols if c.startswith("Effort: ")]
+    neg_cols = [c for c in all_cols if c.startswith("Saving: ")]
+    
+    fig = build_transition_cost_figure(
+        df_annual=df_annual,
+        years=years,
+        pos_cols=pos_cols,
+        neg_cols=neg_cols,
+        title=title
+    )
 
     description = (
-        "This graph shows the cumulative cost of the ecological transition. "
-        "Bars represent the cumulative components of investments, OPEX, and savings (taxes and resources). "
-        "The red line represents the net cumulative balance."
+        "Reconstructed Transition Cost chart from raw Excel sheets. "
+        "For best results, re-run the simulation to export high-fidelity transition data."
     )
-    return {"data": traces, "layout": layout}, description
+    return fig_to_dict(fig), description
 
 
 def build_total_annual_opex_graph(df_costs: pd.DataFrame, df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
@@ -1553,6 +1623,50 @@ def load_mac_table(workbook: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def load_high_fidelity_table(workbook: Path, sheet_marker: str) -> pd.DataFrame:
+    """Loads a specific high-fidelity table from the Charts sheet."""
+    try:
+        raw = pd.read_excel(workbook, sheet_name="Charts", header=None)
+    except Exception:
+        return pd.DataFrame()
+
+    header_row = None
+    for idx, row in raw.iterrows():
+        values = [str(v).strip() for v in row.tolist() if pd.notna(v)]
+        if any(sheet_marker in v for v in values):
+            header_row = idx
+            break
+
+    if header_row is None:
+        return pd.DataFrame()
+
+    df = pd.read_excel(workbook, sheet_name="Charts", header=header_row + 1)
+    
+    # 1. Stop at the first entirely empty row to avoid reading subsequent tables
+    # Find the index of the first row that is all NaN
+    nan_rows = df.isnull().all(axis=1)
+    if nan_rows.any():
+        first_nan = nan_rows.idxmax()
+        df = df.iloc[:first_nan]
+    
+    df = df.dropna(how="all")
+    
+    # Filter out other tables below if they exist (stop at next empty row or specific marker)
+    # For now, just drop unnamed columns
+    unnamed = [col for col in df.columns if str(col).startswith("Unnamed:")]
+    if unnamed:
+        df = df.drop(columns=unnamed)
+    
+    if "Year" not in df.columns:
+        # Try to find Year column by fuzzy match
+        for col in df.columns:
+            if "year" in str(col).lower():
+                df = df.rename(columns={col: "Year"})
+                break
+    
+    return df.reset_index(drop=True)
+
+
 def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Dict[str, Any]:
     latest_ts = max(path.stat().st_mtime for path in workbooks.values())
     generation_date = datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d %H:%M:%S")
@@ -1562,12 +1676,18 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
     # 1. First pass to find BAU costs for resource delta calculation
     bau_name = next((n for n in workbooks if any(b in n.upper() for b in ["BUSINESS AS USUAL", "BASELINE", "BAU"])), None)
     bau_res_costs = None
+    bau_tax_costs = None
     if bau_name:
         wb = workbooks[bau_name]
         df_en_bau = load_sheet(wb, "Energy_Mix")
         df_du_bau = load_sheet(wb, "Data_Used")
+        df_co2_bau = load_sheet(wb, "CO2_Trajectory")
         if not df_en_bau.empty and not df_du_bau.empty:
             bau_res_costs = _calculate_resource_costs(df_en_bau, df_du_bau)
+        if not df_co2_bau.empty:
+            tax_col = find_column(df_co2_bau, ["tax_cost_meuros", "net_tax_cost_meuros"])
+            if tax_col:
+                bau_tax_costs = _series_map_by_year(df_co2_bau, tax_col)
 
     for scenario_name, workbook in workbooks.items():
         df_energy = load_sheet(workbook, "Energy_Mix")
@@ -1579,6 +1699,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         df_mac = load_mac_table(workbook)
         df_transition_balance = load_transition_balance_table(workbook)
         df_data_used = load_sheet(workbook, "Data_Used")
+        df_hf_transition = load_high_fidelity_table(workbook, "TRANSITION_COST_HIGH_FIDELITY")
 
         carbon_price_fig, carbon_price_desc = build_carbon_price_graph(df_co2)
         carbon_tax_fig, carbon_tax_desc = build_carbon_tax_graph(df_co2)
@@ -1589,98 +1710,57 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         invest_fig, invest_desc = build_investment_plan_graph(df_invest)
         resources_opex_fig, resources_opex_desc = build_resources_opex_graph(df_costs)
         data_used_fig, data_used_desc = build_data_used_graph(df_data_used)
-        transition_fig, transition_desc = build_transition_cost_graph(df_financing, df_costs, df_co2, df_transition_balance, df_energy, df_data_used, bau_res_costs)
+        transition_fig, transition_desc = build_transition_cost_graph(
+            df_financing, df_costs, df_co2, df_transition_balance, 
+            df_energy, df_data_used, bau_res_costs, bau_tax_costs,
+            df_hf_transition=df_hf_transition
+        )
         total_opex_fig, total_opex_desc = build_total_annual_opex_graph(df_costs, df_co2)
         co2_abatement_fig, co2_abatement_desc = build_co2_abatement_graph(df_mac)
+
+        # --- 2. Chart Mapping Logic (Hybrid: JSON if available, else embedded) ---
+        def get_graph_payload(key, label, title, description, figure, json_filename):
+            """Returns a figure object, either from a modular JSON file if present, or fallback to the provided figure."""
+            chart_json = workbook.parent / "charts" / f"{json_filename}.json"
+            if chart_json.exists():
+                try:
+                    with open(chart_json, 'r', encoding='utf-8') as f:
+                        modular_fig = json.load(f)
+                    return {
+                        "label": label,
+                        "title": title,
+                        "description": description,
+                        "downloadName": sanitize_filename(f"{scenario_name}_{key}"),
+                        "figure": modular_fig
+                    }
+                except Exception as e:
+                    print(f"  [WARN] Failed to read modular JSON for {key}: {e}")
+            
+            # Fallback to the figure generated by the dashboard script
+            return {
+                "label": label,
+                "title": title,
+                "description": description,
+                "downloadName": sanitize_filename(f"{scenario_name}_{key}"),
+                "figure": figure
+            }
 
         scenarios[scenario_name] = {
             "displayName": scenario_name,
             "sourceWorkbook": str(workbook),
             "graphs": {
-                "carbon_price": {
-                    "label": "CARBON PRICE",
-                    "title": "CARBON PRICE",
-                    "description": carbon_price_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_carbon_price"),
-                    "figure": carbon_price_fig,
-                },
-                "carbon_tax": {
-                    "label": "CARBON TAX",
-                    "title": "CARBON TAX",
-                    "description": carbon_tax_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_carbon_tax"),
-                    "figure": carbon_tax_fig,
-                },
-                "co2_trajectory": {
-                    "label": "CO2 TRAJECTORY",
-                    "title": "CO2 TRAJECTORY",
-                    "description": co2_traj_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_co2_trajectory"),
-                    "figure": co2_traj_fig,
-                },
-                "energy_mix": {
-                    "label": "ENERGY MIX",
-                    "title": "ENERGY MIX",
-                    "description": energy_mix_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_energy_mix"),
-                    "figure": energy_mix_fig,
-                },
-                "external_financing": {
-                    "label": "FINANCING",
-                    "title": "FINANCING",
-                    "description": ext_finance_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_external_financing"),
-                    "figure": ext_finance_fig,
-                },
-                "indirect_emissions": {
-                    "label": "INDIRECT EMISSIONS",
-                    "title": "INDIRECT EMISSIONS",
-                    "description": indirect_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_indirect_emissions"),
-                    "figure": indirect_fig,
-                },
-                "investment_plan": {
-                    "label": "INVESTMENT PLAN",
-                    "title": "INVESTMENT PLAN",
-                    "description": invest_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_investment_plan"),
-                    "figure": invest_fig,
-                },
-                "ressources_opex": {
-                    "label": "RESSOURCES OPEX",
-                    "title": "RESSOURCES OPEX",
-                    "description": resources_opex_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_ressources_opex"),
-                    "figure": resources_opex_fig,
-                },
-                "data_used": {
-                    "label": "DATA USED",
-                    "title": "DATA USED",
-                    "description": data_used_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_data_used"),
-                    "figure": data_used_fig,
-                },
-                "transition_cost": {
-                    "label": "TRANSITION COST",
-                    "title": "TRANSITION COST",
-                    "description": transition_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_transition_cost"),
-                    "figure": transition_fig,
-                },
-                "total_annual_opex": {
-                    "label": "TOTAL ANNUAL OPEX",
-                    "title": "TOTAL ANNUAL OPEX",
-                    "description": total_opex_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_total_annual_opex"),
-                    "figure": total_opex_fig,
-                },
-                "co2_abatement": {
-                    "label": "CO2 ABATEMENT",
-                    "title": "CO2 ABATEMENT",
-                    "description": co2_abatement_desc,
-                    "downloadName": sanitize_filename(f"{scenario_name}_co2_abatement"),
-                    "figure": co2_abatement_fig,
-                },
+                "carbon_price": get_graph_payload("carbon_price", "CARBON PRICE", "CARBON PRICE", carbon_price_desc, carbon_price_fig, "Carbon_Prices"),
+                "carbon_tax": get_graph_payload("carbon_tax", "CARBON TAX", "CARBON TAX", carbon_tax_desc, carbon_tax_fig, "Carbon_Tax"),
+                "co2_trajectory": get_graph_payload("co2_trajectory", "CO2 TRAJECTORY", "CO2 TRAJECTORY", co2_traj_desc, co2_traj_fig, "CO2_Trajectory"),
+                "energy_mix": get_graph_payload("energy_mix", "ENERGY MIX", "ENERGY MIX", energy_mix_desc, energy_mix_fig, "Energy_Mix"),
+                "external_financing": get_graph_payload("external_financing", "FINANCING", "FINANCING", ext_finance_desc, ext_finance_fig, "External_Financing"),
+                "indirect_emissions": get_graph_payload("indirect_emissions", "INDIRECT EMISSIONS", "INDIRECT EMISSIONS", indirect_desc, indirect_fig, "Indirect_Emissions"),
+                "investment_plan": get_graph_payload("investment_plan", "INVESTMENT PLAN", "INVESTMENT PLAN", invest_desc, invest_fig, "Investment_Plan"),
+                "ressources_opex": get_graph_payload("ressources_opex", "RESSOURCES OPEX", "RESSOURCES OPEX", resources_opex_desc, resources_opex_fig, "Resources_Opex"),
+                "data_used": get_graph_payload("data_used", "DATA USED", "DATA USED", data_used_desc, data_used_fig, "Data_Used"),
+                "transition_cost": get_graph_payload("transition_cost", "TRANSITION COST", "TRANSITION COST", transition_desc, transition_fig, "Transition_Cost"),
+                "total_annual_opex": get_graph_payload("total_annual_opex", "TOTAL ANNUAL OPEX", "TOTAL ANNUAL OPEX", total_opex_desc, total_opex_fig, "Total_Annual_Opex"),
+                "co2_abatement": get_graph_payload("co2_abatement", "CO2 ABATEMENT", "CO2 ABATEMENT", co2_abatement_desc, co2_abatement_fig, "CO2_Abatement"),
             },
         }
 
@@ -1938,15 +2018,12 @@ def build_html(payload: Dict[str, Any]) -> str:
       });
     }
 
-    function currentGraphPayload() {
+    async function renderGraph() {
       const scenarioKey = scenarioSelect.value;
       const graphKey = graphSelect.value;
       const scenario = dashboardData.scenarios[scenarioKey] || { graphs: {} };
-      return scenario.graphs[graphKey] || null;
-    }
+      const payload = scenario.graphs[graphKey] || null;
 
-    async function renderGraph() {
-      const payload = currentGraphPayload();
       if (!payload) {
         graphTitle.textContent = 'No graph available';
         graphMethod.textContent = 'No graph payload is available for this selection.';

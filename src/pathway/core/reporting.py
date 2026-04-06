@@ -10,6 +10,9 @@ import matplotlib.ticker as ticker
 from rich import print
 from tqdm import tqdm
 from .optimizer import PathFinderOptimizer
+import plotly.graph_objects as go
+import plotly.io as pio
+from pathway.core.plots.financial import build_transition_cost_figure
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -24,6 +27,19 @@ class PathFinderReporter:
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
         self.results_dir = os.path.join(repo_root, 'artifacts', 'reports', self.scenario_name)
         self.charts_data = [] # List of (title, dataframe) tuples
+
+    def _save_plotly_figure(self, fig, base_filename):
+        """Unified save method for Plotly figures (PNG + JSON)."""
+        charts_dir = os.path.join(self.results_dir, "charts")
+        os.makedirs(charts_dir, exist_ok=True)
+        
+        # 1. Export static PNG (Golden Rule: exactly like Matplotlib)
+        png_path = os.path.join(self.results_dir, f"{self.scenario_name}_{base_filename}.png")
+        fig.write_image(png_path, scale=2, width=1200, height=800)
+        
+        # 2. Export JSON for web dashboard
+        json_path = os.path.join(charts_dir, f"{base_filename}.json")
+        fig.write_json(json_path)
 
     def _add_scenario_label(self, fig):
         """Add a colored label box in the top-right corner with the scenario name."""
@@ -1386,11 +1402,9 @@ class PathFinderReporter:
 
         
     def _plot_co2_trajectory(self, df: pd.DataFrame):
-        fig, ax1 = plt.subplots(figsize=(12, 9))
-        # No tight_layout call here yet, wait for end
-        
-        # Convert all CO2 values to ktCO2 for readability
-        KT = 1_000.0
+        """Conversion fidèle du graphique CO2 Trajectory en Plotly Python."""
+        # --- 1. Préparation des données (Identique au Matplotlib original) ---
+        KT = 1000.0
         df = df.copy()
         for col in ['Direct_CO2', 'Indirect_CO2', 'Total_CO2', 'Taxed_CO2', 'Free_Quota']:
             if col in df.columns:
@@ -1400,103 +1414,144 @@ class PathFinderReporter:
         cred = df.get('Credits_Purchased_kt', pd.Series(0, index=df.index))
         has_dac_or_cred = (dac_cap + cred).max() > 1e-4
 
-        # Net Direct and Net Total calculation
+        # Calcul des bilans nets
         net_direct = df['Direct_CO2'] - dac_cap - cred
         net_total = net_direct + df['Indirect_CO2']
 
-        # Base lines
-        ax1.plot(df['Year'], df['Direct_CO2'], label='Direct Emissions', linewidth=3, color='black', zorder=4)
-        ax1.plot(df['Year'], df['Indirect_CO2'], label='Indirect Emissions', linestyle=':', linewidth=2, color='black', zorder=3)
+        fig = go.Figure()
+
+        # --- 2. AIRES DE RÉFÉRENCE (Remplissages continus) ---
         
-        # New Total Emissions: Net Direct + Indirect
-        ax1.plot(df['Year'], net_total, label='Total Emissions (Net Direct + Indirect)', linestyle='--', linewidth=3, color='darkred', zorder=4)
-        
-        # Net Direct Emissions
-        ax1.plot(df['Year'], net_direct, label='Net Direct Emissions', linewidth=3, color='#3498db', linestyle='-.', zorder=5)
-        
-        # Free Quotas Surface
-        ax1.fill_between(df['Year'], 0, df['Free_Quota'], alpha=0.3, color='green', label='Free Quotas (Direct)', zorder=1)
-        
-        # Taxed Emissions as hatched surface ON TOP of Free Quota
-        ax1.fill_between(df['Year'], df['Free_Quota'], df['Free_Quota'] + df['Taxed_CO2'], 
-                         hatch='...', alpha=0.4, color='tab:gray', label='Taxed Emissions (Surface)', zorder=2)
-        
-        # Plot Company Objectives (Goals)
+        # Remplissage sous Net Direct (Ombre légère)
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=net_direct,
+            fill='tozeroy', fillcolor='rgba(52, 152, 219, 0.1)',
+            mode='none', showlegend=False, name='Net Direct Shade'
+        ))
+
+        # DAC et Crédits (Aires Négatives)
+        if has_dac_or_cred:
+            # Trace de base pour DAC (remplissage vers 0)
+            fig.add_trace(go.Scatter(
+                x=df['Year'], y=[-x for x in dac_cap],
+                name='DAC Captured (ktCO2)',
+                fill='tozeroy', fillcolor='rgba(52, 152, 219, 0.6)',
+                mode='lines', line=dict(width=0)
+            ))
+            # Trace pour Credits (remplissage entre DAC et (DAC+Credits))
+            fig.add_trace(go.Scatter(
+                x=df['Year'], y=[-(d + c) for d, c in zip(dac_cap, cred)],
+                name='Voluntary Credits (ktCO2)',
+                fill='tonexty', fillcolor='rgba(39, 174, 96, 0.6)',
+                mode='lines', line=dict(width=0)
+            ))
+
+        # Quotas Gratuits (Vert transparent, 0 vers Free_Quota)
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=df['Free_Quota'],
+            name='Free Quotas (Direct)',
+            fill='tozeroy', fillcolor='rgba(0, 128, 0, 0.3)',
+            mode='lines', line=dict(width=0)
+        ))
+
+        # Émissions Taxées (Hachuré / Motifs, Free_Quota vers Total)
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=df['Free_Quota'] + df['Taxed_CO2'],
+            name='Taxed Emissions (Surface)',
+            fill='tonexty',
+            fillcolor='rgba(128, 128, 128, 0.4)',
+            fillpattern=dict(shape=".", solidity=0.3),
+            mode='lines', line=dict(width=0)
+        ))
+
+        # --- 3. COURBES DE TRAJECTOIRE ---
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=df['Direct_CO2'],
+            name='Direct Emissions', line=dict(color='black', width=3), mode='lines'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=df['Indirect_CO2'],
+            name='Indirect Emissions', line=dict(color='black', width=2, dash='dot'), mode='lines'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=net_total,
+            name='Total Emissions (Net)', line=dict(color='darkred', width=3, dash='dash'), mode='lines'
+        ))
+        fig.add_trace(go.Scatter(
+            x=df['Year'], y=net_direct,
+            name='Net Direct Emissions', line=dict(color='#3498db', width=3, dash='dashdot'), mode='lines'
+        ))
+
+        # --- 4. OBJECTIFS (Scatter 'x') ---
         plotted_groups = set()
-        
-        # Color mapping for groups
         available_colors = ['#e74c3c', '#9b59b6', '#f39c12', '#1abc9c', '#34495e', '#d35400', '#2ecc71']
         group_colors = {}
-        
+
         for obj in self.data.objectives:
             if obj.resource == 'CO2_EM':
-                 # Calculate the actual limit value for plotting (convert to ktCO2)
-                 if obj.comparison_year and -1.0 <= obj.cap_value <= 1.0:
-                     limit = self.opt.entity.base_emissions * (1 + obj.cap_value) / KT
-                 else:
-                     limit = obj.cap_value / KT
-                 
-                 display_name = obj.name if obj.name else (obj.group if obj.group else 'Goal')
-                 label = display_name if display_name not in plotted_groups else None
-                 plotted_groups.add(display_name)
-                 
-                 # Assign dynamic color based on group
-                 grp = obj.group if obj.group else 'Default'
-                 if grp not in group_colors:
-                     group_colors[grp] = available_colors[len(group_colors) % len(available_colors)]
-                 pt_color = group_colors[grp]
-                 
-                 if obj.mode == 'LINEAR':
-                     # The dotted trajectory line has been removed per user request
-                     ax1.scatter(obj.target_year, limit, color=pt_color, marker='x', s=120, linewidths=3, label=label, zorder=6, clip_on=False)
-                 else:
-                     ax1.scatter(obj.target_year, limit, color=pt_color, marker='x', s=120, linewidths=3, label=label, zorder=6, clip_on=False)
+                if obj.comparison_year and -1.0 <= obj.cap_value <= 1.0:
+                    limit = self.opt.entity.base_emissions * (1 + obj.cap_value) / KT
+                else:
+                    limit = obj.cap_value / KT
+                
+                display_name = obj.name if obj.name else (obj.group if obj.group else 'Goal')
+                show_legend = display_name not in plotted_groups
+                plotted_groups.add(display_name)
+                
+                grp = obj.group if obj.group else 'Default'
+                if grp not in group_colors:
+                    group_colors[grp] = available_colors[len(group_colors) % len(available_colors)]
+                
+                fig.add_trace(go.Scatter(
+                    x=[obj.target_year], y=[limit],
+                    mode='markers', name=display_name, showlegend=show_legend,
+                    marker=dict(symbol='x', size=12, line=dict(width=3), color=group_colors[grp])
+                ))
 
-        ax1.set_title('CO2 EMISSIONS TRAJECTORY & GOALS', fontsize=15, weight='bold', pad=20)
-        ax1.set_ylabel('ktCO2', fontsize=12, weight='semibold')
-        ax1.set_xlabel('Year', fontsize=12, weight='semibold')
+        # --- 5. LOGIQUE DE LAYOUT ET STYLE ---
+        # Ligne de Zéro
+        fig.add_shape(type="line", x0=df['Year'].min(), x1=df['Year'].max(), y0=0, y1=0, 
+                      line=dict(color="black", width=1.2))
+
+        # Configuration des Axes et Titre
+        fig.update_layout(
+            template='plotly_white',
+            title=dict(text='CO2 EMISSIONS TRAJECTORY & GOALS', font=dict(size=20, weight='bold')),
+            xaxis=dict(title='Year', gridcolor='#eeeeee', tickmode='linear'),
+            yaxis=dict(title='ktCO2', gridcolor='#eeeeee', zeroline=False),
+            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, 
+                        bordercolor="#E0E0E0", borderwidth=1),
+            margin=dict(l=60, r=40, t=100, b=120),
+            bargap=0, # Crucial pour l'effet "surface"
+        )
+
+        # Label de Scénario (Top-Right)
+        palette_label = {'BS': '#1A5276', 'CT': '#1E8449', 'LCB': '#6E2F7C'}
+        label_color = palette_label.get(self.scenario_id.upper(), '#333333')
+        fig.add_annotation(
+            xref="paper", yref="paper", x=1.0, y=1.05,
+            text=f" <b>{self.scenario_name}</b> ",
+            showarrow=False, font=dict(color="white", size=12),
+            bgcolor=label_color, borderpad=4, borderwidth=0
+        )
+
+        # Watermark
+        logo_path = os.path.join('INPUT', 'logo_dark.png')
+        if os.path.exists(logo_path):
+            import base64
+            with open(logo_path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode()
+            fig.add_layout_image(dict(
+                source=f"data:image/png;base64,{encoded_string}",
+                xref="paper", yref="paper", x=0.5, y=0.5,
+                sizex=0.6, sizey=0.6, xanchor="center", yanchor="middle",
+                opacity=0.08, layer="below"
+            ))
+
+        # --- 6. SAUVEGARDE ET EXPORT ---
+        self._save_plotly_figure(fig, "CO2_Trajectory")
         
-        # Add a subtle shadow/fill under Net Direct Emissions
-        ax1.fill_between(df['Year'], 0, net_direct, color='#3498db', alpha=0.1, zorder=0)
-
-        self._apply_premium_style(ax1)
-        
-        if has_dac_or_cred:
-            # Use a professional palette for DAC/Credits (Negative Sinks)
-            dac_color = '#3498DB'
-            cred_color = '#27AE60'
-
-            # Plot negative areas on the main axis to show "removals"
-            ax1.fill_between(df['Year'], 0, -dac_cap, color=dac_color, alpha=0.6, label='DAC Captured (ktCO2)', zorder=2)
-            ax1.fill_between(df['Year'], -dac_cap, -(dac_cap + cred), color=cred_color, alpha=0.6, label='Voluntary Credits (ktCO2)', zorder=2)
-            
-            # Adjust Y-limits to show the full balance (emissions vs removals)
-            ymax = max(df['Direct_CO2'].max(), df['Indirect_CO2'].max(), (df['Free_Quota'] + df['Taxed_CO2']).max(), net_total.max()) * 1.15
-            ymin = -(dac_cap + cred).max() * 1.3
-            ax1.set_ylim(ymin if ymin < -1 else -1, ymax if ymax > 1 else 1)
-            
-            # Add a zero line for balance clarity
-            ax1.axhline(0, color='black', linewidth=1.2, alpha=0.8, zorder=3)
-            
-            # Standard labels & legends
-            ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                       ncol=min(4, len(ax1.get_legend_handles_labels()[0])), frameon=True, shadow=False, fontsize=12)
-            
-            # Allow the y-axis to expand naturally for negative sinks (DAC/Credits)
-            # ax1.set_ylim(bottom=0)
-            ax1.axhline(0, color='black', linewidth=1.0, zorder=2)
-            ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                       ncol=3, frameon=True, shadow=False, fontsize=12)
-
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.20) # Make room for the legend
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_CO2_Trajectory.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data
+        # Collecte des données pour l'Excel
         self.charts_data.append(("CO2 Emissions Trajectory & Decarbonization Goals", df))
 
     def _plot_indirect_emissions(self, df: pd.DataFrame):
@@ -2278,15 +2333,14 @@ class PathFinderReporter:
         }).set_index('Year')
         self.charts_data.append(("Carbon Price & Policy Trajectory", df_cp))
 
-
     def _plot_transition_costs(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame, df_emis: pd.DataFrame):
-        """Plots the stacked cumulative costs and savings of the ecological transition."""
+        """Plots the stacked cumulative costs and savings of the ecological transition using Plotly."""
         df_costs = df_costs.copy()
         if 'Year' in df_costs.columns:
             df_costs.set_index('Year', inplace=True)
 
         def get_robust_price(r_id, yr):
-            """Get resource price with exact lookup first, then fuzzy fallback on EN_ prefix."""
+            """Get resource price with exact lookup first, then fuzzy fallback."""
             resource_prices = self.data.time_series.resource_prices
             exact_price = float(resource_prices.get(r_id, {}).get(yr, 0.0) or 0.0)
             if exact_price != 0.0:
@@ -2303,8 +2357,9 @@ class PathFinderReporter:
                         return fuzzy_price
             return 0.0
             
-        # 1. Baseline Calculation ("Nothing Done")
+        # 1. Baseline Calculation
         baseline_data = []
+        b_res_costs = {} # (t, res_id) -> cost
         for t in self.years:
             yr_idx = list(self.years).index(t)
             b_emissions = 0.0
@@ -2326,7 +2381,6 @@ class PathFinderReporter:
                         p_base_cons = (self.opt.entity.base_consumptions.get(res_id, 0.0) * process.consumption_shares.get(res_id, 0.0)) * up_factor
                         b_consumptions[res_id] += p_base_cons
             
-            # Add unallocated portions (fixed)
             allocated_emis_share = sum(p.emission_shares.get('CO2_EM', 0.0) for p in self.opt.entity.processes.values())
             b_emissions += self.opt.entity.base_emissions * (1.0 - allocated_emis_share)
             for res_id in self.data.resources:
@@ -2334,7 +2388,6 @@ class PathFinderReporter:
                     allocated_share = sum(p.consumption_shares.get(res_id, 0.0) for p in self.opt.entity.processes.values())
                     b_consumptions[res_id] += self.opt.entity.base_consumptions.get(res_id, 0.0) * (1.0 - allocated_share)
             
-            # Carbon Tax Baseline
             tax_price = self.data.time_series.carbon_prices.get(t, 0.0)
             if self.opt.entity.sv_act_mode == "PI":
                 fq_pct = self.data.time_series.carbon_quotas_pi.get(t, 0.0)
@@ -2342,37 +2395,28 @@ class PathFinderReporter:
                 fq_pct = self.data.time_series.carbon_quotas_norm.get(t, 0.0)
             
             taxed_co2_b = b_emissions * (1.0 - fq_pct) if fq_pct <= 1.0 else max(0.0, b_emissions - fq_pct)
-            b_tax_cost = taxed_co2_b * tax_price / 1_000_000.0 # M€
+            b_tax_cost = taxed_co2_b * tax_price / 1_000_000.0
             
-            # Resource Cost Baseline
-            b_res_cost = 0.0
             for res_id, cons_val in b_consumptions.items():
+                if res_id == 'CO2_EM': continue
                 price = get_robust_price(res_id, t)
-                if price > 0: b_res_cost += cons_val * price
-            b_res_cost /= 1_000_000.0 # M€
+                if price > 0:
+                    b_res_costs[(t, res_id)] = (cons_val * price) / 1_000_000.0
             
-            baseline_data.append({
-                'Year': t,
-                'Baseline_Tax': b_tax_cost,
-                'Baseline_Resource_Cost': b_res_cost
-            })
+            baseline_data.append({'Year': t, 'Baseline_Tax': b_tax_cost})
         
         df_b = pd.DataFrame(baseline_data).set_index('Year')
-        
-        # 2. Delta Dataset Construction (Annual first)
         years = list(df_b.index)
         df_annual = pd.DataFrame(index=years)
         
-        # --- POSITIVE COSTS ---
+        # --- POSITIVE COSTS (Efforts) ---
         df_fin = df_finance.set_index('Year')
-        # User requested Bank Loan Service to be INTERESTS ONLY
-        # Principal repayments are grouped with Self-funded CAPEX to reflect investment effort
         df_annual['Self-funded CAPEX'] = df_fin['Out_of_Pocket_CAPEX (M€)'] + df_fin['Principal_Repayment (M€)']
         df_annual['Bank Loan Service'] = df_fin['Interest_Paid (M€)']
         
         tech_opex = []
         for t in years:
-            year_opex = 0.0
+            yr_opex = 0.0
             for p_id, process in self.opt.entity.processes.items():
                 for t_id in process.valid_technologies:
                     if t_id == 'UP': continue
@@ -2385,12 +2429,11 @@ class PathFinderReporter:
                             elif 'MW' in str(tech.opex_unit).upper():
                                 cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
                         current_opex = tech.opex_by_year.get(t, tech.opex)
-                        year_opex += (current_opex * cap_opex / process.nb_units) * act_v
-            
+                        yr_opex += (current_opex * cap_opex / process.nb_units) * act_v
             if self.data.dac_params.active:
                 dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
-                year_opex += dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)
-            tech_opex.append(year_opex / 1_000_000.0)
+                yr_opex += dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)
+            tech_opex.append(yr_opex / 1_000_000.0)
         df_annual['Tech & DAC OPEX'] = tech_opex
         
         cred_costs = []
@@ -2399,171 +2442,87 @@ class PathFinderReporter:
             cred_costs.append((cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)) / 1_000_000.0)
         df_annual['Voluntary Carbon Credits'] = cred_costs
         
-        # --- NEGATIVE COSTS ---
+        # --- NEGATIVE COSTS (Savings/Aids) ---
         public_aids = []
         for t in years:
             grant_total = sum(self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue or 0.0 
                              for p_id, proc in self.opt.entity.processes.items() 
                              for t_id in proc.valid_technologies 
-                             if (t, p_id, t_id) in self.opt.grant_amt_vars and self.opt.grant_amt_vars.get((t, p_id, t_id)) is not None and self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue is not None)
+                             if (t, p_id, t_id) in self.opt.grant_amt_vars and self.opt.grant_amt_vars.get((t, p_id, t_id)) is not None)
             ccfd_refund = df_emis.set_index('Year').at[t, 'CCfD_Refund_MEuros']
             public_aids.append(-(grant_total / 1_000_000.0 + ccfd_refund))
         df_annual['Public Aids (Grants & CCfD)'] = public_aids
         
+        # Carbon Tax: Show Actual Scenario Tax vs Baseline Offset
         actual_tax = df_emis.set_index('Year')['Tax_Cost_MEuros']
-        df_annual['Avoided Carbon Tax'] = actual_tax - df_b['Baseline_Tax']
+        df_annual['Carbon Tax (Actual)'] = actual_tax
+        df_annual['Baseline Carbon Tax Offset'] = -df_b['Baseline_Tax'] # Benefit of avoiding BAU tax
         
-        actual_res_cost = []
+        # Per-resource delta (Added vs Suppressed)
+        actual_res_costs = {}
         for t in years:
-            r_cost = 0.0
             for res_id in self.data.resources:
                 if res_id == 'CO2_EM': continue
                 cons_val = self.opt.cons_vars[(t, res_id)].varValue or 0.0
                 price = get_robust_price(res_id, t)
-                if price > 0: r_cost += cons_val * price
-            actual_res_cost.append(r_cost / 1_000_000.0)
-        res_delta = np.array(actual_res_cost) - df_b['Baseline_Resource_Cost'].values
-        df_annual['Additional Resource Cost'] = [max(0, float(x)) for x in res_delta]
-        df_annual['Avoided Resource Saving'] = [min(0, float(x)) for x in res_delta]
+                if price > 0:
+                    actual_res_costs[(t, res_id)] = (cons_val * price) / 1_000_000.0
         
-        # 3. Hybrid Transformation
-        df_plot = df_annual.copy() # Areas use annual values
-        
-        # Rename Resource Savings
-        if 'Resource Savings' in df_plot.columns:
-            df_plot = df_plot.rename(columns={'Resource Savings': 'Resource Mix Change'})
-        
-        # ── TRANSITION EFFORTS (Positive) ──
-        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits', 'Additional Resource Cost']
-        
-        # ── TRANSITION BENEFITS & SAVINGS (Negative) ──
-        neg_cols = ['Public Aids (Grants & CCfD)', 'Avoided Carbon Tax', 'Avoided Resource Saving']
-        
-        # Clean columns to remove near-zero ones
-        pos_cols = [c for c in pos_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
-        neg_cols = [c for c in neg_cols if c in df_plot.columns and df_plot[c].abs().sum() > 1e-3]
+        add_res_costs = []
+        avoid_res_savings = []
+        for t in years:
+            yr_add = 0.0
+            yr_avoid = 0.0
+            for res_id in self.data.resources:
+                if res_id == 'CO2_EM': continue
+                b_c = b_res_costs.get((t, res_id), 0.0)
+                a_c = actual_res_costs.get((t, res_id), 0.0)
+                delta = a_c - b_c
+                if delta > 1e-4: yr_add += delta
+                elif delta < -1e-4: yr_avoid += delta
+            add_res_costs.append(yr_add)
+            avoid_res_savings.append(yr_avoid)
 
-        # Net annual balance uses only visible plotted columns (neg_cols already carry negative values).
-        annual_pos = df_plot[pos_cols].sum(axis=1) if pos_cols else pd.Series(0.0, index=df_plot.index)
-        annual_neg = df_plot[neg_cols].sum(axis=1) if neg_cols else pd.Series(0.0, index=df_plot.index)
-        df_annual_net = annual_pos + annual_neg
-        df_net_cumul = df_annual_net.cumsum()
+        df_annual['Additional Resource Cost'] = add_res_costs
+        df_annual['Avoided Resource Saving'] = avoid_res_savings
         
-        # Refined Palette
-        # Efforts: Dark Blues / Purples
-        colors_efforts = ['#1F3A93', '#2C3E50', '#6741D9', '#9C36B5', '#8B5CF6']
-        # Savings/Aids: Fresh Greens / Teals
-        colors_savings = ['#3E4444', '#10B981', '#16A085', '#27AE60']
-        
-        x = years
-        fig, ax1 = plt.subplots(figsize=(12, 9), facecolor='white')
+        pos_cols = ['Self-funded CAPEX', 'Bank Loan Service', 'Tech & DAC OPEX', 'Voluntary Carbon Credits', 'Additional Resource Cost', 'Carbon Tax (Actual)']
+        neg_cols = ['Public Aids (Grants & CCfD)', 'Baseline Carbon Tax Offset', 'Avoided Resource Saving']
+        pos_cols = [c for c in pos_cols if c in df_annual.columns and df_annual[c].abs().sum() > 1e-3]
+        neg_cols = [c for c in neg_cols if c in df_annual.columns and df_annual[c].abs().sum() > 1e-3]
 
-        # Relative stacked bars: positive efforts above 0, negative savings/aids below 0.
-        bottom_pos = np.zeros(len(years), dtype=float)
-        if pos_cols:
-            pos_matrix = df_plot[pos_cols].to_numpy(dtype=float)
-            pos_cumul = pos_matrix.cumsum(axis=1)
-            for i, col in enumerate(pos_cols):
-                vals = pos_matrix[:, i]
-                if i > 0:
-                    bottom_pos = pos_cumul[:, i - 1]
-                ax1.bar(
-                    x,
-                    vals,
-                    width=0.6,
-                    bottom=bottom_pos,
-                    label=col,
-                    color=colors_efforts[i % len(colors_efforts)],
-                    alpha=0.9,
-                    zorder=3
-                )
+        # Prefix columns for strict categorization parity
+        for c in pos_cols:
+            if c in df_annual.columns:
+                df_annual = df_annual.rename(columns={c: f"Effort: {c}"})
+        for c in neg_cols:
+            if c in df_annual.columns:
+                df_annual = df_annual.rename(columns={c: f"Saving: {c}"})
+        
+        # Update column lists with prefixes
+        pos_cols_prefixed = [f"Effort: {c}" for c in pos_cols if f"Effort: {c}" in df_annual.columns]
+        neg_cols_prefixed = [f"Saving: {c}" for c in neg_cols if f"Saving: {c}" in df_annual.columns]
 
-        bottom_neg = np.zeros(len(years), dtype=float)
-        if neg_cols:
-            neg_matrix = df_plot[neg_cols].to_numpy(dtype=float)
-            neg_cumul = neg_matrix.cumsum(axis=1)
-            for i, col in enumerate(neg_cols):
-                vals = neg_matrix[:, i]
-                if i > 0:
-                    bottom_neg = neg_cumul[:, i - 1]
-                ax1.bar(
-                    x,
-                    vals,
-                    width=0.6,
-                    bottom=bottom_neg,
-                    label=col,
-                    color=colors_savings[i % len(colors_savings)],
-                    alpha=0.9,
-                    zorder=3
-                )
-            
-        # Create secondary axis for Cumulative Line (The Red Balance line)
-        ax2 = ax1.twinx()
-        
-        # Plot Net Cumulative Cost Line on ax2
-        lns = ax2.plot(x, df_net_cumul, color='#E74C3C', linewidth=4, 
-                 label='Net Transition Balance (Cumulative)', marker='o', markersize=6, zorder=10)
-        
-        # Aesthetics for Primary Axis
-        ax1.axhline(0, color='#333333', linewidth=1.5, zorder=5)
-        
-        # ── Dynamic Scenario Investment Cap (Annual Reference) ──────────────────
-        if self.data.reporting_toggles.investment_cap > 0:
-            cap_val = self.data.reporting_toggles.investment_cap
-            ax1.axhline(cap_val, color='#E74C3C', linestyle='--', linewidth=1.5, 
-                        label=f'Annual Effort Cap ({cap_val} M€)', zorder=4)
+        # Plotly Construction (Using Shared Module)
+        fig = build_transition_cost_figure(
+            df_annual=df_annual,
+            years=years,
+            pos_cols=pos_cols_prefixed,
+            neg_cols=neg_cols_prefixed,
+            investment_cap=self.data.reporting_toggles.investment_cap,
+            is_dark_bg=False
+        )
 
-        ax1.set_title("ECOLOGICAL TRANSITION: ANNUAL INVESTMENT EFFORTS & SAVINGS", fontsize=18, weight='bold', pad=35)
-        ax1.set_ylabel("Annual Variation vs Baseline (M€)", fontsize=12, weight='semibold', color='#2C3E50')
-        ax1.set_xlabel("Year", fontsize=12, weight='semibold')
+        # Finalize and Save
+        self._save_plotly_figure(fig, "Transition_Costs")
         
-        ax1.yaxis.set_major_formatter(plt.FormatStrFormatter('%g M€'))
-        ax1.set_xticks(years)
-        ax1.set_xticklabels([str(y) for y in years], rotation=0)
+        # Data for Excel
+        df_store = df_annual[pos_cols_prefixed + neg_cols_prefixed].copy()
+        df_store.index.name = "Year"
+        df_store = df_store.reset_index()
+        self.charts_data.append(("TRANSITION_COST_HIGH_FIDELITY", df_store))
         
-        # Adjust Y-limit if investment cap is set
-        if self.data.reporting_toggles.investment_cap > 0:
-            current_max = ax1.get_ylim()[1]
-            cap_val = self.data.reporting_toggles.investment_cap
-            ax1.set_ylim(top=max(current_max, cap_val * 1.15))
-        
-        # Aesthetics for Secondary Axis
-        ax2.set_ylabel("Net Cumulative Transition Effort (M€)", fontsize=12, weight='semibold', color='#E74C3C')
-        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f} M€'))
-        ax2.spines['right'].set_color('#E74C3C')
-        ax2.tick_params(axis='y', labelcolor='#E74C3C')
-        
-        # Add labels for start and end of cumulative line on ax2
-        for t in [years[0], years[-1]]:
-            val = df_net_cumul.at[t]
-            ax2.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15 if val >=0 else -25),
-                        textcoords="offset points", ha='center', fontsize=11, weight='bold',
-                        color='#E74C3C', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#E74C3C', alpha=0.9))
-
-        # Combined Legend
-        lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper center', 
-                  bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True, fontsize=11)
-        
-        self._apply_premium_style(ax1)
-        # ax2 doesn't need premium style as it's paired with ax1
-        
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.2)
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Transition_Costs.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store cumulative values exported to Excel/dashboard artifacts.
-        # Keep tax saving annual (non-cumulative) to match dashboard expectation.
-        df_store = df_plot[pos_cols + neg_cols].cumsum()
-        if 'Avoided Carbon Tax' in df_store.columns:
-            df_store['Avoided Carbon Tax'] = df_plot['Avoided Carbon Tax']
-        df_store['Net Transition Balance (Cumulative)'] = df_net_cumul
-        self.charts_data.append(("Ecological Transition Cumulative Balance", df_store))
+        self.charts_data.append(("Ecological Transition Cumulative Balance", df_store.set_index('Year').cumsum().reset_index()))
 
     def _plot_interest_paid(self, df_finance: pd.DataFrame):
         """Plots the annual and cumulative interest paid for bank loans."""
