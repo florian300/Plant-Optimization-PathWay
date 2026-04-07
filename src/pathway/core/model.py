@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 @dataclass
 class GrantParams:
@@ -58,6 +58,26 @@ class ReportingToggles:
     chart_resource_prices: bool = True
     chart_co2_abatement_cost: bool = True # New chart for Marginal Abatement Cost
     investment_cap: float = 0.0 # New field for dynamic cap on charts
+
+@dataclass
+class SensitivityParams:
+    """
+    Paramètres d'analyse de sensibilité extraits du bloc SENSITIVITY du fichier Excel.
+    Utilisés par le script run_sensitivity.py pour piloter les simulations OAT.
+    """
+    # Liste des amplitudes de variation (ex: [0.05, 0.10, 0.25, 0.50, 1.00])
+    variations: List[float] = field(default_factory=list)
+    # Direction des variations : 'P' (positif), 'N' (négatif), ou 'ALL' (les deux)
+    direction: str = "ALL"
+    # Identifiants des scénarios à simuler (ex: ['BS'])
+    scenarios: List[str] = field(default_factory=list)
+    # Temps limite alloué au solveur par simulation (secondes)
+    time_limit: int = 10
+    # Dictionnaire des données à perturber : {'EUA': True, 'RESSOURCES PRICE': False, ...}
+    targets: Dict[str, bool] = field(default_factory=dict)
+    # Liste des indicateurs KPI à extraire (ex: ['TRANSITION COST', 'AVERAGE CO2 ABATEMENT', ...])
+    indicators: List[str] = field(default_factory=list)
+
 
 @dataclass
 class Objective:

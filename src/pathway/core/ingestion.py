@@ -4,7 +4,7 @@ import warnings
 from rich import print
 from tqdm import tqdm
 from typing import Dict, Any, Tuple, List
-from .model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles
+from .model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles, SensitivityParams
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 pd.set_option('future.no_silent_downcasting', True)
@@ -18,7 +18,8 @@ class PathFinderParser:
     def _parse_scenarios(self) -> list:
         """Parse the MODELING START/END block from OverView and return list of {id, name} dicts."""
         df_overview = self.xl.parse('OverView', header=None)
-        scenarios = []
+        all_scenarios = []
+        to_simulate = []
         in_modeling = False
         for _, row in df_overview.iterrows():
             vals_upper = [str(x).strip().upper() for x in row.values if pd.notna(x) and str(x).strip()]
@@ -27,17 +28,34 @@ class PathFinderParser:
                 continue
             if 'MODELING' in vals_upper and 'END' in vals_upper:
                 break
-            if in_modeling and 'SC-DES' in vals_upper:
+            if in_modeling:
                 raw = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
-                # Skip lines starting with '**' (usually headers or comments)
-                if raw and raw[0].startswith('**'):
+                if not raw or raw[0].startswith('**'):
                     continue
-                # raw[0] is 'SC-DES', raw[1] is name, raw[2] is ID
-                if len(raw) >= 3:
-                    sc_name = raw[1]
-                    sc_id   = raw[2]
-                    scenarios.append({'id': sc_id, 'name': sc_name})
-        return scenarios
+
+                if 'SC-DES' in vals_upper:
+                    # raw[0] is 'SC-DES', raw[1] is name, raw[2] is ID
+                    if len(raw) >= 3:
+                        sc_name = raw[1]
+                        sc_id   = raw[2]
+                        all_scenarios.append({'id': sc_id, 'name': sc_name})
+
+                elif 'SIM' in vals_upper:
+                    # Collect all tokens after SIM as scenario IDs to simulate
+                    if len(raw) > 1:
+                        for token in raw[1:]:
+                            # Skip common header placeholders if present
+                            if token.upper() not in ['SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…']:
+                                to_simulate.append(token.upper())
+
+        # If a filtering list was found, restrict the scenarios
+        if to_simulate:
+            filtered = [s for s in all_scenarios if s['id'].upper() in to_simulate]
+            if filtered:
+                return filtered
+            # Fallback if names were mismatched: return all but with warning (not easy here, but better safe)
+
+        return all_scenarios
 
     def _find_blocks(self, df: pd.DataFrame) -> list:
         """Find START and END blocks in a dataframe to isolate tables."""
@@ -1576,6 +1594,142 @@ class PathFinderParser:
             credit_params=credit_params,
             reporting_toggles=reporting_toggles
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ANALYSE DE SENSIBILITÉ
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _parse_sensitivity_block(self, df_overview: pd.DataFrame) -> SensitivityParams:
+        """
+        Analyse le bloc SENSITIVITY START / SENSITIVITY END de la feuille OverView
+        et retourne un objet SensitivityParams complet.
+
+        Structure attendue (tags en colonne A) :
+            VAR     → amplitudes de variation (%, ex: 5% 10% 25% 50% 100%)
+            P/N     → direction (P, N ou ALL)
+            SIM     → scénarios cibles (ex: BS)
+            TIME    → temps limite (s) par simulation
+            DATA?   → EUA YES/NO, RESSOURCES PRICE YES/NO, …
+            INDI    → nom d'un indicateur à surveiller
+        """
+        variations: List[float] = []
+        direction: str = "ALL"
+        scenarios: List[str] = []
+        time_limit: int = 10
+        targets: Dict[str, bool] = {}
+        indicators: List[str] = []
+
+        in_block = False
+
+        for _, row in df_overview.iterrows():
+            # Valeurs brutes et normalisées
+            raw_vals = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
+            vals_upper = [v.upper() for v in raw_vals]
+
+            # Détection des marqueurs START / END du bloc SENSITIVITY
+            if 'SENSITIVITY' in vals_upper and 'START' in vals_upper:
+                in_block = True
+                continue
+            if 'SENSITIVITY' in vals_upper and 'END' in vals_upper:
+                break
+
+            if not in_block:
+                continue
+
+            # Ignorer les lignes de commentaire ou vides
+            if not raw_vals or raw_vals[0].startswith('**'):
+                continue
+
+            tag = vals_upper[0]
+
+            # ── Amplitudes de variation ────────────────────────────────────
+            if tag == 'VAR':
+                for token in raw_vals[1:]:
+                    token_clean = token.replace('%', '').strip()
+                    try:
+                        val = float(token_clean)
+                        # Convertir les pourcentages entiers en décimaux
+                        if val > 1.0:
+                            val /= 100.0
+                        if val > 0:
+                            variations.append(round(val, 6))
+                    except ValueError:
+                        pass
+
+            # ── Direction P / N / ALL ──────────────────────────────────────
+            elif tag == 'P/N':
+                for token in raw_vals[1:]:
+                    t_up = token.strip().upper()
+                    if t_up in ('P', 'N', 'ALL'):
+                        direction = t_up
+                        break
+
+            # ── Scénarios à simuler ────────────────────────────────────────
+            elif tag == 'SIM':
+                placeholder_skip = ('SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…')
+                for token in raw_vals[1:]:
+                    if token.upper() not in placeholder_skip:
+                        scenarios.append(token.upper())
+
+            # ── Temps limite par simulation ────────────────────────────────
+            elif 'TIME' in tag and 'SIMULATION' in ' '.join(vals_upper):
+                for token in raw_vals[1:]:
+                    try:
+                        time_limit = int(float(token))
+                        break
+                    except ValueError:
+                        pass
+
+            # ── Données à perturber (DATA?) ────────────────────────────────
+            elif tag == 'DATA?':
+                # Format attendu : DATA? | <NOM_PARAMETRE> | YES/NO
+                if len(raw_vals) >= 3:
+                    param_name = raw_vals[1].strip()
+                    yn_token = raw_vals[2].strip().upper()
+                    targets[param_name] = (yn_token == 'YES')
+                elif len(raw_vals) == 2:
+                    # Valeur YES/NO absente, supposée FALSE
+                    targets[raw_vals[1].strip()] = False
+
+            # ── Indicateurs KPI ────────────────────────────────────────────
+            elif tag == 'INDI':
+                # Format attendu : INDI | <NOM_INDICATEUR>
+                if len(raw_vals) >= 2:
+                    indi_name = raw_vals[1].strip()
+                    if indi_name and indi_name.upper() not in ('NOM', 'NAME', 'INDICATOR'):
+                        indicators.append(indi_name)
+
+        return SensitivityParams(
+            variations=variations,
+            direction=direction,
+            scenarios=scenarios,
+            time_limit=time_limit,
+            targets=targets,
+            indicators=indicators,
+        )
+
+    def parse_sensitivity(self) -> SensitivityParams:
+        """
+        Point d'entrée public pour lire les paramètres d'analyse de sensibilité
+        depuis le fichier Excel sans déclencher le parseur complet des scénarios.
+
+        Utilisation :
+            parser = PathFinderParser('PathFinder input.xlsx')
+            sens_params = parser.parse_sensitivity()
+        """
+        df_overview = self.xl.parse('OverView', header=None)
+        params = self._parse_sensitivity_block(df_overview)
+
+        if self.verbose:
+            print(f"  [cyan][Sensitivity][/cyan] Variations : {params.variations}")
+            print(f"  [cyan][Sensitivity][/cyan] Direction  : {params.direction}")
+            print(f"  [cyan][Sensitivity][/cyan] Scénarios  : {params.scenarios}")
+            print(f"  [cyan][Sensitivity][/cyan] Temps/sim  : {params.time_limit}s")
+            print(f"  [cyan][Sensitivity][/cyan] Cibles     : {params.targets}")
+            print(f"  [cyan][Sensitivity][/cyan] Indicateurs: {params.indicators}")
+
+        return params
+
 
 if __name__ == '__main__':
     parser = PathFinderParser('data/raw/excel/PathFinder input.xlsx')

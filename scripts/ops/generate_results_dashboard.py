@@ -150,13 +150,14 @@ def placeholder_figure(title: str, message: str) -> Dict[str, Any]:
                     "x": 0.5,
                     "y": 0.5,
                     "showarrow": False,
-                    "font": {"size": 15, "color": "#334155"},
+                    "font": {"size": 15, "color": "#475569"},
                 }
             ],
             "xaxis": {"visible": False},
             "yaxis": {"visible": False},
             "paper_bgcolor": "rgba(255,255,255,0)",
             "plot_bgcolor": "rgba(255,255,255,0)",
+            "font": {"family": "Manrope, sans-serif", "color": "#1e293b"},
             "margin": {"l": 40, "r": 20, "t": 80, "b": 40},
         },
     }
@@ -182,13 +183,17 @@ def base_layout(title: str, y_title: str, years: List[Any], barmode: str = "stac
             "type": "category",
             "tickvals": tickvals,
             "automargin": True,
-            "gridcolor": "rgba(37,99,235,0.08)",
+            "gridcolor": "#f1f5f9",
+            "linecolor": "#e2e8f0",
+            "tickfont": {"color": "#64748b"},
         },
         "yaxis": {
             "title": y_title,
             "automargin": True,
-            "gridcolor": "rgba(37,99,235,0.12)",
-            "zerolinecolor": "rgba(15,23,42,0.3)",
+            "gridcolor": "#f1f5f9",
+            "zerolinecolor": "#cbd5e1",
+            "linecolor": "#e2e8f0",
+            "tickfont": {"color": "#64748b"},
         },
         "barmode": barmode,
         "legend": {
@@ -197,7 +202,7 @@ def base_layout(title: str, y_title: str, years: List[Any], barmode: str = "stac
             "y": 1.02,
             "xanchor": "left",
             "x": 0.0,
-            "font": {"size": 11},
+            "font": {"size": 11, "color": "#475569"},
         },
         "hovermode": "x unified",
         "paper_bgcolor": "rgba(255,255,255,0)",
@@ -1788,8 +1793,8 @@ def build_html(payload: Dict[str, Any]) -> str:
       theme: {
         extend: {
           fontFamily: {
-            heading: ['\"Sora\"', 'sans-serif'],
-            body: ['\"Manrope\"', 'sans-serif']
+            heading: ['"Montserrat"', 'sans-serif'],
+            body: ['"Bookman Old Style"', '"Bookman"', 'serif']
           },
           boxShadow: {
             glass: '0 20px 50px rgba(15, 23, 42, 0.24)',
@@ -1800,19 +1805,20 @@ def build_html(payload: Dict[str, Any]) -> str:
   </script>
   <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\" />
   <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin />
-  <link href=\"https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap\" rel=\"stylesheet\" />
+  <link href=\"https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap\" rel=\"stylesheet\" />
   <script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\"></script>
   <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css\" integrity=\"sha512-SnH5WK+bZxgPHs44uWix+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkR4j8f5Z5gDQL4x0XSLwWf2fQJKfG8d8gQw==\" crossorigin=\"anonymous\" referrerpolicy=\"no-referrer\" />
   <style>
     :root {
-      --bg-1: #0b1e3d;
-      --bg-2: #11385f;
-      --bg-3: #0f766e;
-      --glass: rgba(255, 255, 255, 0.68);
-      --glass-strong: rgba(255, 255, 255, 0.82);
-      --text-main: #0f172a;
-      --text-muted: #334155;
-      --border-soft: rgba(255, 255, 255, 0.45);
+      --bg-1: #f8fafc;
+      --bg-2: #f1f5f9;
+      --bg-3: #e2e8f0;
+      --glass: rgba(255, 255, 255, 0.82);
+      --glass-strong: rgba(255, 255, 255, 0.95);
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --border-soft: rgba(15, 23, 42, 0.08);
+      --accent: #0ea5e9;
     }
 
     html, body {
@@ -1821,45 +1827,45 @@ def build_html(payload: Dict[str, Any]) -> str:
 
     body {
       margin: 0;
-      font-family: 'Manrope', sans-serif;
+      font-family: 'Bookman Old Style', 'Bookman', serif;
       color: var(--text-main);
       background:
-        radial-gradient(circle at 10% 20%, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0) 36%),
-        radial-gradient(circle at 85% 12%, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0) 34%),
-        linear-gradient(125deg, var(--bg-1), var(--bg-2) 54%, var(--bg-3));
+        radial-gradient(circle at 10% 20%, rgba(14, 165, 233, 0.06) 0%, rgba(14, 165, 233, 0) 36%),
+        radial-gradient(circle at 85% 12%, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0) 34%),
+        linear-gradient(135deg, #ffffff 0%, #f8fafc 50%, #f1f5f9 100%);
       background-attachment: fixed;
     }
 
     .glass-card {
       background: linear-gradient(155deg, var(--glass) 0%, var(--glass-strong) 100%);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--border-soft);
-      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.24);
+      box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.04), 0 4px 12px -4px rgba(15, 23, 42, 0.03);
       transition: transform 260ms ease, box-shadow 260ms ease;
     }
 
     .glass-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 24px 58px rgba(15, 23, 42, 0.28);
+      box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.08);
     }
 
     .subtle-pill {
-      background: rgba(15, 23, 42, 0.08);
-      color: #0f172a;
-      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: rgba(15, 23, 42, 0.05);
+      color: #475569;
+      border: 1px solid rgba(15, 23, 42, 0.08);
     }
 
     .selector {
       width: 100%;
-      border: 1px solid rgba(15, 23, 42, 0.2);
+      border: 1px solid rgba(15, 23, 42, 0.12);
       border-radius: 0.9rem;
       padding: 0.75rem 0.9rem;
-      background: rgba(255, 255, 255, 0.85);
-      color: #0f172a;
+      background: #ffffff;
+      color: #1e293b;
       font-size: 0.95rem;
       outline: none;
-      transition: border-color 180ms ease, box-shadow 180ms ease;
+      transition: all 200ms ease;
     }
 
     .selector:focus {
@@ -1912,59 +1918,163 @@ def build_html(payload: Dict[str, Any]) -> str:
         transform: translateY(0);
       }
     }
+
+    /* Tab styles */
+    .nav-pill-container {
+      background: #f1f5f9;
+      border-radius: 9999px;
+      padding: 0.4rem;
+      display: inline-flex;
+      gap: 0.5rem;
+      border: 1px solid rgba(15, 23, 42, 0.05);
+    }
+
+    .nav-tab {
+      padding: 0.6rem 1.5rem;
+      border-radius: 9999px;
+      background: #ffffff;
+      color: #1e293b;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 200ms ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .nav-tab:hover:not(.active) {
+      background: #f8fafc;
+      transform: translateY(-1px);
+    }
+
+    /* Active Tab States */
+    .nav-tab.active.tab-home { background: #bfdbfe; color: #1e3a8a; }
+    .nav-tab.active.tab-details { background: #e2e8f0; color: #334155; }
+    .nav-tab.active.tab-results { background: #bef264; color: #365314; }
+    .nav-tab.active.tab-sensitivity { background: #fed7aa; color: #7c2d12; }
+    .nav-tab.active.tab-licence { background: #fecaca; color: #7f1d1d; }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
   </style>
 </head>
 <body>
-  <main class=\"max-w-7xl mx-auto px-4 md:px-8 py-7 md:py-10\">
-    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in\">
-      <div class=\"flex flex-col md:flex-row md:items-end md:justify-between gap-4\">
-        <div>
-          <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
-            <i class=\"fa-solid fa-industry\"></i>
-            Optimization Analytics
-          </p>
-          <h1 id=\"dashboardTitle\" class=\"font-heading text-2xl md:text-4xl font-semibold tracking-tight mt-3\"></h1>
+  <header class=\"max-w-7xl mx-auto px-4 md:px-8 pt-8 md:pt-12 text-center\">
+    <div class=\"nav-pill-container shadow-sm\">
+      <div class=\"nav-tab tab-home\" onclick=\"switchTab('home', this)\">Home</div>
+      <div class=\"nav-tab tab-details\" onclick=\"switchTab('details', this)\">Simulation details</div>
+      <div class=\"nav-tab tab-results active\" onclick=\"switchTab('results', this)\">Results</div>
+      <div class=\"nav-tab tab-sensitivity\" onclick=\"switchTab('sensitivity', this)\">Sensitivity analysis</div>
+      <div class=\"nav-tab tab-licence\" onclick=\"switchTab('licence', this)\">Licence</div>
+    </div>
+  </header>
+
+  <!-- Tab Contents -->
+  <div id=\"home-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
+    <section class=\"glass-card rounded-3xl p-12 text-center\">
+      <h2 class=\"text-3xl font-heading font-bold mb-4\">Home</h2>
+      <p class=\"text-slate-500\">This is the home tab placeholder.</p>
+    </section>
+  </div>
+
+  <div id=\"details-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
+    <section class=\"glass-card rounded-3xl p-12 text-center\">
+      <h2 class=\"text-3xl font-heading font-bold mb-4\">Simulation Details</h2>
+      <p class=\"text-slate-500\">Detailed simulation information will appear here.</p>
+    </section>
+  </div>
+
+  <div id=\"results-tab\" class=\"tab-content active\">
+    <main class=\"max-w-7xl mx-auto px-4 md:px-8 py-7 md:py-10\">
+      <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in\">
+        <div class=\"flex flex-col md:flex-row md:items-end md:justify-between gap-4\">
+          <div>
+            <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
+              <i class=\"fa-solid fa-industry\"></i>
+              Optimization Analytics
+            </p>
+            <h1 id=\"dashboardTitle\" class=\"font-heading text-2xl md:text-4xl font-semibold tracking-tight mt-3\"></h1>
+          </div>
+          <div class=\"rounded-2xl subtle-pill px-4 py-3 text-sm md:text-base\">
+            <span class=\"font-semibold\">Generation Date:</span>
+            <span id=\"generationDate\" class=\"font-medium\"></span>
+          </div>
         </div>
-        <div class=\"rounded-2xl subtle-pill px-4 py-3 text-sm md:text-base\">
-          <span class=\"font-semibold\">Generation Date:</span>
-          <span id=\"generationDate\" class=\"font-medium\"></span>
+      </section>
+
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in\">
+        <div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\">
+          <label class=\"block\">
+            <span class=\"text-sm font-bold text-slate-500 uppercase tracking-tight\">Scenario Selector</span>
+            <select id=\"scenarioSelect\" class=\"selector mt-2\"></select>
+          </label>
+
+          <label class=\"block\">
+            <span class=\"text-sm font-bold text-slate-500 uppercase tracking-tight\">Graph Selector</span>
+            <select id=\"graphSelect\" class=\"selector mt-2\"></select>
+          </label>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class=\"glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in\">
-      <div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\">
-        <label class=\"block\">
-          <span class=\"text-sm font-semibold text-slate-700\">Scenario Selector</span>
-          <select id=\"scenarioSelect\" class=\"selector mt-2\"></select>
-        </label>
+      <section class=\"glass-card rounded-3xl p-4 md:p-6 mb-6 fade-in\">
+        <div class=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3\">
+          <h2 id=\"graphTitle\" class=\"font-heading text-lg md:text-2xl font-bold text-slate-800\"></h2>
+          <button id=\"downloadBtn\" class=\"primary-btn inline-flex items-center justify-center gap-2\">
+            <i class=\"fa-solid fa-download\"></i>
+            Download Chart as Image
+          </button>
+        </div>
+        <div id=\"chart\"></div>
+      </section>
 
-        <label class=\"block\">
-          <span class=\"text-sm font-semibold text-slate-700\">Graph Selector</span>
-          <select id=\"graphSelect\" class=\"selector mt-2\"></select>
-        </label>
-      </div>
-    </section>
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
+        <h3 class=\"font-heading text-lg md:text-xl font-bold mb-3 text-slate-800\">How this graph is constructed</h3>
+        <p id=\"graphMethod\" class=\"text-slate-600 leading-relaxed font-medium\"></p>
+      </section>
+    </main>
+  </div>
 
-    <section class=\"glass-card rounded-3xl p-4 md:p-6 mb-6 fade-in\">
-      <div class=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3\">
-        <h2 id=\"graphTitle\" class=\"font-heading text-lg md:text-2xl font-semibold text-slate-900\"></h2>
-        <button id=\"downloadBtn\" class=\"primary-btn inline-flex items-center justify-center gap-2\">
-          <i class=\"fa-solid fa-download\"></i>
-          Download Chart as Image
-        </button>
-      </div>
-      <div id=\"chart\"></div>
+  <div id=\"sensitivity-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
+    <section class=\"glass-card rounded-3xl p-12 text-center\">
+      <h2 class=\"text-3xl font-heading font-bold mb-4\">Sensitivity Analysis</h2>
+      <p class=\"text-slate-500\">Sensitivity analysis reports and data will be displayed here.</p>
     </section>
+  </div>
 
-    <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
-      <h3 class=\"font-heading text-lg md:text-xl font-semibold mb-2 text-slate-900\">How this graph is constructed</h3>
-      <p id=\"graphMethod\" class=\"text-slate-700 leading-relaxed\"></p>
+  <div id=\"licence-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
+    <section class=\"glass-card rounded-3xl p-12 text-center\">
+      <h2 class=\"text-3xl font-heading font-bold mb-4\">Licence</h2>
+      <p class=\"text-slate-500\">Licencing and attribution details.</p>
     </section>
-  </main>
+  </div>
 
   <script>
     const dashboardData = __DASHBOARD_DATA__;
+
+    function switchTab(tabId, el) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      // Remove active class from buttons
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      // Show target tab
+      document.getElementById(tabId + '-tab').classList.add('active');
+      // Set button as active
+      el.classList.add('active');
+
+      // Trigger Plotly resize if we switched to results
+      if (tabId === 'results') {
+        window.dispatchEvent(new Event('resize'));
+      }
+    }
 
     const scenarioSelect = document.getElementById('scenarioSelect');
     const graphSelect = document.getElementById('graphSelect');
@@ -2007,6 +2117,7 @@ def build_html(payload: Dict[str, Any]) -> str:
     }
 
     function fillGraphSelect(selectedScenario) {
+      const currentSelection = graphSelect.value;
       const keys = graphKeysForScenario(selectedScenario);
       graphSelect.innerHTML = '';
       keys.forEach((key) => {
@@ -2016,6 +2127,9 @@ def build_html(payload: Dict[str, Any]) -> str:
         option.textContent = graph.label || key;
         graphSelect.appendChild(option);
       });
+      if (currentSelection && keys.includes(currentSelection)) {
+        graphSelect.value = currentSelection;
+      }
     }
 
     async function renderGraph() {
@@ -2036,7 +2150,7 @@ def build_html(payload: Dict[str, Any]) -> str:
 
       const fig = payload.figure || { data: [], layout: {} };
       fig.layout = fig.layout || {};
-      fig.layout.font = { family: 'Manrope, sans-serif', size: 13, color: '#0f172a' };
+      fig.layout.font = { family: 'Bookman Old Style, Bookman, serif', size: 13, color: '#1e293b' };
 
       await Plotly.newPlot(chartNode, fig.data || [], fig.layout, plotConfig);
     }
