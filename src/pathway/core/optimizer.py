@@ -1235,15 +1235,33 @@ class PathFinderOptimizer:
             
         self.model += pulp.lpSum(total_cost), "Total_Cost_Objective"
 
-    def solve(self):
+    def apply_warm_start(self, solution_data: Dict[str, float]):
+        """Sets the initial values of variables for a MIP start (warm start)."""
+        if not solution_data:
+            return
+        
+        var_map = {v.name: v for v in self.model.variables()}
+        count = 0
+        for name, value in solution_data.items():
+            if name in var_map and value is not None:
+                var_map[name].varValue = value
+                count += 1
+        
+        if self.verbose and count > 0:
+            print(f"  [magenta][Optimizer][/magenta] [WARM START] Applied {count} initial values.")
+
+    def solve(self, warm_start: bool = False):
         if self.verbose:
             print("  [magenta][Optimizer][/magenta] [SOLVE] Solving model (this may take a moment)...")
+        
         solver = pulp.PULP_CBC_CMD(
             msg=False,  # Always silence raw CBC output to prevent console deadlocks
             timeLimit=self.data.parameters.time_limit,
             gapRel=self.data.parameters.mip_gap,
             threads=4,
-            presolve=True
+            presolve=True,
+            warmStart=warm_start,
+            keepFiles=warm_start  # Required for warmStart to work on Windows
         )
         self.model.solve(solver)
         status = pulp.LpStatus[self.model.status]

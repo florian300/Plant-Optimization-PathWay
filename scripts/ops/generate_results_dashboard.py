@@ -10,7 +10,7 @@ import json
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -1778,8 +1778,28 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
     return sanitize_payload(payload)
 
 
-def build_html(payload: Dict[str, Any]) -> str:
+def load_sensitivity_data(json_path: Optional[Path] = None) -> Optional[List[Dict[str, Any]]]:
+    """
+    Charge les résultats JSON de l'analyse de sensibilité si le fichier existe.
+    Retourne None si le fichier est absent ou illisible.
+    """
+    if json_path is None:
+        json_path = get_repo_root() / "artifacts" / "sensitivity" / "sensitivity_results.json"
+    if not json_path.exists():
+        return None
+    try:
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+        print(f"[Sensitivity] Données chargées : {len(data)} enregistrements depuis {json_path}")
+        return data
+    except Exception as exc:
+        print(f"[Sensitivity] Impossible de lire {json_path}: {exc}")
+        return None
+
+
+def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str, Any]]] = None) -> str:
     payload_json = json.dumps(payload, ensure_ascii=True)
+    sensitivity_json = json.dumps(sensitivity_data if sensitivity_data else [], ensure_ascii=True)
 
     template = """<!DOCTYPE html>
 <html lang=\"en\">
@@ -2039,11 +2059,67 @@ def build_html(payload: Dict[str, Any]) -> str:
     </main>
   </div>
 
+  <!-- ═══════════════════ ONGLET ANALYSE DE SENSIBILITÉ ═══════════════════ -->
   <div id=\"sensitivity-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
-    <section class=\"glass-card rounded-3xl p-12 text-center\">
-      <h2 class=\"text-3xl font-heading font-bold mb-4\">Sensitivity Analysis</h2>
-      <p class=\"text-slate-500\">Sensitivity analysis reports and data will be displayed here.</p>
+
+    <!-- En-tête -->
+    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in\">
+      <div class=\"flex flex-col md:flex-row md:items-end md:justify-between gap-4\">
+        <div>
+          <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
+            <i class=\"fa-solid fa-chart-line\"></i>
+            Analyse de Risque — One-At-a-Time (OAT)
+          </p>
+          <h2 class=\"font-heading text-2xl md:text-3xl font-bold mt-3\">Analyse de Sensibilité au Prix EUA</h2>
+          <p class=\"text-slate-500 mt-2 text-sm\">
+            Variation symétrique du prix du carbone (EUA) appliquée au scénario de référence (BS).
+            Chaque point représente une simulation MILP indépendante.
+          </p>
+        </div>
+        <div id=\"sens-status-badge\" class=\"rounded-2xl subtle-pill px-4 py-3 text-sm\"></div>
+      </div>
     </section>
+
+    <!-- Grille des 4 graphiques -->
+    <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">
+
+      <!-- 1. Vue Globale des Risques (Packed Bubble) -->
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
+        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Vue Globale des Risques</h3>
+        <p class=\"text-xs text-slate-500 mb-3\">
+          Chaque bulle représente un paramètre perturbé. Le rayon est proportionnel à la variance maximale du coût de transition.
+        </p>
+        <div id=\"sens-bubble-chart\" style=\"height:340px;\"></div>
+      </section>
+
+      <!-- 2. Tornado Chart (Impact Financier) -->
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
+        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Impact Financier (Tornado)</h3>
+        <p class=\"text-xs text-slate-500 mb-3\">
+          Barres horizontales signant l'écart du coût de transition par rapport au scénario de base pour les variations extrêmes testées.
+        </p>
+        <div id=\"sens-tornado-chart\" style=\"height:340px;\"></div>
+      </section>
+
+      <!-- 3. Heatmap des Tipping Points -->
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
+        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Heatmap des Seuils de Bascule</h3>
+        <p class=\"text-xs text-slate-500 mb-3\">
+          Vert = le coût de transition diminue par rapport à la base. Rouge = il augmente. Blanc = variation nulle (base).
+        </p>
+        <div id=\"sens-heatmap-chart\" style=\"height:340px;\"></div>
+      </section>
+
+      <!-- 4. Scatter Coût vs CO₂ -->
+      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
+        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Coût vs Émissions CO₂</h3>
+        <p class=\"text-xs text-slate-500 mb-3\">
+          Chaque point est une simulation. L'axe X représente la variation du coût de transition (%) et l'axe Y la variation des émissions totales (%).
+        </p>
+        <div id=\"sens-scatter-chart\" style=\"height:340px;\"></div>
+      </section>
+
+    </div>
   </div>
 
   <div id=\"licence-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
@@ -2055,6 +2131,8 @@ def build_html(payload: Dict[str, Any]) -> str:
 
   <script>
     const dashboardData = __DASHBOARD_DATA__;
+    // Données d'analyse de sensibilité (injectées par generate_results_dashboard.py)
+    const sensitivityData = __SENSITIVITY_DATA__;
 
     function switchTab(tabId, el) {
       // Hide all tabs
@@ -2210,12 +2288,256 @@ def build_html(payload: Dict[str, Any]) -> str:
     });
 
     init();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GRAPHIQUES DE SENSIBILITÉ
+    // ═══════════════════════════════════════════════════════════════════════
+
+    (function buildSensitivityCharts() {
+      const data = sensitivityData || [];
+
+      // Badge de statut
+      const badge = document.getElementById('sens-status-badge');
+      if (badge) {
+        const validCount = data.filter(r => r.status === 'Optimal' || r.status === 'Feasible').length;
+        if (data.length === 0) {
+          badge.innerHTML = '<span style="color:#d97706;"><i class="fa-solid fa-triangle-exclamation"></i> Aucune donnée — Exécutez run_sensitivity.py</span>';
+        } else {
+          badge.innerHTML = `<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${validCount} / ${data.length} simulations valides</span>`;
+        }
+      }
+
+      if (data.length === 0) return;
+
+      // ── Données valides uniquement ──────────────────────────────────────
+      const valid = data.filter(r => r.transition_cost != null);
+
+      // Paramètre de base (variation = 0)
+      const baseRecord = valid.find(r => Math.abs(r.variation_pct) < 0.001) || valid[0];
+      const baseCost   = baseRecord ? baseRecord.transition_cost : 0;
+      const baseEmis   = baseRecord ? baseRecord.total_emissions  : 0;
+
+      // Groupement par cible (pour gérer plusieurs paramètres futurs)
+      const targets = {};
+      valid.forEach(r => {
+        if (!targets[r.target]) targets[r.target] = [];
+        targets[r.target].push(r);
+      });
+
+      const plotConfig = { responsive: true, displaylogo: false };
+      const plotLayout = (extra) => Object.assign({
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor:  'rgba(0,0,0,0)',
+        font: { family: 'Bookman Old Style, serif', size: 11, color: '#1e293b' },
+        margin: { l: 56, r: 24, t: 32, b: 50 },
+        legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+        hovermode: 'closest',
+      }, extra || {});
+
+      // ── 1. Packed Bubble (Vue Globale) ───────────────────────────────────
+      (function buildBubble() {
+        const bubbleTraces = Object.entries(targets).map(([target, records]) => {
+          const costs = records.map(r => r.transition_cost);
+          const maxVariance = Math.max(...costs) - Math.min(...costs);
+          return {
+            type: 'scatter',
+            mode: 'markers+text',
+            name: target,
+            x: [0],
+            y: [0],
+            text: [target],
+            textposition: 'middle center',
+            textfont: { size: 13, color: '#fff' },
+            marker: {
+              size: [Math.max(60, Math.min(180, maxVariance / (baseCost || 1) * 1000))],
+              sizemode: 'diameter',
+              color: ['#0ea5e9'],
+              opacity: 0.85,
+              line: { width: 2, color: '#fff' },
+            },
+            hovertemplate: `<b>${target}</b><br>Variance max : %{customdata:,.0f} €<extra></extra>`,
+            customdata: [maxVariance],
+          };
+        });
+        const layout = plotLayout({
+          title: { text: 'Variance maximale du Coût de Transition', font: { size: 13 } },
+          xaxis: { visible: false, zeroline: false },
+          yaxis: { visible: false, zeroline: false },
+          showlegend: false,
+        });
+        Plotly.newPlot('sens-bubble-chart', bubbleTraces, layout, plotConfig);
+      })();
+
+      // ── 2. Tornado Chart (Impact Financier) ─────────────────────────────
+      (function buildTornado() {
+        const tornadoTraces = [];
+
+        Object.entries(targets).forEach(([target, records], idx) => {
+          // Trier par variation décroissante (négatif à gauche, positif à droite)
+          const sorted = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
+          const minRec = sorted[0];
+          const maxRec = sorted[sorted.length - 1];
+
+          const deltaMin = minRec && minRec.transition_cost != null
+            ? minRec.transition_cost - baseCost : 0;
+          const deltaMax = maxRec && maxRec.transition_cost != null
+            ? maxRec.transition_cost - baseCost : 0;
+
+          // Barre gauche (variation négative)
+          tornadoTraces.push({
+            type: 'bar',
+            orientation: 'h',
+            name: `${target} (variation basse ${minRec ? minRec.variation_pct.toFixed(0) : ''}%)`,
+            y: [target],
+            x: [deltaMin],
+            marker: { color: deltaMin < 0 ? '#16a34a' : '#dc2626' },
+            hovertemplate: `<b>${target}</b><br>Variation : ${minRec ? minRec.variation_pct.toFixed(1) : 0}%<br>Δ Coût : %{x:,.0f} €<extra></extra>`,
+          });
+          // Barre droite (variation positive)
+          tornadoTraces.push({
+            type: 'bar',
+            orientation: 'h',
+            name: `${target} (variation haute ${maxRec ? maxRec.variation_pct.toFixed(0) : ''}%)`,
+            y: [target],
+            x: [deltaMax],
+            marker: { color: deltaMax < 0 ? '#16a34a' : '#dc2626' },
+            hovertemplate: `<b>${target}</b><br>Variation : ${maxRec ? maxRec.variation_pct.toFixed(1) : 0}%<br>Δ Coût : %{x:,.0f} €<extra></extra>`,
+          });
+        });
+
+        const layout = plotLayout({
+          barmode: 'overlay',
+          title: { text: 'Δ Coût de Transition / Scénario de Base', font: { size: 13 } },
+          xaxis: { title: 'Δ Coût de Transition (€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+          yaxis: { automargin: true },
+          shapes: [{ type: 'line', x0: 0, x1: 0, y0: -0.5, y1: Object.keys(targets).length - 0.5,
+            line: { color: '#64748b', width: 2, dash: 'dot' } }],
+        });
+        Plotly.newPlot('sens-tornado-chart', tornadoTraces, layout, plotConfig);
+      })();
+
+      // ── 3. Heatmap des Tipping Points ────────────────────────────────────
+      (function buildHeatmap() {
+        const targetNames = Object.keys(targets);
+        const allVariations = [...new Set(valid.map(r => r.variation_pct))].sort((a, b) => a - b);
+
+        const zMatrix = []; // une ligne par target
+        const textMatrix = [];
+
+        targetNames.forEach(target => {
+          const row = [];
+          const rowText = [];
+          const byVariation = {};
+          targets[target].forEach(r => { byVariation[r.variation_pct] = r; });
+
+          allVariations.forEach(v => {
+            const rec = byVariation[v];
+            let delta = 0;
+            if (rec && rec.transition_cost != null && baseCost !== 0) {
+              delta = (rec.transition_cost - baseCost) / Math.abs(baseCost) * 100;
+            }
+            row.push(delta);
+            rowText.push(`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`);
+          });
+
+          zMatrix.push(row);
+          textMatrix.push(rowText);
+        });
+
+        const xLabels = allVariations.map(v => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`);
+
+        const heatmapTrace = {
+          type: 'heatmap',
+          z: zMatrix,
+          x: xLabels,
+          y: targetNames,
+          text: textMatrix,
+          texttemplate: '%{text}',
+          textfont: { size: 10, color: '#1e293b' },
+          colorscale: [
+            [0.0, '#16a34a'],   // vert foncé (forte baisse)
+            [0.45, '#86efac'],  // vert clair
+            [0.50, '#f8fafc'],  // blanc (neutre)
+            [0.55, '#fca5a5'],  // rouge clair
+            [1.0, '#dc2626'],   // rouge foncé (forte hausse)
+          ],
+          zmid: 0,
+          colorbar: { title: { text: 'Δ Coût (%)' }, thickness: 14, len: 0.8 },
+          hovertemplate: '<b>%{y}</b><br>Variation EUA : %{x}<br>Δ Coût : %{z:.2f}%<extra></extra>',
+        };
+
+        const layout = plotLayout({
+          title: { text: 'Heatmap des Seuils de Bascule (Δ Coût de Transition)', font: { size: 13 } },
+          xaxis: { title: 'Variation du prix EUA', automargin: true },
+          yaxis: { title: 'Paramètre', automargin: true },
+          margin: { l: 80, r: 70, t: 40, b: 60 },
+        });
+        Plotly.newPlot('sens-heatmap-chart', [heatmapTrace], layout, plotConfig);
+      })();
+
+      // ── 4. Scatter Coût vs CO₂ ──────────────────────────────────────────
+      (function buildScatter() {
+        const scatterTraces = Object.entries(targets).map(([target, records]) => {
+          const filtered = records.filter(r =>
+            r.transition_cost != null && r.total_emissions != null && baseCost !== 0 && baseEmis !== 0
+          );
+
+          return {
+            type: 'scatter',
+            mode: 'markers',
+            name: target,
+            x: filtered.map(r => (r.transition_cost - baseCost) / Math.abs(baseCost) * 100),
+            y: filtered.map(r => (r.total_emissions  - baseEmis)  / Math.abs(baseEmis)  * 100),
+            marker: {
+              size: 12,
+              color: filtered.map(r => r.variation_pct),
+              colorscale: 'RdYlGn',
+              reversescale: true,
+              colorbar: { title: { text: 'Var. EUA (%)' }, thickness: 12, len: 0.7 },
+              line: { width: 1, color: '#fff' },
+            },
+            text: filtered.map(r =>
+              `${r.timed_out ? '⏱ Temps limité<br>' : ''}Paramètre : ${target}<br>Variation appliquée : ${r.variation_pct.toFixed(1)}%<br>` +
+              `Coût : ${r.transition_cost.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}${r.timed_out ? ' (estimé)' : ''}<br>` +
+              `Émissions : ${r.total_emissions.toLocaleString('fr-FR')} tCO₂`
+            ),
+            hovertemplate: '%{text}<extra></extra>',
+          };
+        });
+
+        // Ligne de base
+        scatterTraces.push({
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Scénario de base',
+          x: [0], y: [0],
+          marker: { size: 16, color: '#7c3aed', symbol: 'star', line: { width: 2, color: '#fff' } },
+          hovertemplate: 'Scénario de base (variation = 0)<extra></extra>',
+        });
+
+        const layout = plotLayout({
+          title: { text: 'Variation Coût de Transition vs Émissions Totales', font: { size: 13 } },
+          xaxis: { title: 'Δ Coût de Transition (%)', zeroline: true, zerolinewidth: 1.5, zerolinecolor: '#94a3b8' },
+          yaxis: { title: 'Δ Émissions Totales (%)',  zeroline: true, zerolinewidth: 1.5, zerolinecolor: '#94a3b8' },
+          shapes: [
+            { type: 'line', x0: 0, x1: 0, y0: -100, y1:  100, line: { color: '#94a3b8', width: 1, dash: 'dot' } },
+            { type: 'line', x0:-100, x1: 100, y0: 0, y1:  0,   line: { color: '#94a3b8', width: 1, dash: 'dot' } },
+          ],
+        });
+        Plotly.newPlot('sens-scatter-chart', scatterTraces, layout, plotConfig);
+      })();
+
+    })();
   </script>
 </body>
 </html>
 """
 
-    return template.replace("__DASHBOARD_DATA__", payload_json)
+    return (
+        template
+        .replace("__DASHBOARD_DATA__", payload_json)
+        .replace("__SENSITIVITY_DATA__", sensitivity_json)
+    )
 
 
 def write_dashboard_html(output_path: Path, html: str) -> None:
@@ -2279,7 +2601,8 @@ def main() -> None:
         )
 
     payload = build_dashboard_data(workbooks, discount_rate=args.discount_rate)
-    html = build_html(payload)
+    sensitivity_data = load_sensitivity_data()
+    html = build_html(payload, sensitivity_data=sensitivity_data)
 
     output_path = output_dir / args.output_name
     write_dashboard_html(output_path, html)
