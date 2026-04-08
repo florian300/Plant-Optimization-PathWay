@@ -674,19 +674,27 @@ class PathFinderReporter:
                 t_target = min(obj.target_year, self.opt.years[-1])
                 penalty_val = getattr(self.opt.penalty_vars.get((i, t_target)), 'varValue', 0.0) or 0.0
                 if penalty_val > 1e-4:
-                    missed_goals = True
-                    if self.verbose:
-                        print(f"  [bold red][!] WARNING: Objective {i+1} MISSED at year {t_target}![/bold red]")
-                        print(f"    Target End: [cyan]{obj.target_year}[/cyan] | Resource: [cyan]{obj.resource}[/cyan] | Limit: [cyan]{obj.cap_value}[/cyan]")
-                        print(f"    Shortfall (Penalty Paid): [bold red]{penalty_val:,.2f}[/bold red] {self.data.resources.get(obj.resource).unit if obj.resource in self.data.resources else 'units'}")
+                    if obj.penalty_type == "NONE":
+                        if self.verbose:
+                            print(f"  [cyan][i] INFO: Objective {i+1} ('{obj.name}') not met at year {t_target} (Informational only: Gap {penalty_val:,.2f})[/i]")
+                    else:
+                        missed_goals = True
+                        if self.verbose:
+                            print(f"  [bold red][!] WARNING: Objective {i+1} ('{obj.name}') MISSED at year {t_target}![/bold red]")
+                            print(f"    Target End: [cyan]{obj.target_year}[/cyan] | Resource: [cyan]{obj.resource}[/cyan] | Limit: [cyan]{obj.cap_value}[/cyan]")
+                            print(f"    Shortfall (Penalty Paid): [bold red]{penalty_val:,.2f}[/bold red] {self.data.resources.get(obj.resource).unit if obj.resource in self.data.resources else 'units'}")
             else:
                 penalty_val = getattr(self.opt.penalty_vars.get(i), 'varValue', 0.0) or 0.0
                 if penalty_val > 1e-4:
-                    missed_goals = True
-                    if self.verbose:
-                        print(f"  [bold red][!] WARNING: Objective {i+1} MISSED![/bold red]")
-                        print(f"    Target: [cyan]{obj.target_year}[/cyan] | Resource: [cyan]{obj.resource}[/cyan] | Limit: [cyan]{obj.cap_value}[/cyan]")
-                        print(f"    Shortfall (Penalty Paid): [bold red]{penalty_val:,.2f}[/bold red] {self.data.resources.get(obj.resource).unit if obj.resource in self.data.resources else 'units'}")
+                    if obj.penalty_type == "NONE":
+                        if self.verbose:
+                            print(f"  [cyan][i] INFO: Objective {i+1} ('{obj.name}') not met (Informational only: Gap {penalty_val:,.2f})[/i]")
+                    else:
+                        missed_goals = True
+                        if self.verbose:
+                            print(f"  [bold red][!] WARNING: Objective {i+1} ('{obj.name}') MISSED![/bold red]")
+                            print(f"    Target: [cyan]{obj.target_year}[/cyan] | Resource: [cyan]{obj.resource}[/cyan] | Limit: [cyan]{obj.cap_value}[/cyan]")
+                            print(f"    Shortfall (Penalty Paid): [bold red]{penalty_val:,.2f}[/bold red] {self.data.resources.get(obj.resource).unit if obj.resource in self.data.resources else 'units'}")
         
         if not missed_goals:
             if self.verbose:
@@ -720,8 +728,8 @@ class PathFinderReporter:
         all_resources = set(self.data.time_series.resource_prices.keys()).union(set(self.data.time_series.other_emissions_factors.keys()))
         for r_id in all_resources:
             for t in self.years:
-                price = self.data.time_series.resource_prices.get(r_id, {}).get(t, 0.0)
-                emissions = self.data.time_series.other_emissions_factors.get(r_id, {}).get(t, 0.0)
+                price = self.data.time_series.resource_prices.get(r_id, {}).get(t, np.nan)
+                emissions = self.data.time_series.other_emissions_factors.get(r_id, {}).get(t, np.nan)
                 data_used_rows.append({
                     "Resource": r_id,
                     "Year": t,

@@ -1228,10 +1228,20 @@ class PathFinderOptimizer:
         # A conservative estimate is 100x the max price or max capex.
         # Given we saw coefficients of 30M in objective, let's target 10^9 if needed.
         # But to avoid numerical blowup, we'll use a 1000x factor over the max price/unit cost.
-        MASSIVE_PENALTY_COST = max(1e6, max_possible_cost * 1000) 
+        self.massive_penalty_cost = max(1e6, max_possible_cost * 1000) 
         
-        for i in self.penalty_vars:
-            total_cost.append(self.penalty_vars[i] * MASSIVE_PENALTY_COST)
+        for idx, obj in enumerate(self.data.objectives):
+            if obj.penalty_type == "NONE":
+                continue
+                
+            # Handle both scalar and time-indexed penalty variables
+            if idx in self.penalty_vars:
+                total_cost.append(self.penalty_vars[idx] * self.massive_penalty_cost)
+            
+            # Check for (idx, t) keys
+            for t in self.years:
+                if (idx, t) in self.penalty_vars:
+                    total_cost.append(self.penalty_vars[(idx, t)] * self.massive_penalty_cost)
             
         self.model += pulp.lpSum(total_cost), "Total_Cost_Objective"
 

@@ -24,6 +24,7 @@ from rich.align import Align
 from .core.ingestion import PathFinderParser
 from .core.optimizer import PathFinderOptimizer
 from .core.reporting import PathFinderReporter
+from .core.sensitivity_engine import run_sensitivity
 
 console = Console()
 
@@ -470,8 +471,24 @@ def main():
             )
             summary[sc['name']] = status
 
+    # -- 2. Run sensitivity analysis (if requested) ---------------------------
+    sens_results = []
+    try:
+        sens_params = _parser_probe.parse_sensitivity()
+        active_targets = [k for k, v in sens_params.targets.items() if v]
+        if active_targets and sens_params.variations and sens_params.scenarios:
+            console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations)...[/bold magenta]")
+            sens_results = run_sensitivity(file_path, verbose=False)
+            if sens_results:
+                console.print(f"[bold green][OK][/bold green] Sensitivity analysis complete: {len(sens_results)} simulations.")
+            else:
+                console.print("[yellow][WARN][/yellow] Sensitivity analysis returned no results.")
+    except Exception as e:
+        console.print(f"[bold red][ERROR][/bold red] Sensitivity analysis failed: {e}")
+
+    # -- 3. Regenerate Dashboard ----------------------------------------------
     success_statuses = {'Optimal', 'Feasible', 'Feasible (Timeout)', 'Feasible (Relaxed)'}
-    if any(st in success_statuses for st in summary.values()):
+    if any(st in success_statuses for st in summary.values()) or sens_results:
         regenerate_results_dashboard()
     else:
         console.print("[yellow][WARN][/yellow] Dashboard regeneration skipped: no successful scenario report to publish.")
@@ -493,6 +510,10 @@ def main():
             colour = 'red'
             icon   = '!'
         rows.append(f"  [{colour}]{icon} {sc_name}: {st}[/{colour}]")
+
+    if sens_results:
+        valid_sens = [r for r in sens_results if r.get("status") in ('Optimal', 'Feasible')]
+        rows.append(f"  [cyan]• Sensitivity: {len(valid_sens)}/{len(sens_results)} valid simulations[/cyan]")
 
     summary_text = "\n".join(rows)
     console.print(Panel(

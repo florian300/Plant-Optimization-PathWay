@@ -60,7 +60,7 @@ class PathFinderParser:
     def _find_blocks(self, df: pd.DataFrame) -> list:
         """Find START and END blocks in a dataframe to isolate tables."""
         blocks = []
-        for i, row in tqdm(df.iterrows(), total=len(df), desc="Finding blocks", leave=False, disable=not self.verbose):
+        for i, row in df.iterrows(): # tqdm removed as it is too noisy in sensitivity runs
             for j, val in enumerate(row):
                 if isinstance(val, str):
                     clean_val = val.strip().upper()
@@ -265,10 +265,8 @@ class PathFinderParser:
         
         # Helper to interpolate a dictionary {year: value}
         def interpolate_dict(data_dict: Dict[int, Any]) -> Dict[int, float]:
-            if not data_dict: return {}
-            s = pd.Series(data_dict).sort_index()
-            s = s.reindex(years_list)
-            return self._interpolate_linear(s).to_dict()
+            return self._interpolate_dict(data_dict, years_list)
+
                     
         # Find CLUSTER START -> END to get entities
         cluster_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'CLUSTER'), None)
@@ -393,6 +391,7 @@ class PathFinderParser:
                     elif 'INTERPOLATION' in c_str: col_mapping[c] = 'INTERPOLATION'
                     elif 'GROUP' in c_str: col_mapping[c] = 'GROUP'
                     elif 'NAME' in c_str: col_mapping[c] = 'NAME'
+                    elif 'PENALTY' in c_str or 'PENALITY' in c_str: col_mapping[c] = 'PENALTY'
                 df_obj = df_obj.rename(columns=col_mapping)
                 
                 for _, row in df_obj.iterrows():
@@ -408,7 +407,12 @@ class PathFinderParser:
                         try: t_year = int(row.get('TARGET_YEAR', 0))
                         except: t_year = 0
                         
-                        try: c_val = float(row.get('CAP_VALUE', 0.0))
+                        try: 
+                            raw_cap = str(row.get('CAP_VALUE', 0.0))
+                            has_pct = '%' in raw_cap
+                            c_val = float(raw_cap.replace('%','').replace(',','.'))
+                            if has_pct:
+                                c_val /= 100.0
                         except: c_val = 0.0
                         
                         c_year = None
@@ -425,6 +429,10 @@ class PathFinderParser:
                             
                         group = str(row.get('GROUP', '')).strip()
                         
+                        penalty = str(row.get('PENALTY', 'AT ALL COST')).strip().upper()
+                        if not penalty or penalty == 'NAN':
+                            penalty = 'AT ALL COST'
+
                         objectives_list.append(Objective(
                             entity=ent,
                             resource=res,
@@ -434,7 +442,8 @@ class PathFinderParser:
                             comparison_year=c_year,
                             mode=mode,
                             group=group,
-                            name=str(row.get('NAME', '')).strip()
+                            name=str(row.get('NAME', '')).strip(),
+                            penalty_type=penalty
                         ))
                     
         params = Parameters(
@@ -510,8 +519,6 @@ class PathFinderParser:
                     # Filter by scenario: if a SCENARIO column exists and scenario_id is set
                     row_scenario = str(row.get('SCENARIO', '')).strip().upper()
                     if scenario_id and row_scenario and row_scenario not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]:
-                        if self.verbose:
-                            print(f"  [cyan][Ingestion][/cyan] [DEBUG] Skipping cost row for {t_id}: row scenario '{row_scenario}' != active scenario '{scenario_id.upper()}'")
                         continue
                     
                     cost_nature = str(row.get('TYPE (CAPEX/OPEX)', '')).strip().upper()
@@ -556,8 +563,10 @@ class PathFinderParser:
                             
             for t_id in technologies_dict:
                 if raw_tech_capex[t_id]:
+                    technologies_dict[t_id].capex_anchors = dict(raw_tech_capex[t_id])
                     technologies_dict[t_id].capex_by_year = interpolate_dict(raw_tech_capex[t_id])
                 if raw_tech_opex[t_id]:
+                    technologies_dict[t_id].opex_anchors = dict(raw_tech_opex[t_id])
                     technologies_dict[t_id].opex_by_year = interpolate_dict(raw_tech_opex[t_id])
         
         # Parse technical specs for impacts
@@ -610,9 +619,7 @@ class PathFinderParser:
                         'ref_resource': ref_resource  # e.g. 'EN_FUEL' - the unit denominator for 'new' type
                     }
         
-        if self.verbose:
-            if self.verbose:
-                print(f"  [cyan][Ingestion][/cyan] [TECH] Parsed {len(technologies_dict)} technologies")
+        pass # Technology logs removed for cleaner terminal
         
         # 1.6 Parse Technology Compatibility Matrix
         tech_compatibilities = {}
@@ -647,8 +654,7 @@ class PathFinderParser:
                             tech_compatibilities[t_id_row] = compat_list
                 break
         if tech_compatibilities:
-            if self.verbose:
-                print(f"  [cyan][Ingestion][/cyan] [LINK] Parsed compatibility matrix for {len(tech_compatibilities)} technologies")
+            pass # Compatibility logs removed for cleaner terminal
         
         
         # 3. Parse Entities from per-entity SHEET values in CLUSTER block
@@ -775,9 +781,8 @@ class PathFinderParser:
                                     # Skip this budget row — it belongs to another scenario
                                     continue
                                 else:
-                                    if self.verbose:
-                                        if self.verbose:
-                                            print(f"  [cyan][Ingestion][/cyan] [DEBUG] Found budget match for scenario '{scenario_id.upper()}' (row is '{row_vals_raw}')")
+                                    # Target scenario row matched
+                                    pass
                                     try:
                                         ca_idx = row_vals.index('CA')
                                         if len(row_vals) > ca_idx + 1:
@@ -789,12 +794,7 @@ class PathFinderParser:
                                             elif ca_val > 1.0:
                                                 ca_val /= 100.0
                                             ca_percent = ca_val
-                                            if self.verbose:
-                                                print(f"  [cyan][Ingestion][/cyan] [DEBUG] Scenario '{scenario_id}': Found CA budget limit {ca_percent*100:.4f}%")
                                     except Exception as e:
-                                        if self.verbose:
-                                            if self.verbose:
-                                                print(f"  [cyan][Ingestion][/cyan] [!] Error parsing budget CA value: {e}")
                                         pass
                             elif has_budget and not scenario_id:
                                 try:
@@ -934,7 +934,7 @@ class PathFinderParser:
                 
         if self.verbose:
             if self.verbose:
-                print(f"  [cyan][Ingestion][/cyan] [ENTITY] Parsed {len(entities_dict)} entities")
+                pass # Entity logs removed for cleaner terminal
         
         # 4. Parse Time Series data
         time_series = TimeSeriesData()
@@ -995,7 +995,10 @@ class PathFinderParser:
                     for i in range(start_idx + 1, len(row.values) - 1, 3):
                         r_id = str(row.values[i]).strip()
                         if r_id and r_id != 'nan' and pd.notna(row.values[i+1]):
-                            price_val = row.values[i+1]
+                            try:
+                                price_val = float(row.values[i+1])
+                            except:
+                                price_val = row.values[i+1] # Keep raw value (e.g. 'LINEAR INTER') for interpolation
                             if r_id not in raw_prices:
                                 raw_prices[r_id] = {}
                             raw_prices[r_id][year] = price_val
@@ -1006,11 +1009,11 @@ class PathFinderParser:
                         f"Resource '{r_id}' appears in RESSOURCES_PRICE but is missing from DATA block with a NAME"
                     )
                     
-                time_series.resource_prices[r_id] = interpolate_dict(p_dict)
+                if p_dict:
+                    time_series.resource_prices_anchors[r_id] = dict(p_dict)
+                    time_series.resource_prices[r_id] = interpolate_dict(p_dict)
             if self.verbose:
-                sc_tag = f" [scenario={scenario_id}]" if scenario_id else ""
-                if self.verbose:
-                    print(f"  [cyan][Ingestion][/cyan] [PRICE] Parsed resource prices for {len(time_series.resource_prices)} resources{sc_tag}")
+                pass # Resource price logs removed for cleaner terminal
 
         # 4.2 CARBON QUOTAS
         if 'CARBON QUOTAS' in self.xl.sheet_names:
@@ -1065,16 +1068,26 @@ class PathFinderParser:
                 if year is not None and start_idx != -1:
                     # Col start_idx + 1: PRICE, Col start_idx + 2: PENALTY, Col start_idx + 3: PI-EAU, Col start_idx + 4: N-EAU
                     if len(row.values) > start_idx + 1 and pd.notna(row.values[start_idx+1]):
-                        raw_prices[year] = row.values[start_idx+1]
+                        try:
+                            raw_prices[year] = float(row.values[start_idx+1])
+                        except:
+                            raw_prices[year] = row.values[start_idx+1]
                     if len(row.values) > start_idx + 2 and pd.notna(row.values[start_idx+2]):
                         try:
                             raw_penalties[year] = float(row.values[start_idx+2])
                         except: pass
                     if len(row.values) > start_idx + 3 and pd.notna(row.values[start_idx+3]):
-                        raw_free_pi[year] = row.values[start_idx+3]
+                        try:
+                            raw_free_pi[year] = float(row.values[start_idx+3])
+                        except:
+                            raw_free_pi[year] = row.values[start_idx+3]
                     if len(row.values) > start_idx + 4 and pd.notna(row.values[start_idx+4]):
-                        raw_free_norm[year] = row.values[start_idx+4]
+                        try:
+                            raw_free_norm[year] = float(row.values[start_idx+4])
+                        except:
+                            raw_free_norm[year] = row.values[start_idx+4]
                         
+            time_series.carbon_prices_anchors = dict(raw_prices)
             time_series.carbon_prices = interpolate_dict(raw_prices)
             time_series.carbon_quotas_pi = interpolate_dict(raw_free_pi)
             time_series.carbon_quotas_norm = interpolate_dict(raw_free_norm)
@@ -1102,10 +1115,7 @@ class PathFinderParser:
             time_series.carbon_penalties = adjusted_factors
             
             if self.verbose:
-                print(f"  [cyan][Ingestion][/cyan] [CO2] Parsed carbon prices for {len(time_series.carbon_prices)} years")
-                print(f"  [cyan][Ingestion][/cyan] [QUOTA] Parsed free PI carbon quotas for {len(time_series.carbon_quotas_pi)} years")
-                print(f"  [cyan][Ingestion][/cyan] [QUOTA] Parsed free NORM carbon quotas for {len(time_series.carbon_quotas_norm)} years")
-                print(f"  [cyan][Ingestion][/cyan] [!] Parsed carbon penalties for {len(time_series.carbon_penalties)} years (monotonic constraint applied)")
+                pass # Carbon price logs removed for cleaner terminal
 
         # 4.3 OTHER EMISSIONS
         if 'OTHER EMISSIONS' in self.xl.sheet_names:
@@ -1133,7 +1143,7 @@ class PathFinderParser:
                         remaining = raw_upper[sc_idx+1:]
                         in_target_block_oe = (scenario_id is None) or any(s in [scenario_id.upper(), active_sc_name] for s in remaining) or ("ALL" in remaining)
                         if self.verbose:
-                            print(f"  [cyan][Ingestion][/cyan] [DEBUG] Skipping Other Emissions block (Scenarios in row: {remaining})")
+                            pass # Debug removed
                     except:
                         in_target_block_oe = False
                     continue
@@ -1174,8 +1184,7 @@ class PathFinderParser:
             for r_id, e_dict in raw_ems.items():
                 time_series.other_emissions_factors[r_id] = interpolate_dict(e_dict)
             if self.verbose:
-                if self.verbose:
-                    print(f"  [cyan][Ingestion][/cyan] [EMS] Parsed other emissions for {len(time_series.other_emissions_factors)} factors")
+                pass # EMS logs removed for cleaner terminal
 
         # 5. Parse PUBLIC AID
         grant_params = GrantParams()
@@ -1305,7 +1314,7 @@ class PathFinderParser:
                         pass
             if self.verbose:
                 if self.verbose:
-                    print(f"  [cyan][Ingestion][/cyan] [BANK] Parsed {len(bank_loans)} bank loan products")
+                    pass # Bank logs removed for cleaner terminal
 
         # 7. Parse DAC and Credits
         dac_params = DACParams()
@@ -1388,8 +1397,6 @@ class PathFinderParser:
                             
                             # Skip if this CARAC row is for a different scenario
                             if scenario_id and carac_scenario and carac_scenario not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]:
-                                if self.verbose:
-                                    print(f"  [cyan][Ingestion][/cyan] [DEBUG] Skipping DAC CARAC row: '{carac_scenario}' != '{scenario_id.upper()}' or '{active_sc_name}'")
                                 continue
                             
                             # Rebase vals if scenario prefix present
@@ -1530,7 +1537,7 @@ class PathFinderParser:
                     dac_params.elec_by_year = interpolate_dict(raw_dac_elec)
                 
                 if self.verbose:
-                    print(f"  [cyan][Ingestion][/cyan] [DAC] Parsed DAC parameters (Active: {dac_params.active}, Cap: {dac_params.max_volume_pct*100:.1f}%, Ref Year: {dac_params.ref_year})")
+                    pass # DAC logs removed for cleaner terminal
                 
             if credit_params.active:
                 credit_params.cost_by_year = interpolate_dict(raw_credit_cost)
@@ -1538,7 +1545,7 @@ class PathFinderParser:
                     credit_params.active = False
                 else:
                     if self.verbose:
-                        print(f"  [cyan][Ingestion][/cyan] [CREDIT] Parsed Credit parameters (Cap: {credit_params.max_volume_pct*100}%, Ref Year: {credit_params.ref_year})")
+                        pass # Credit logs removed for cleaner terminal
 
         # --- Resolve Linked Technology Prices ---
         for t_id in technologies_dict:
@@ -1708,6 +1715,13 @@ class PathFinderParser:
             indicators=indicators,
         )
 
+    def _interpolate_dict(self, data_dict: Dict[int, Any], years_list: List[int]) -> Dict[int, float]:
+        """Utility to interpolate a dictionary of {year: value} over a full years_list."""
+        if not data_dict: return {}
+        s = pd.Series(data_dict).sort_index()
+        s = s.reindex(years_list)
+        return self._interpolate_linear(s).to_dict()
+
     def parse_sensitivity(self) -> SensitivityParams:
         """
         Point d'entrée public pour lire les paramètres d'analyse de sensibilité
@@ -1721,12 +1735,7 @@ class PathFinderParser:
         params = self._parse_sensitivity_block(df_overview)
 
         if self.verbose:
-            print(f"  [cyan][Sensitivity][/cyan] Variations : {params.variations}")
-            print(f"  [cyan][Sensitivity][/cyan] Direction  : {params.direction}")
-            print(f"  [cyan][Sensitivity][/cyan] Scénarios  : {params.scenarios}")
-            print(f"  [cyan][Sensitivity][/cyan] Temps/sim  : {params.time_limit}s")
-            print(f"  [cyan][Sensitivity][/cyan] Cibles     : {params.targets}")
-            print(f"  [cyan][Sensitivity][/cyan] Indicateurs: {params.indicators}")
+            pass # Sensitivity parameter logs removed for cleaner terminal
 
         return params
 

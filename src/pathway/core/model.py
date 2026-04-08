@@ -90,6 +90,7 @@ class Objective:
     mode: str = 'NONE'
     group: str = ""
     name: str = ""
+    penalty_type: str = "AT ALL COST"  # Options: "NONE", "AT ALL COST"
 
 @dataclass
 class Parameters:
@@ -122,6 +123,10 @@ class Technology:
     opex_per_unit: bool = False
     opex_unit: str = ""
     opex_by_year: Dict[int, float] = field(default_factory=dict)
+    
+    # Raw values from Excel before interpolation (for sensitivity re-interpolation)
+    capex_anchors: Dict[int, float] = field(default_factory=dict)
+    opex_anchors: Dict[int, float] = field(default_factory=dict)
     # impacts: e.g., {'ELEC': {'type': 'variation', 'value': 0.1}, 'CO2': {'type': 'new', 'value': -50}}
     impacts: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
@@ -133,6 +138,10 @@ class TimeSeriesData:
     carbon_prices: Dict[int, float] = field(default_factory=dict) # year -> CO2 price
     carbon_penalties: Dict[int, float] = field(default_factory=dict) # year -> penalty factor (x in 1+x)
     other_emissions_factors: Dict[str, Dict[int, float]] = field(default_factory=dict) # resource_id -> year -> factor
+    
+    # Raw values from Excel before interpolation (for sensitivity re-interpolation)
+    resource_prices_anchors: Dict[str, Dict[int, float]] = field(default_factory=dict)
+    carbon_prices_anchors: Dict[int, float] = field(default_factory=dict)
 
 @dataclass
 class Process:
