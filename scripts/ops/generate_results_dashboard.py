@@ -23,6 +23,9 @@ if repo_root not in sys.path:
     sys.path.append(os.path.join(repo_root, "src"))
 
 from pathway.core.plots.financial import build_transition_cost_figure
+from pathway.core.plots.carbon import build_carbon_price_figure
+from pathway.core.plots.carbon_tax import build_carbon_tax_figure
+from pathway.core.plots.energy_mix import build_energy_mix_figure
 
 
 DEFAULT_DISCOUNT_RATE = 0.08
@@ -584,31 +587,64 @@ def _aligned_from_map(target_years: List[Any], value_map: Dict[Any, float]) -> L
 def build_carbon_price_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
     title = "CARBON PRICE"
     if df_co2.empty or "Year" not in df_co2.columns or "Tax_Price" not in df_co2.columns:
-        return (
-            placeholder_figure(title, "No carbon price data is available in CO2_Trajectory."),
-            "This graph uses the Tax_Price column from the CO2_Trajectory sheet.",
-        )
+        return ({}, "No carbon price data available.")
 
     years = year_axis(df_co2["Year"])
-    price = to_float_list(pd.to_numeric(df_co2["Tax_Price"], errors="coerce").fillna(0.0))
-    traces = [
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Carbon price",
-            "x": years,
-            "y": price,
-            "line": {"width": 3, "color": "#1D4ED8"},
-            "marker": {"size": 6, "color": "#1D4ED8"},
-            "hovertemplate": "%{y:,.2f} EUR/tCO2<extra>%{fullData.name}</extra>",
-        }
-    ]
-    layout = base_layout(title, "EUR / tCO2", years, barmode="group")
-    description = (
-        "This curve is directly read from CO2_Trajectory.Tax_Price. "
-        "It represents the simulated carbon market unit price applied each year."
+    
+    # Extract market prices
+    market_prices = to_float_list(pd.to_numeric(df_co2["Tax_Price"], errors="coerce").fillna(0.0))
+    
+    # Extract penalties if available
+    penalty_col = find_column(df_co2, ["Penalty_Factor", "carbon_penalty"])
+    penalties = to_float_list(pd.to_numeric(df_co2[penalty_col], errors="coerce").fillna(0.0)) if penalty_col else None
+    
+    # Extract effective prices if available
+    eff_col = find_column(df_co2, ["Effective_Price", "eff_tax_price"])
+    effective_prices = to_float_list(pd.to_numeric(df_co2[eff_col], errors="coerce").fillna(0.0)) if eff_col else None
+    
+    # Extract strike prices if available
+    strike_col = find_column(df_co2, ["Strike_Price", "strike_p"])
+    raw_strikes = to_float_list(pd.to_numeric(df_co2[strike_col], errors="coerce").fillna(0.0)) if strike_col else []
+    
+    # Convert simplified strike prices back to the format expected by the module
+    strike_prices = []
+    if raw_strikes and any(s > 0 for s in raw_strikes):
+        # We find contiguous blocks of the same non-zero strike price
+        current_val = 0
+        current_years = []
+        for i, val in enumerate(raw_strikes):
+            y = years[i]
+            if val > 0:
+                if abs(val - current_val) < 1e-4:
+                    current_years.append(y)
+                else:
+                    if current_val > 0:
+                        strike_prices.append({'name': 'CCfD Strike', 'val': current_val, 'years': current_years})
+                    current_val = val
+                    current_years = [y]
+            else:
+                if current_val > 0:
+                    strike_prices.append({'name': 'CCfD Strike', 'val': current_val, 'years': current_years})
+                current_val = 0
+                current_years = []
+        if current_val > 0:
+            strike_prices.append({'name': 'CCfD Strike', 'val': current_val, 'years': current_years})
+
+    fig = build_carbon_price_figure(
+        years=years,
+        market_prices=market_prices,
+        effective_prices=effective_prices,
+        penalties=penalties,
+        strike_prices=strike_prices if strike_prices else None,
+        title=title
     )
-    return {"data": traces, "layout": layout}, description
+    
+    description = (
+        "Evolution of the market carbon price, combined with potential penalties "
+        "and active CCfD strike prices over the simulation period."
+    )
+    
+    return (fig.to_dict(), description)
 
 
 def build_carbon_tax_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
@@ -616,63 +652,72 @@ def build_carbon_tax_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
     if df_co2.empty or "Year" not in df_co2.columns:
         return (
             placeholder_figure(title, "No CO2_Trajectory data is available for carbon tax."),
-            "This graph requires Tax_Cost_MEuros / Net_Tax_Cost_MEuros columns in CO2_Trajectory.",
+            "This graph requires Tax_Cost_MEuros columns in CO2_Trajectory.",
         )
 
     years = year_axis(df_co2["Year"])
-    gross_col = "Tax_Cost_MEuros" if "Tax_Cost_MEuros" in df_co2.columns else ""
-    net_col = "Net_Tax_Cost_MEuros" if "Net_Tax_Cost_MEuros" in df_co2.columns else ""
-    refund_col = "CCfD_Refund_MEuros" if "CCfD_Refund_MEuros" in df_co2.columns else ""
+    
+    # 1. Primary Cost Columns (Differentiated if possible)
+    std_tax_col = find_column(df_co2, ["Standard_Tax_Cost_MEuros", "std_tax"])
+    pen_tax_col = find_column(df_co2, ["Penalty_Cost_MEuros", "penalty_tax"])
+    gross_col = find_column(df_co2, ["Tax_Cost_MEuros", "gross_tax"])
+    
+    standard_tax = to_float_list(pd.to_numeric(df_co2[std_tax_col], errors="coerce").fillna(0.0)) if std_tax_col else []
+    penalties = to_float_list(pd.to_numeric(df_co2[pen_tax_col], errors="coerce").fillna(0.0)) if pen_tax_col else []
+    
+    # Fallback if differentiated columns are missing (old results)
+    if not standard_tax and gross_col:
+        standard_tax = to_float_list(pd.to_numeric(df_co2[gross_col], errors="coerce").fillna(0.0))
+        penalties = [0.0] * len(years)
 
-    if not gross_col and not net_col and not refund_col:
-        return (
-            placeholder_figure(title, "Tax columns are missing in CO2_Trajectory."),
-            "No carbon-tax cost columns were found in the result workbook.",
-        )
+    # 2. Avoided Costs
+    avoided_red_col = find_column(df_co2, ["Really_Avoided_CO2_kt", "avoided_red"])
+    avoided_cap_col = find_column(df_co2, ["Captured_CO2_kt", "avoided_cap"])
+    tax_p_col = find_column(df_co2, ["Tax_Price", "carbon_p"])
+    
+    tax_prices = to_float_list(pd.to_numeric(df_co2[tax_p_col], errors="coerce").fillna(0.0)) if tax_p_col else [0.0]*len(years)
+    
+    avoided_reduced = []
+    if avoided_red_col:
+        red_kt = to_float_list(pd.to_numeric(df_co2[avoided_red_col], errors="coerce").fillna(0.0))
+        avoided_reduced = [rt * 1000 * tp / 1_000_000.0 for rt, tp in zip(red_kt, tax_prices)]
+    else:
+        avoided_reduced = [0.0] * len(years)
+        
+    avoided_captured = []
+    if avoided_cap_col:
+        cap_kt = to_float_list(pd.to_numeric(df_co2[avoided_cap_col], errors="coerce").fillna(0.0))
+        avoided_captured = [ct * 1000 * tp / 1_000_000.0 for ct, tp in zip(cap_kt, tax_prices)]
+    else:
+        avoided_captured = [0.0] * len(years)
 
-    traces = []
-    if gross_col:
-        traces.append(
-            {
-                "type": "bar",
-                "name": "Gross carbon tax",
-                "x": years,
-                "y": to_float_list(pd.to_numeric(df_co2[gross_col], errors="coerce").fillna(0.0)),
-                "marker": {"color": "#0369A1"},
-                "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            }
-        )
-    if refund_col:
-        traces.append(
-            {
-                "type": "bar",
-                "name": "CCfD refund",
-                "x": years,
-                "y": to_float_list(pd.to_numeric(df_co2[refund_col], errors="coerce").fillna(0.0)),
-                "marker": {"color": "#10B981"},
-                "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            }
-        )
-    if net_col:
-        traces.append(
-            {
-                "type": "scatter",
-                "mode": "lines+markers",
-                "name": "Net carbon tax",
-                "x": years,
-                "y": to_float_list(pd.to_numeric(df_co2[net_col], errors="coerce").fillna(0.0)),
-                "line": {"width": 3, "color": "#0F172A"},
-                "marker": {"size": 6, "color": "#0F172A"},
-                "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            }
-        )
+    # 3. Refunds
+    refund_col = find_column(df_co2, ["CCfD_Refund_MEuros", "ccfd_ref"])
+    ccfd_refunds = to_float_list(pd.to_numeric(df_co2[refund_col], errors="coerce").fillna(0.0)) if refund_col else None
 
-    layout = base_layout(title, "MEUR", years, barmode="relative")
-    description = (
-        "Gross tax is sourced from Tax_Cost_MEuros, refunds from CCfD_Refund_MEuros, and net tax from "
-        "Net_Tax_Cost_MEuros when available."
+    # Build Figure using shared module
+    fig = build_carbon_tax_figure(
+        years=years,
+        standard_tax=standard_tax,
+        penalties=penalties,
+        avoided_reduced=avoided_reduced,
+        avoided_captured=avoided_captured,
+        ccfd_refunds=ccfd_refunds,
+        title=title
     )
-    return {"data": traces, "layout": layout}, description
+    
+    # Adapt to dashboard layout
+    fig.update_layout(
+        font=dict(family="Manrope, sans-serif", size=13, color="#1e293b"),
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(255,255,255,0)",
+    )
+    
+    description = (
+        "This chart differentiates between standard carbon tax and performance penalties. "
+        "Savings from emission reduction and capture are shown as negative values."
+    )
+    return fig_to_dict(fig), description
 
 
 def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
@@ -812,7 +857,7 @@ def build_co2_trajectory_full_graph(df_co2: pd.DataFrame) -> Tuple[Dict[str, Any
     return {"data": traces, "layout": layout}, description
 
 
-def build_energy_mix_full_graph(df_energy: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
+def build_energy_mix_full_graph(df_energy: pd.DataFrame, df_metadata: pd.DataFrame = None) -> Tuple[Dict[str, Any], str]:
     title = "ENERGY MIX"
     if df_energy.empty or "Year" not in df_energy.columns:
         return (
@@ -829,40 +874,52 @@ def build_energy_mix_full_graph(df_energy: pd.DataFrame) -> Tuple[Dict[str, Any]
             "No non-zero resource stream was found in Energy_Mix.",
         )
 
-    df_plot, cols = split_major_minor(df_energy, cols, MAX_STACK_SERIES, "Other_Resources")
-    palette = [
-        "#1D4ED8",
-        "#0284C7",
-        "#0EA5E9",
-        "#14B8A6",
-        "#16A34A",
-        "#22C55E",
-        "#4F46E5",
-        "#334155",
-        "#EA580C",
-    ]
-
-    traces = []
-    for idx, col in enumerate(cols):
-        traces.append(
-            {
-                "type": "scatter",
-                "mode": "lines",
-                "name": pretty_label(col),
-                "x": years,
-                "y": to_float_list(pd.to_numeric(df_plot[col], errors="coerce").fillna(0.0)),
-                "stackgroup": "one",
-                "line": {"width": 1.5, "color": palette[idx % len(palette)]},
-                "hovertemplate": "%{y:,.2f}<extra>%{fullData.name}</extra>",
+    # 1. Map columns to categories
+    cat_map = {}
+    metadata_map = {}
+    if df_metadata is not None and not df_metadata.empty:
+        for _, row in df_metadata.iterrows():
+            metadata_map[str(row["ID"])] = {
+                "Type": str(row.get("Type", "Unspecified")).upper(),
+                "Category": str(row.get("Category", "Uncategorized")),
+                "Unit": str(row.get("Unit", "Units")),
+                "Name": str(row.get("Name", row["ID"]))
             }
-        )
 
-    layout = base_layout(title, "Mixed units (as exported)", years, barmode="stack")
-    description = (
-        "Energy_Mix is rendered as a stacked area across all non-zero resource columns. "
-        "Series are grouped into 'Other_Resources' when needed to keep the legend readable."
+    for c in cols:
+        meta = metadata_map.get(c, {"Type": "Unspecified", "Category": "Uncategorized", "Unit": "Units", "Name": c})
+        full_cat = f"[{meta['Type']}] {meta['Category']}"
+        unit = meta["Unit"]
+        name = meta["Name"]
+        
+        if full_cat not in cat_map:
+            cat_map[full_cat] = {"unit": unit, "series": {}}
+        
+        cat_map[full_cat]["series"][name] = to_float_list(pd.to_numeric(df_energy[c], errors="coerce").fillna(0.0))
+
+    # Sort map
+    sorted_keys = sorted(cat_map.keys())
+    cat_map = {k: cat_map[k] for k in sorted_keys}
+
+    # 2. Build figure using the same shared component
+    fig = build_energy_mix_figure(
+        years=years,
+        category_data=cat_map,
+        title=title
     )
-    return {"data": traces, "layout": layout}, description
+    
+    # 3. Adapt to dashboard layout
+    fig.update_layout(
+        font=dict(family="Manrope, sans-serif", size=13, color="#1e293b"),
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(255,255,255,0)",
+    )
+
+    description = (
+        "Energy_Mix is presented here as a categorical breakdown of all energy flows. "
+        "Use the dropdown menu to select specific categories (defined in OverView)."
+    )
+    return fig_to_dict(fig), description
 
 
 def build_external_financing_graph(df_financing: pd.DataFrame, df_costs: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
@@ -1293,6 +1350,34 @@ def build_transition_cost_graph(
         for c in (pos_cols + neg_cols):
              df_hf_transition[c] = pd.to_numeric(df_hf_transition[c], errors="coerce").fillna(0.0)
         
+        # Enrich high-fidelity data with BAU deltas if missing
+        if "Saving: Baseline Tax Offset" not in df_hf_transition.columns and bau_tax_costs:
+            df_hf_transition["Saving: Baseline Tax Offset"] = [-(bau_tax_costs.get(y, 0.0)) for y in years]
+            if "Saving: Baseline Tax Offset" not in neg_cols: neg_cols.append("Saving: Baseline Tax Offset")
+
+        if "Saving: Avoided Resources" not in df_hf_transition.columns and df_energy is not None and df_data_used is not None and bau_res_costs is not None:
+            actual_res = _calculate_resource_costs(df_energy, df_data_used)
+            res_avoid = [0.0] * len(years)
+            for i, a_cost in enumerate(actual_res):
+                if i < len(years):
+                    b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
+                    delta = a_cost - b_cost
+                    if delta < -1e-4: res_avoid[i] = delta
+            df_hf_transition["Saving: Avoided Resources"] = res_avoid
+            if "Saving: Avoided Resources" not in neg_cols: neg_cols.append("Saving: Avoided Resources")
+            
+        # Also check for Effort: Additional Resources if missing
+        if "Effort: Additional Resources" not in df_hf_transition.columns and df_energy is not None and df_data_used is not None and bau_res_costs is not None:
+             actual_res = _calculate_resource_costs(df_energy, df_data_used)
+             res_add = [0.0] * len(years)
+             for i, a_cost in enumerate(actual_res):
+                 if i < len(years):
+                     b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
+                     delta = a_cost - b_cost
+                     if delta > 1e-4: res_add[i] = delta
+             df_hf_transition["Effort: Additional Resources"] = res_add
+             if "Effort: Additional Resources" not in pos_cols: pos_cols.append("Effort: Additional Resources")
+
         fig = build_transition_cost_figure(
             df_annual=df_hf_transition,
             years=years,
@@ -1721,11 +1806,12 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         df_transition_balance = load_transition_balance_table(workbook)
         df_data_used = load_sheet(workbook, "Data_Used")
         df_hf_transition = load_high_fidelity_table(workbook, "TRANSITION_COST_HIGH_FIDELITY")
+        df_metadata = load_sheet(workbook, "Resource_Metadata")
 
         carbon_price_fig, carbon_price_desc = build_carbon_price_graph(df_co2)
         carbon_tax_fig, carbon_tax_desc = build_carbon_tax_graph(df_co2)
         co2_traj_fig, co2_traj_desc = build_co2_trajectory_full_graph(df_co2)
-        energy_mix_fig, energy_mix_desc = build_energy_mix_full_graph(df_energy)
+        energy_mix_fig, energy_mix_desc = build_energy_mix_full_graph(df_energy, df_metadata)
         ext_finance_fig, ext_finance_desc = build_external_financing_graph(df_financing, df_costs)
         indirect_fig, indirect_desc = build_indirect_emissions_graph(df_indir)
         invest_fig, invest_desc = build_investment_plan_graph(df_invest)

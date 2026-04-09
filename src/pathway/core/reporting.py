@@ -12,7 +12,10 @@ from tqdm import tqdm
 from .optimizer import PathFinderOptimizer
 import plotly.graph_objects as go
 import plotly.io as pio
+from .plots.carbon_tax import build_carbon_tax_figure
 from pathway.core.plots.financial import build_transition_cost_figure
+from pathway.core.plots.carbon import build_carbon_price_figure
+from pathway.core.plots.energy_mix import build_energy_mix_figure
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -177,7 +180,11 @@ class PathFinderReporter:
             row = {'Year': t}
             for res_id in self.data.resources:
                 if res_id != 'CO2_EM':
-                    row[res_id] = self.opt.cons_vars[(t, res_id)].varValue
+                    val = self.opt.cons_vars[(t, res_id)].varValue
+                    res = self.data.resources[res_id]
+                    if res.unit.upper() == 'GJ':
+                        val = val / 3.6 # GJ to MWh
+                    row[res_id] = val
             
             # --- Granular H2: Explicitly capture PRODUCED_ON_SITE ---
             if hasattr(self.opt, 'h2_supply_vars') and t in self.opt.h2_supply_vars:
@@ -186,6 +193,21 @@ class PathFinderReporter:
             cons_data.append(row)
         df_cons = pd.DataFrame(cons_data)
         
+        # --- PRE-CALCULATE STRIKE PRICES FOR EXCEL ---
+        # Map Year -> Max Strike Price
+        excel_strikes = {t: 0.0 for t in self.years}
+        if hasattr(self.opt, "ccfd_used_vars"):
+            for (t_inv, p_id, t_id), var in self.opt.ccfd_used_vars.items():
+                if var.varValue and var.varValue > 0.5:
+                    tech = self.data.technologies[t_id]
+                    base_p = self.data.time_series.carbon_prices.get(t_inv, 0.0)
+                    strike_val = (1.0 + self.data.ccfd_params.eua_price_pct) * base_p
+                    start_yr = t_inv + tech.implementation_time
+                    end_yr = start_yr + self.data.ccfd_params.duration
+                    for y in range(start_yr, end_yr):
+                        if y in excel_strikes:
+                            excel_strikes[y] = max(excel_strikes[y], strike_val)
+
         # Emissions
         emis_data = []
         for t in self.years:
@@ -215,9 +237,30 @@ class PathFinderReporter:
             tax_price = self.data.time_series.carbon_prices.get(t, 0.0)
             penalty_factor = self.data.time_series.carbon_penalties.get(t, 0.0)
             # Total cost is the sum of paid and penalized quotas
+            # Differentiate standard tax from additional penalty
             paid_q = self.opt.paid_quota_vars[t].varValue or 0.0
             penal_q = self.opt.penalty_quota_vars[t].varValue or 0.0
-            tax_cost_meuros = (paid_q * tax_price + penal_q * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
+            
+            standard_tax_cost = (paid_q + penal_q) * tax_price / 1_000_000.0
+            quota_penalty_cost = (penal_q * tax_price * penalty_factor) / 1_000_000.0
+            
+            # --- AGGREGATE OBJECTIVE PENALTIES (Realistic only) ---
+            obj_penalty_cost = 0.0
+            for idx, obj in enumerate(self.data.objectives):
+                if obj.penalty_type == "PENALTIES":
+                    # Check for year-specific penalties (idx, t)
+                    if (idx, t) in self.opt.penalty_vars:
+                        v_val = self.opt.penalty_vars[(idx, t)].varValue or 0.0
+                        if v_val > 1e-4:
+                            obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
+                    # Check for global penalties assigned to a specific target year
+                    if idx in self.opt.penalty_vars and obj.target_year == t:
+                        v_val = self.opt.penalty_vars[idx].varValue or 0.0
+                        if v_val > 1e-4:
+                            obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
+            
+            total_penalty_cost = quota_penalty_cost + obj_penalty_cost
+            tax_cost_meuros = standard_tax_cost + total_penalty_cost
             
             # Calcul des émissions évitées (par rapport aux émissions de référence directes)
             avoided_total_kt = max(0.0, (self.opt.entity.base_emissions - direct_co2) / 1000.0)
@@ -322,13 +365,18 @@ class PathFinderReporter:
                 'Taxed_CO2': taxed_co2,
                 'Free_Quota': direct_co2 * fq_pct if fq_pct <= 1.0 else fq_pct,  # Based on actual yearly emissions
                 'Tax_Price': tax_price,
+                'Standard_Tax_Cost_MEuros': standard_tax_cost,
+                'Penalty_Cost_MEuros': total_penalty_cost,
                 'Tax_Cost_MEuros': tax_cost_meuros,
                 'Avoided_Direct_CO2_kt': avoided_total_kt,
                 'Avoided_Total_CO2_kt': max(0.0, (self.opt.entity.base_emissions + self.opt.entity.base_emissions * 0.1 - total_co2) / 1000.0), # Heuristic
                 'Captured_CO2_kt': captured_kt,
                 'Really_Avoided_CO2_kt': really_avoided_kt,
                 'DAC_Captured_kt': dac_cap,
-                'Credits_Purchased_kt': credit_vol
+                'Credits_Purchased_kt': credit_vol,
+                'Penalty_Factor': self.data.time_series.carbon_penalties.get(t, 0.0),
+                'Effective_Price': tax_price * (1.0 + self.data.time_series.carbon_penalties.get(t, 0.0)),
+                'Strike_Price': excel_strikes.get(t, 0.0)
             })
             
         df_emis = pd.DataFrame(emis_data)
@@ -432,7 +480,7 @@ class PathFinderReporter:
                             
                             new_investments.add((t, p_id, t_id)) # Mark as NEW for arrows
                             
-                            proc_display = f"({invest_v:.2f}/{process.nb_units})" if invest_v % 1 != 0 else f"({int(invest_v)}/{process.nb_units})"
+                            proc_display = f"({invest_v:.2f}/{process.nb_units})" if invest_v % 1 != 0 else f"({int(invested_units)}/{process.nb_units})"
                             tech_invested_procs[(t, p_id, t_id)].append(proc_display)
                             
                             # GRANT: Use precise value from the lp variable
@@ -730,6 +778,13 @@ class PathFinderReporter:
             for t in self.years:
                 price = self.data.time_series.resource_prices.get(r_id, {}).get(t, np.nan)
                 emissions = self.data.time_series.other_emissions_factors.get(r_id, {}).get(t, np.nan)
+                
+                res = self.data.resources.get(r_id)
+                if res and res.unit.upper() == 'GJ':
+                    # If consumption was divided by 3.6, price and emissions must be multiplied by 3.6
+                    if not np.isnan(price): price *= 3.6
+                    if not np.isnan(emissions): emissions *= 3.6
+                
                 data_used_rows.append({
                     "Resource": r_id,
                     "Year": t,
@@ -754,6 +809,22 @@ class PathFinderReporter:
                     
                     if not df_data_used.empty:
                         df_data_used.to_excel(writer, sheet_name='Data_Used', index=False)
+                    
+                    # NEW: Export Resource Metadata for Dashboard Categories
+                    res_metadata = []
+                    for r_id, res in self.data.resources.items():
+                        unit = res.unit
+                        if unit.upper() == 'GJ':
+                            unit = 'MWh'
+                        res_metadata.append({
+                            "ID": r_id,
+                            "Name": res.name,
+                            "Type": res.type,
+                            "Category": res.category,
+                            "Unit": unit
+                        })
+                    if res_metadata:
+                        pd.DataFrame(res_metadata).to_excel(writer, sheet_name='Resource_Metadata', index=False)
                     
                     # 2.2 Export Chart Data
                     if hasattr(self, 'charts_data') and self.charts_data:
@@ -784,6 +855,22 @@ class PathFinderReporter:
     
                     if not df_data_used.empty:
                         df_data_used.to_excel(writer, sheet_name='Data_Used', index=False)
+                    
+                    # NEW: Export Resource Metadata for Dashboard Categories (Fallback)
+                    res_metadata = []
+                    for r_id, res in self.data.resources.items():
+                        unit = res.unit
+                        if unit.upper() == 'GJ':
+                            unit = 'MWh'
+                        res_metadata.append({
+                            "ID": r_id,
+                            "Name": res.name,
+                            "Type": res.type,
+                            "Category": res.category,
+                            "Unit": unit
+                        })
+                    if res_metadata:
+                        pd.DataFrame(res_metadata).to_excel(writer, sheet_name='Resource_Metadata', index=False)
                         
                     # 2.2 Export Chart Data (Fallback)
                     if hasattr(self, 'charts_data') and self.charts_data:
@@ -1274,139 +1361,113 @@ class PathFinderReporter:
                 text.set_fontsize(12)
 
     def _plot_energy_mix(self, df: pd.DataFrame):
-        GJ_TO_MWH = 1.0 / 3.6  # 1 GJ = 0.2778 MWh
-
+        GJ_TO_MWH = 1.0 / 3.6
         df_plot = df.copy()
         df_plot.set_index('Year', inplace=True)
-        # remove resources that are all zeros to declutter
+        # Remove resources that are all zeros
         df_plot = df_plot.loc[:, (df_plot != 0).any(axis=0)]
+        
+        years = [int(y) for y in df_plot.index]
+        if not years:
+            return
 
-        # ── Step 1: Convert GJ columns to MWh and merge with MWh columns ──────
-        # Identify GJ and MWh columns
-        gj_cols  = [c for c in df_plot.columns if c in self.data.resources and
-                    str(self.data.resources[c].unit).strip().upper() == 'GJ']
-        mwh_cols = [c for c in df_plot.columns if c in self.data.resources and
-                    str(self.data.resources[c].unit).strip().upper() == 'MWH']
-
-        # Convert GJ → MWh in place
-        for col in gj_cols:
-            df_plot[col] = df_plot[col] * GJ_TO_MWH
-
-        # For each GJ column: if a MWh twin with the same name exists, add; otherwise just rename unit
-        # We register which cols now count as MWh
-        converted_to_mwh = set(gj_cols)
-
-        # ── Step 2: Build unit grouping (GJ columns now treated as MWh) ────────
-        resources_by_unit = {}
-        for col in df_plot.columns:
-            if col in self.data.resources:
-                raw_unit = str(self.data.resources[col].unit).strip().upper()
-                # Treat GJ as MWh after conversion
-                unit_key = 'MWh' if raw_unit in ('GJ', 'MWH') else self.data.resources[col].unit
-            else:
-                unit_key = 'Unknown'
-
-            if unit_key not in resources_by_unit:
-                resources_by_unit[unit_key] = []
-            resources_by_unit[unit_key].append(col)
-
-        # ── Step 3: Rename columns to resource display names ────────────────────
-        def _display_name(col: str) -> str:
-            """Return the resource's human-readable name, falling back to ID."""
-            if col in self.data.resources:
-                res = self.data.resources[col]
-                return res.name if res.name and res.name != res.id else res.id
-            return col
-
-        # Generate a plot for each unit group
-        for unit, resources in resources_by_unit.items():
-            df_unit = df_plot[resources].copy()
-
-            # Rename columns to display names (unique: suffix ID in parentheses if collision)
-            rename_map = {}
-            seen_names = {}
-            for col in df_unit.columns:
-                dname = _display_name(col)
-                if dname in seen_names:
-                    dname = f"{dname} ({col})"
-                seen_names[dname] = True
-                rename_map[col] = dname
-            df_unit = df_unit.rename(columns=rename_map)
-
-            # ── Auto-scale: choose the best prefix based on the max absolute value ──
-            max_val = df_unit.abs().max().max()
-            if max_val >= 1_000_000:
-                scale, prefix = 1_000_000, f'M {unit}'
-            elif max_val >= 1_000:
-                scale, prefix = 1_000, f'k {unit}'
-            else:
-                scale, prefix = 1, unit
-            df_unit = df_unit / scale
-
-            # Separate Consumption (positive) and Production (negative → absolute value)
-            df_cons = df_unit[df_unit > 0].fillna(0)
-            df_prod = df_unit[df_unit < 0].fillna(0).abs()
-
-            # Remove entirely empty columns in both separated frames (using 1e-6 threshold against float precision bugs)
-            df_cons = df_cons.loc[:, (df_cons > 1e-6).any(axis=0)]
-            df_prod = df_prod.loc[:, (df_prod > 1e-6).any(axis=0)]
-
-            # Create subplots only if there's data to plot for this unit
-            has_cons = not df_cons.empty
-            has_prod = not df_prod.empty
-
-            # Strong, readable curated palettes (avoiding pale/white colors for visibility)
-            cons_palette = ['#1A5276', '#2980B9', '#8E44AD', '#D35400', '#C0392B', '#273746', '#117864', '#B9770E']
-            prod_palette = ['#1E8449', '#148F77', '#B7950B', '#28B463', '#239B56', '#D4AC0D', '#8C14FC', '#2C3E50']
-
-            if has_cons:
-                fig, ax1 = plt.subplots(figsize=(12, 9))
-                fig.set_facecolor('white')
+        # 1. Group resources by Type and Category
+        # We use a hierarchical key: "[TYPE] Category"
+        cat_map = {} 
+        
+        for res_id in df_plot.columns:
+            if res_id not in self.data.resources:
+                continue
                 
-                # Use solid colors directly in pandas area plot, automatically cycling if many resources
-                df_cons.plot.area(ax=ax1, stacked=True, alpha=0.85, color=cons_palette)
-                
-                ax1.set_title(f'CONSUMPTION ({prefix})', fontsize=13, weight='bold', pad=15)
-                ax1.set_ylabel(prefix, fontsize=10, weight='semibold')
-                ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
-                ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True, fontsize=12)
-                self._apply_premium_style(ax1)
+            res = self.data.resources[res_id]
+            res_type = res.type.upper()
+            cat = res.category
+            unit = res.unit
+            name = res.name if res.name and res.name != res_id else res_id
+            
+            vals = df_plot[res_id].values.tolist()
+            
+            # Basic normalization GJ -> MWh
+            if unit.upper() == 'GJ':
+                vals = [v * GJ_TO_MWH for v in vals]
+                unit = 'MWh'
 
-                fig.suptitle(f'ENERGY FLOW PROFILE - {prefix}', fontsize=16, weight='bold', y=1.02)
-                plt.tight_layout()
-                fig.subplots_adjust(bottom=0.2)
-                self._add_watermark(fig)
+            # Hierarchical key
+            display_cat = f"[{res_type}] {cat}"
 
-                os.makedirs(self.results_dir, exist_ok=True)
-                safe_unit_name = str(unit).replace('/', '_').replace(' ', '_')
-                plt.savefig(os.path.join(self.results_dir, f'Energy_Mix_Consumption_{safe_unit_name}.png'), dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                self.charts_data.append((f"Energy Flow Profile (Consumption) - {prefix}", df_cons))
+            if display_cat not in cat_map:
+                cat_map[display_cat] = {'unit': unit, 'series': {}}
+            
+            cat_map[display_cat]['series'][name] = vals
 
-            if has_prod:
-                fig, ax2 = plt.subplots(figsize=(12, 9))
-                fig.set_facecolor('white')
+        # Sort cat_map by Type then Category for the dropdown
+        sorted_keys = sorted(cat_map.keys())
+        cat_map = {k: cat_map[k] for k in sorted_keys}
 
-                df_prod.plot.area(ax=ax2, stacked=True, alpha=0.85, color=prod_palette)
+        # Build figure
+        fig = build_energy_mix_figure(
+            years=years,
+            category_data=cat_map,
+            title="ENERGY MIX BREAKDOWN"
+        )
+        
+        # Save results
+        self._save_plotly_figure(fig, "Energy_Mix")
+        
+        # Restore the High-Fidelity Transition Cost Data for the Dashboard
+        self._calculate_transition_cost_high_fidelity(df_finance, df_costs, df_emis)
+        
+        # Store for Excel
+        self.charts_data.append(("Energy Mix Breakdown by Category", df_plot))
 
-                ax2.set_title(f'PRODUCTION ({prefix})', fontsize=13, weight='bold', pad=15)
-                ax2.set_ylabel(prefix, fontsize=10, weight='semibold')
-                ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
-                ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, frameon=True, fontsize=12)
-                self._apply_premium_style(ax2)
-
-                fig.suptitle(f'ENERGY FLOW PROFILE - {prefix}', fontsize=16, weight='bold', y=1.02)
-                plt.tight_layout()
-                fig.subplots_adjust(bottom=0.2)
-                self._add_watermark(fig)
-
-                os.makedirs(self.results_dir, exist_ok=True)
-                safe_unit_name = str(unit).replace('/', '_').replace(' ', '_')
-                plt.savefig(os.path.join(self.results_dir, f'Energy_Mix_Production_{safe_unit_name}.png'), dpi=300, bbox_inches='tight')
-                plt.close()
-                
-                self.charts_data.append((f"Energy Flow Profile (Production) - {prefix}", df_prod))
+    def _calculate_transition_cost_high_fidelity(self, df_finance, df_costs, df_emis):
+        """Generates the SOLE source of truth for the Transition Cost chart."""
+        try:
+            years = self.years
+            n_yrs = len(years)
+            
+            # 1. Efforts
+            # CAPEX and Loan Service
+            capex_self = df_finance['Out_of_Pocket_CAPEX (M€)'].values
+            loan_service = df_finance['Total_Annuity (M€)'].values
+            
+            # OPEX (Tech + DAC)
+            opex_cols = [c for c in df_costs.columns if c == 'Total_OPEX' or c == 'opex_cost_meuros' or c == 'DAC_Opex']
+            opex_val = df_costs[opex_cols].sum(axis=1).values / 1_000_000.0 if opex_cols else np.zeros(n_yrs)
+            
+            # Credits
+            cred_cols = [c for c in df_costs.columns if c == 'Credit_Cost' or c == 'carbon_credit_cost']
+            cred_val = df_costs[cred_cols].sum(axis=1).values / 1_000_000.0 if cred_cols else np.zeros(n_yrs)
+            
+            # Carbon Tax
+            tax_val = df_emis['Tax_Cost_MEuros'].values
+            
+            # 2. Savings
+            # Aids (Grants & CCfD)
+            aid_cols = [c for c in df_costs.columns if str(c).startswith("Aid_")]
+            aids_val = df_costs[aid_cols].sum(axis=1).values / 1_000_000.0 if aid_cols else np.zeros(n_yrs)
+            
+            # CCfD Refund (already in M€)
+            ccfd_val = df_emis['CCfD_Refund_MEuros'].values
+            total_aids = aids_val + ccfd_val
+            
+            # Construct DataFrame
+            df_hf = pd.DataFrame({
+                "Year": years,
+                "Effort: Self-funded CAPEX": capex_self,
+                "Effort: Bank Loan Service": loan_service,
+                "Effort: Tech & DAC OPEX": opex_val,
+                "Effort: Voluntary Credits": cred_val,
+                "Effort: Carbon Tax (Actual)": tax_val,
+                "Saving: Public Aids": (-total_aids)
+                # Note: Avoided Resources and Tax Offset are filled by the dashboard script by comparing workbooks
+            })
+            
+            self.charts_data.append(("TRANSITION_COST_HIGH_FIDELITY", df_hf))
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"  [yellow][Reporter][/yellow] [!] Could not calculate high-fidelity transition cost: {e}")
 
         
     def _plot_co2_trajectory(self, df: pd.DataFrame):
@@ -2121,151 +2182,49 @@ class PathFinderReporter:
         self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_bars_export))
 
     def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame):
+        """Generates an interactive Plotly visualization for carbon taxes and penalties."""
         df_plot = df.copy()
         years = df_plot['Year'].tolist()
         
+        # Data preparation
+        standard_tax = df_plot['Standard_Tax_Cost_MEuros'].tolist()
+        penalty_costs = df_plot['Penalty_Cost_MEuros'].tolist()
+        
         # Calculate Avoided Costs in MEuros
-        df_plot['Avoided_Cost_Reduced_MEuros'] = df_plot['Really_Avoided_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0
-        df_plot['Avoided_Cost_Total_MEuros'] = df_plot['Avoided_Direct_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0
+        avoided_reduced = (df_plot['Really_Avoided_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist()
+        avoided_captured = (df_plot['Captured_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist()
         
-        # Invert avoided costs for downward display on same axis
-        df_plot['Avoided_Cost_Reduced_MEuros_Neg'] = -df_plot['Avoided_Cost_Reduced_MEuros']
-        df_plot['Avoided_Cost_Total_MEuros_Neg'] = -df_plot['Avoided_Cost_Total_MEuros']
+        ccfd_refunds = []
+        if 'CCfD_Refund_MEuros' in df_plot.columns:
+            ccfd_refunds = df_plot['CCfD_Refund_MEuros'].tolist()
 
-        # Premium Financial Balance Visualization
-        fig, ax = plt.subplots(figsize=(12, 9))
-        
-        # ── POSITIVE REGION : Costs ──
-        # Vertical dotted lines with crosses for annual taxes
-        markerline_tax, stemlines_tax, baseline_tax = ax.stem(years, df_plot['Tax_Cost_MEuros'], linefmt='#d62728', markerfmt='x', basefmt=' ')
-        plt.setp(stemlines_tax, linestyle=':', linewidth=1.5, color='#d62728')
-        plt.setp(markerline_tax, markersize=8, color='#d62728', markeredgewidth=1.5)
-        markerline_tax.set_label('Gross Carbon Tax (M€)')
+        # Build Plotly Figure
+        fig = build_carbon_tax_figure(
+            years=years,
+            standard_tax=standard_tax,
+            penalties=penalty_costs,
+            avoided_reduced=avoided_reduced,
+            avoided_captured=avoided_captured,
+            ccfd_refunds=ccfd_refunds if ccfd_refunds else None,
+            title="CARBON TAX & PENALTIES BALANCE"
+        )
 
-        # CCfD Refund (State compensation)
-        if 'CCfD_Refund_MEuros' in df_plot.columns and df_plot['CCfD_Refund_MEuros'].abs().max() > 1e-4:
-            ax.scatter(years, df_plot['CCfD_Refund_MEuros'], color='tab:orange', marker='D', s=40, edgecolors='white', linewidths=0.5, label='CCfD State Refund (M€)', zorder=6)
-            
-        # Net Carbon Cost (Tax - Refund)
-        if 'Net_Tax_Cost_MEuros' in df_plot.columns:
-            ax.plot(years, df_plot['Net_Tax_Cost_MEuros'], color='#d62728', linewidth=2.5, linestyle=':', label='Net Annual Cost (M€)', zorder=7)
-
-        # ── NEGATIVE REGION : Avoided Costs ──
-        # Plot the two levels as circles/dotted pointing DOWN
-        ax.plot(years, df_plot['Avoided_Cost_Reduced_MEuros_Neg'], color='#2ca02c', linestyle=':', marker='o', markersize=4, label='Avoided (Reduced at Source) (M€)', zorder=5)
-        ax.plot(years, df_plot['Avoided_Cost_Total_MEuros_Neg'], color='#17becf', linestyle=':', marker='o', markersize=4, label='Total Avoided & Captured (M€)', zorder=5)
+        # Finalize and Save (PNG + JSON)
+        self._save_plotly_figure(fig, "Carbon_Tax")
         
-        # Add orthogonal segments
-        ax.vlines(years, 0, df_plot['Avoided_Cost_Reduced_MEuros_Neg'], color='#2ca02c', linestyle='-', linewidth=1.5, alpha=0.4, zorder=4)
-        ax.vlines(years, df_plot['Avoided_Cost_Reduced_MEuros_Neg'], df_plot['Avoided_Cost_Total_MEuros_Neg'], color='#17becf', linestyle='-', linewidth=1.5, alpha=0.4, zorder=4)
-        
-        # Horizontal separation line at 0
-        ax.axhline(0, color='black', linewidth=1.2, alpha=0.9, zorder=3)
-
-        # Left Axis Styling
-        ax.set_ylabel("Annual Financial Impact (M€)", fontsize=12, weight='bold')
-        ax.grid(axis='y', linestyle='--', alpha=0.5)
-        ax.grid(axis='x', linestyle='--', alpha=0.3)
-        ax.set_title("Carbon Tax and Avoided Costs Balance", fontsize=15, weight='bold')
-        ax.tick_params(axis='y', labelsize=10)
-        
-        # ── RIGHT AXIS : Avoided Costs ──
-        # We create a twin axis for symmetry and labels
-        ax_right = ax.twinx()
-        ax_right.set_ylabel("Avoided Costs (M€)", fontsize=12, weight='bold', color='#2ca02c')
-        ax_right.tick_params(axis='y', labelcolor='#2ca02c', labelsize=10)
-        
-        # Symmetrical limits to center the 0 line
-        y_max = df_plot['Tax_Cost_MEuros'].max()
-        y_min_abs = df_plot['Avoided_Cost_Total_MEuros'].max()
-        ylim_max = max(y_max, y_min_abs) * 1.25
-        if ylim_max == 0: ylim_max = 1
-        ax.set_ylim(-ylim_max, ylim_max)
-        ax_right.set_ylim(-ylim_max, ylim_max)
-        
-        # Right ticks showing absolute values for clarity
-        ax_right.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: f"{abs(x):.0f}"))
-
-        # ── Annotate tax prices ──
-        if 'Tax_Price' in df_plot.columns:
-            for i, year in enumerate(years):
-                if i % 5 == 0 or year == years[-1]:
-                    tax_price = df_plot['Tax_Price'].iloc[i]
-                    val = df_plot['Tax_Cost_MEuros'].iloc[i]
-                    ax.annotate(f"{tax_price:,.0f} €/t", xy=(year, val), xytext=(0, 12), 
-                                    textcoords="offset points", ha='center', va='bottom', fontsize=9, weight='bold', color='#d62728',
-                                    arrowprops=dict(arrowstyle='-', color='#d62728', lw=0.8, alpha=0.6))
-        
-        ax.set_title("CARBON TAX AND AVOIDED COSTS BALANCE", fontsize=16, weight='bold', pad=25)
-        ax.set_ylabel("Annual Financial Impact (M€)", fontsize=12, weight='semibold')
-        ax.set_xlabel("Year", fontsize=12, weight='semibold')
-        ax.set_xticks(years)
-        ax.set_xticklabels([str(y) for y in years], rotation=45, ha='right')
-        
-        self._apply_premium_style(ax)
-        
-        for spine in ax_right.spines.values():
-            spine.set_visible(False)
-            
-        # Symmetrical limits to center the 0 line
-        y_max = df_plot['Tax_Cost_MEuros'].max()
-        y_min_abs = df_plot['Avoided_Cost_Total_MEuros'].max()
-        ylim_max = max(y_max, y_min_abs) * 1.25
-        if ylim_max == 0: ylim_max = 1
-        ax.set_ylim(-ylim_max, ylim_max)
-        ax_right.set_ylim(-ylim_max, ylim_max)
-        
-        # Combined Legend
-        lines_1, labels_1 = ax.get_legend_handles_labels()
-        ax.legend(lines_1, labels_1, loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=12, frameon=True)
-        
-        plt.tight_layout()
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Carbon_Tax_And_Avoided.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data
-        self.charts_data.append(("Carbon Tax and Avoided Costs Balance", df_plot))
+        # Store Data for Excel
+        self.charts_data.append(("Carbon Tax and Penalties Balance", df_plot))
 
     def _plot_carbon_prices(self):
-        """Generates a stunning visualization of carbon price trajectory and penalty factors."""
+        """Generates a stunning Plotly visualization of carbon price trajectory and policy factors."""
         years = self.years
         carbon_prices = [self.data.time_series.carbon_prices.get(y, 0.0) for y in years]
         penalties = [self.data.time_series.carbon_penalties.get(y, 0.0) for y in years]
         effective_prices = [p * (1.0 + x) for p, x in zip(carbon_prices, penalties)]
 
-        # Premium Dark Theme
-        fig, ax = plt.subplots(figsize=(12, 9), facecolor='#0D0D14')
-        ax.set_facecolor('#0D0D14')
-
-        # Glowy colors
-        base_color = '#00CCFF'  # Cyan
-        penalty_color = '#FF007F' # Neon Pink
-        effective_color = '#CCFF00' # Lime
-
-        # Plot Base Carbon Price with glow
-        for alpha, lw in zip([0.05, 0.1, 0.2, 0.4], [15, 10, 6, 2]):
-            ax.plot(years, carbon_prices, color=base_color, alpha=alpha, linewidth=lw, zorder=3)
-        ax.plot(years, carbon_prices, color=base_color, linewidth=2, label='Market Carbon Price', zorder=4)
-
-        # If penalties exist, plot them too
-        if any(x > 0 for x in penalties):
-            # Plot Effective Price (with penalty)
-            for alpha, lw in zip([0.05, 0.1, 0.2, 0.4], [15, 10, 6, 2]):
-                ax.plot(years, effective_prices, color=effective_color, alpha=alpha, linewidth=lw, zorder=5)
-            ax.plot(years, effective_prices, color=effective_color, linestyle='--', linewidth=2, 
-                    label='Penalty', zorder=6)
-            
-            # Fill the penalty gap
-            ax.fill_between(years, carbon_prices, effective_prices, color=penalty_color, alpha=0.15, 
-                            label='Penalty Gap', hatch='//', zorder=2)
-
-        # --- NEW: Plot Carbon Strike Prices for active CCfD contracts ---
-        strike_color = '#FFD700' # Gold/Yellow neon
-        if hasattr(self.opt, 'ccfd_used_vars'):
-            strike_plotted = False
+        # --- Extract Carbon Strike Prices for active CCfD contracts ---
+        strike_prices = []
+        if hasattr(self.opt, "ccfd_used_vars"):
             for (t_inv, p_id, t_id), var in self.opt.ccfd_used_vars.items():
                 if var.varValue and var.varValue > 0.5:
                     tech = self.data.technologies[t_id]
@@ -2282,62 +2241,38 @@ class PathFinderReporter:
                     # Plot horizontal line across the contract period
                     contract_years = [y for y in years if start_yr <= y < end_yr]
                     if contract_years:
-                        label = 'Contractual Strike' if not strike_plotted else None
-                        ax.hlines(y=strike_val, xmin=min(contract_years), xmax=max(contract_years), 
-                                  color=strike_color, linestyle='-.', linewidth=2.5, 
-                                  label=label, zorder=7)
-                        
-                        # Add small label above the line
-                        ax.text(min(contract_years), strike_val + 5, f"Strike: {tech.name}", 
-                                color=strike_color, fontsize=8, weight='bold', alpha=0.9)
-                        strike_plotted = True
+                        strike_prices.append({
+                            'name': tech.name or t_id,
+                            'val': strike_val,
+                            'years': contract_years
+                        })
 
-        # Styling
-        ax.set_title("CARBON QUOTA PRICE TRAJECTORY", color='white', fontsize=18, weight='bold', pad=30)
-        ax.set_ylabel("Euro (€) / tCO2", color='white', fontsize=12, labelpad=15)
-        ax.set_xlabel("Year", color='white', fontsize=12, labelpad=15)
+        # Build Plotly Figure (Shared Module)
+        fig = build_carbon_price_figure(
+            years=years,
+            market_prices=carbon_prices,
+            effective_prices=effective_prices,
+            penalties=penalties,
+            strike_prices=strike_prices,
+            title="CARBON PRICE & POLICY TRAJECTORY"
+        )
+
+        # Finalize and Save (PNG + JSON)
+        self._save_plotly_figure(fig, "Carbon_Prices")
         
-        self._apply_premium_style(ax, is_dark=True)
+        # Store Data
+        # For Excel, we'll store a simplified strike price (max across active contracts if many)
+        simplified_strikes = []
+        for y in years:
+            active_at_y = [s['val'] for s in strike_prices if y in s['years']]
+            simplified_strikes.append(max(active_at_y) if active_at_y else 0.0)
 
-        # Annotations for start/end and every 5 years
-        for i, y in enumerate(years):
-            if i == 0 or i == len(years) - 1 or y % 5 == 0:
-                p = carbon_prices[i]
-                ep = effective_prices[i]
-                
-                # Base price annotation
-                ax.annotate(f"{p:.1f} €", xy=(y, p), xytext=(0, 12), textcoords="offset points",
-                             color=base_color, weight='bold', ha='center', fontsize=9,
-                             bbox=dict(boxstyle='round,pad=0.2', fc='#0D0D14', ec=base_color, alpha=0.7, lw=0.5))
-                
-                # Effective price annotation (only if different)
-                if ep > p + 0.01:
-                    ax.annotate(f"{ep:.1f} €", xy=(y, ep), xytext=(0, 20), textcoords="offset points",
-                                 color=effective_color, weight='bold', ha='center', fontsize=9,
-                                 bbox=dict(boxstyle='round,pad=0.2', fc='#0D0D14', ec=effective_color, alpha=0.7, lw=0.5))
-
-        # Legend
-        leg = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), facecolor='#0D0D14', 
-                        edgecolor='#2B2B36', labelcolor='white', fontsize=14, ncol=3)
-        if leg:
-            for text in leg.get_texts():
-                text.set_weight("bold")
-
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.22)
-        self._add_watermark(fig, is_dark_bg=True)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Carbon_Prices_Detailed.png'), dpi=300, 
-                    bbox_inches='tight', facecolor='#0D0D14')
-        plt.close()
-        
-        # Store data
         df_cp = pd.DataFrame({
             'Year': years,
             'Market_Price': carbon_prices,
             'Effective_Price': effective_prices,
-            'Penalty_Factor': penalties
+            'Penalty_Factor': penalties,
+            'Strike_Price': simplified_strikes
         }).set_index('Year')
         self.charts_data.append(("Carbon Price & Policy Trajectory", df_cp))
 

@@ -65,6 +65,8 @@ class SensitivityParams:
     Paramètres d'analyse de sensibilité extraits du bloc SENSITIVITY du fichier Excel.
     Utilisés par le script run_sensitivity.py pour piloter les simulations OAT.
     """
+    # Indique si l'analyse de sensibilité doit être exécutée (RUN: YES/NO)
+    run: bool = False
     # Liste des amplitudes de variation (ex: [0.05, 0.10, 0.25, 0.50, 1.00])
     variations: List[float] = field(default_factory=list)
     # Direction des variations : 'P' (positif), 'N' (négatif), ou 'ALL' (les deux)
@@ -109,6 +111,7 @@ class Resource:
     type: str  # Consommation/Émission/Production
     unit: str
     name: str = ""  # Human-readable display name (e.g. "Fuel Gas" vs id "EN_FUEL")
+    category: str = "Other"
 
 @dataclass
 class Technology:

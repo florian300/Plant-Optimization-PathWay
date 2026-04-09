@@ -476,13 +476,21 @@ def main():
     try:
         sens_params = _parser_probe.parse_sensitivity()
         active_targets = [k for k, v in sens_params.targets.items() if v]
-        if active_targets and sens_params.variations and sens_params.scenarios:
-            console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations)...[/bold magenta]")
-            sens_results = run_sensitivity(file_path, verbose=False)
-            if sens_results:
-                console.print(f"[bold green][OK][/bold green] Sensitivity analysis complete: {len(sens_results)} simulations.")
+        
+        # We only run if RUN was YES AND we have variations, scenarios and targets
+        if sens_params.run:
+            if active_targets and sens_params.variations and sens_params.scenarios:
+                console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations)...[/bold magenta]")
+                sens_results = run_sensitivity(file_path, verbose=False)
+                if sens_results:
+                    console.print(f"[bold green][OK][/bold green] Sensitivity analysis complete: {len(sens_results)} simulations.")
+                else:
+                    console.print("[yellow][WARN][/yellow] Sensitivity analysis returned no results.")
             else:
-                console.print("[yellow][WARN][/yellow] Sensitivity analysis returned no results.")
+                console.print("[yellow][INFO][/yellow] Sensitivity analysis was requested (RUN YES) but missing variations, targets or scenarios. Skipping.")
+        else:
+            # RUN was NO or missing (default False)
+            pass 
     except Exception as e:
         console.print(f"[bold red][ERROR][/bold red] Sensitivity analysis failed: {e}")
 

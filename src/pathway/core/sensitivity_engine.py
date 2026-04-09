@@ -109,13 +109,28 @@ def _extract_kpis(optimizer: PathFinderOptimizer) -> Dict[str, Any]:
     massive_penalty = getattr(opt, 'massive_penalty_cost', 1e9)
     for idx, obj in enumerate(opt.data.objectives):
         if obj.penalty_type == "NONE": continue
+        
+        is_realistic = (obj.penalty_type == "PENALTIES")
+        
         p_var = opt.penalty_vars.get(idx)
         if p_var is not None and float(getattr(p_var, 'varValue', 0.0) or 0.0) > 1e-6:
-            penalty_cost += float(p_var.varValue) * massive_penalty
+            p_cost = massive_penalty
+            if is_realistic:
+                t_target = min(opt.years[-1], max(opt.years[0], obj.target_year))
+                c_price = opt.data.time_series.carbon_prices.get(t_target, 0.0)
+                p_fact = opt.data.time_series.carbon_penalties.get(t_target, 0.0)
+                p_cost = c_price * (1.0 + p_fact)
+            penalty_cost += float(p_var.varValue) * p_cost
+            
         for t in opt.years:
             pt_var = opt.penalty_vars.get((idx, t))
             if pt_var is not None and float(getattr(pt_var, 'varValue', 0.0) or 0.0) > 1e-6:
-                penalty_cost += float(pt_var.varValue) * massive_penalty
+                p_cost = massive_penalty
+                if is_realistic:
+                    c_price = opt.data.time_series.carbon_prices.get(t, 0.0)
+                    p_fact = opt.data.time_series.carbon_penalties.get(t, 0.0)
+                    p_cost = c_price * (1.0 + p_fact)
+                penalty_cost += float(pt_var.varValue) * p_cost
 
     baseline_cost = _calculate_baseline_reference(opt)
     real_cost = objective_val - penalty_cost

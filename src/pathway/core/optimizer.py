@@ -1233,15 +1233,35 @@ class PathFinderOptimizer:
         for idx, obj in enumerate(self.data.objectives):
             if obj.penalty_type == "NONE":
                 continue
+            
+            is_realistic = (obj.penalty_type == "PENALTIES")
                 
             # Handle both scalar and time-indexed penalty variables
             if idx in self.penalty_vars:
-                total_cost.append(self.penalty_vars[idx] * self.massive_penalty_cost)
+                # Use target year price if realistic, else massive penalty
+                p_cost = self.massive_penalty_cost
+                if is_realistic:
+                    t_target = obj.target_year
+                    # Clamp target year to simulation range
+                    if t_target not in self.years:
+                        t_target = min(self.years[-1], max(self.years[0], t_target))
+                    
+                    c_price = self.data.time_series.carbon_prices.get(t_target, 0.0)
+                    p_fact = self.data.time_series.carbon_penalties.get(t_target, 0.0)
+                    p_cost = c_price * (1.0 + p_fact)
+                
+                total_cost.append(self.penalty_vars[idx] * p_cost)
             
-            # Check for (idx, t) keys
+            # Check for (idx, t) keys (usually for LINEAR objectives)
             for t in self.years:
                 if (idx, t) in self.penalty_vars:
-                    total_cost.append(self.penalty_vars[(idx, t)] * self.massive_penalty_cost)
+                    p_cost = self.massive_penalty_cost
+                    if is_realistic:
+                        c_price = self.data.time_series.carbon_prices.get(t, 0.0)
+                        p_fact = self.data.time_series.carbon_penalties.get(t, 0.0)
+                        p_cost = c_price * (1.0 + p_fact)
+                    
+                    total_cost.append(self.penalty_vars[(idx, t)] * p_cost)
             
         self.model += pulp.lpSum(total_cost), "Total_Cost_Objective"
 

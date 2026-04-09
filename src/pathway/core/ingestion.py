@@ -319,11 +319,18 @@ class PathFinderParser:
                         res_name = str(row.get('NAME', '')).strip()
                         if not res_name or res_name.lower() == 'nan':
                             raise ValueError(f"Resource '{res_id}' is missing NAME in DATA block")
+                        
+                        # Extract CATEGORY (optional, fallback to 'Other')
+                        category = str(row.get('CATEGORY', 'Other')).strip()
+                        if not category or category.lower() == 'nan':
+                            category = 'Other'
+
                         resources_dict[res_id] = Resource(
                             id=res_id,
                             type=str(row['TYPE']),
                             unit=str(row['UNIT']),
-                            name=res_name
+                            name=res_name,
+                            category=category
                         )
 
         # Parse UNIT CONVERSIONS block in OverView
@@ -432,6 +439,10 @@ class PathFinderParser:
                         penalty = str(row.get('PENALTY', 'AT ALL COST')).strip().upper()
                         if not penalty or penalty == 'NAN':
                             penalty = 'AT ALL COST'
+                        
+                        # Support for realistic carbon price penalties (with French misspelling support)
+                        if penalty in ['PENALTIES', 'PENALITIES']:
+                            penalty = 'PENALTIES'
 
                         objectives_list.append(Objective(
                             entity=ent,
@@ -1620,6 +1631,7 @@ class PathFinderParser:
             INDI    → nom d'un indicateur à surveiller
         """
         variations: List[float] = []
+        run: bool = False
         direction: str = "ALL"
         scenarios: List[str] = []
         time_limit: int = 10
@@ -1649,8 +1661,16 @@ class PathFinderParser:
 
             tag = vals_upper[0]
 
+            # ── Commande de lancement (RUN YES/NO) ──────────────────────────
+            if tag == 'RUN':
+                for token in raw_vals[1:]:
+                    val = token.strip().upper()
+                    if val in ('YES', 'NO'):
+                        run = (val == 'YES')
+                        break
+
             # ── Amplitudes de variation ────────────────────────────────────
-            if tag == 'VAR':
+            elif tag == 'VAR':
                 for token in raw_vals[1:]:
                     token_clean = token.replace('%', '').strip()
                     try:
@@ -1707,6 +1727,7 @@ class PathFinderParser:
                         indicators.append(indi_name)
 
         return SensitivityParams(
+            run=run,
             variations=variations,
             direction=direction,
             scenarios=scenarios,
