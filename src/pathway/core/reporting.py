@@ -16,6 +16,7 @@ from .plots.carbon_tax import build_carbon_tax_figure
 from pathway.core.plots.financial import build_transition_cost_figure
 from pathway.core.plots.carbon import build_carbon_price_figure
 from pathway.core.plots.energy_mix import build_energy_mix_figure
+from pathway.core.plots.investment import build_investment_plan_figure
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -1414,62 +1415,9 @@ class PathFinderReporter:
         # Save results
         self._save_plotly_figure(fig, "Energy_Mix")
         
-        # Restore the High-Fidelity Transition Cost Data for the Dashboard
-        self._calculate_transition_cost_high_fidelity(df_finance, df_costs, df_emis)
-        
         # Store for Excel
         self.charts_data.append(("Energy Mix Breakdown by Category", df_plot))
 
-    def _calculate_transition_cost_high_fidelity(self, df_finance, df_costs, df_emis):
-        """Generates the SOLE source of truth for the Transition Cost chart."""
-        try:
-            years = self.years
-            n_yrs = len(years)
-            
-            # 1. Efforts
-            # CAPEX and Loan Service
-            capex_self = df_finance['Out_of_Pocket_CAPEX (M€)'].values
-            loan_service = df_finance['Total_Annuity (M€)'].values
-            
-            # OPEX (Tech + DAC)
-            opex_cols = [c for c in df_costs.columns if c == 'Total_OPEX' or c == 'opex_cost_meuros' or c == 'DAC_Opex']
-            opex_val = df_costs[opex_cols].sum(axis=1).values / 1_000_000.0 if opex_cols else np.zeros(n_yrs)
-            
-            # Credits
-            cred_cols = [c for c in df_costs.columns if c == 'Credit_Cost' or c == 'carbon_credit_cost']
-            cred_val = df_costs[cred_cols].sum(axis=1).values / 1_000_000.0 if cred_cols else np.zeros(n_yrs)
-            
-            # Carbon Tax
-            tax_val = df_emis['Tax_Cost_MEuros'].values
-            
-            # 2. Savings
-            # Aids (Grants & CCfD)
-            aid_cols = [c for c in df_costs.columns if str(c).startswith("Aid_")]
-            aids_val = df_costs[aid_cols].sum(axis=1).values / 1_000_000.0 if aid_cols else np.zeros(n_yrs)
-            
-            # CCfD Refund (already in M€)
-            ccfd_val = df_emis['CCfD_Refund_MEuros'].values
-            total_aids = aids_val + ccfd_val
-            
-            # Construct DataFrame
-            df_hf = pd.DataFrame({
-                "Year": years,
-                "Effort: Self-funded CAPEX": capex_self,
-                "Effort: Bank Loan Service": loan_service,
-                "Effort: Tech & DAC OPEX": opex_val,
-                "Effort: Voluntary Credits": cred_val,
-                "Effort: Carbon Tax (Actual)": tax_val,
-                "Saving: Public Aids": (-total_aids)
-                # Note: Avoided Resources and Tax Offset are filled by the dashboard script by comparing workbooks
-            })
-            
-            self.charts_data.append(("TRANSITION_COST_HIGH_FIDELITY", df_hf))
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"  [yellow][Reporter][/yellow] [!] Could not calculate high-fidelity transition cost: {e}")
-
-        
     def _plot_co2_trajectory(self, df: pd.DataFrame):
         """Conversion fidèle du graphique CO2 Trajectory en Plotly Python."""
         # --- 1. Préparation des données (Identique au Matplotlib original) ---
@@ -1694,197 +1642,45 @@ class PathFinderReporter:
         self.charts_data.append(("Indirect Emissions Breakdown by Category (Scope 2 & 3)", cat_df))
         
     def _plot_investment_costs(self, df: pd.DataFrame, df_finance: pd.DataFrame = None):
-        """Plot the Investment Plan, focusing on Implementation Costs (M€) and budget limits."""
-        # --- Charting Data (Use Granular Projects) ---
-        df_plot_raw = self.df_projects.copy()
-        
-        # We look for CAPEX columns (raw names from df_projects, not ending in ##tCO2 or _labels or _is_new)
+        """Plot the Investment Plan, focusing on Implementation Costs (M€) and budget limits using Plotly."""
+        # 1. Prepare Data using the high-fidelity builder
+        fig = build_investment_plan_figure(
+            df_projects=self.df_projects,
+            df_costs=self.df_costs,
+            years=list(self.years),
+            is_dark_bg=False,
+            title=f"INVESTMENT PLAN: {self.scenario_name}"
+        )
+
+        # 2. Add Scenario Label (Parity with other Plotly charts)
+        palette_label = {'BS': '#1A5276', 'CT': '#1E8449', 'LCB': '#6E2F7C'}
+        label_color = palette_label.get(self.scenario_id.upper(), '#333333')
+        fig.add_annotation(
+            xref="paper", yref="paper", x=1.0, y=1.05,
+            text=f" <b>{self.scenario_name}</b> ",
+            showarrow=False, font=dict(color="white", size=12),
+            bgcolor=label_color, borderpad=4, borderwidth=0
+        )
+
+        # 3. Save Results (PNG + JSON)
+        self._save_plotly_figure(fig, "Investment_Plan_Costs")
+
+        # 4. Store data for Excel (with marker for high-fidelity dashboard loading)
         excluded_suffixes = ('##tCO2', '_labels', '_is_new', 'Financing Interests', 'Year', 'Yearly_Total')
-        capex_cols = [c for c in df_plot_raw.columns if not any(c.endswith(s) for s in excluded_suffixes) and c != 'Year']
+        capex_cols = [c for c in self.df_projects.columns if not any(c.endswith(s) for s in excluded_suffixes) and c != 'Year']
+        df_plot = self.df_projects[['Year'] + capex_cols].copy()
         
-        df_plot = df_plot_raw[['Year'] + capex_cols].set_index('Year')
-        # Convert to Millions of Euros (M€)
-        df_plot = df_plot / 1_000_000.0
-        
-        # Rename columns for internal logic (already using raw IDs here)
-        
-        # Load metadata
-        process_labels = {} 
-        for col in df_plot_raw.columns:
+        # Add labels to the exported dataframe for hover parity in dashboard (if needed)
+        for col in self.df_projects.columns:
             if col.endswith('_labels'):
-                p_key = col[:-7]
-                process_labels[p_key] = df_plot_raw.set_index('Year')[col].to_dict()
+                df_plot[col] = self.df_projects[col]
 
-        # Filter out purely zero columns (threshold in M€)
-        df_bars = df_plot.loc[:, (df_plot.sum(axis=0) > 1e-6)]
+        # Use a distinct marker in the Charts sheet
+        self.charts_data.append(("INVESTMENT_PLAN_HIGH_FIDELITY", df_plot))
         
-        years = list(df_plot.index)
-        n_years = len(years)
-        x_idx = np.arange(n_years)
-        
-        # Layout
-        fig, ax_main = plt.subplots(figsize=(12, 9))
-        fig.set_facecolor('#FBFBFB')
-        ax_main.set_facecolor('#FBFBFB')
-        
-        custom_handles = []
-        custom_labels = []
-
-        if not df_bars.empty:
-            # Corporate palette for processes
-            proc_palette = [
-                '#004B87', '#007AA5', '#0095A8', '#00A69C', '#24A148',
-                '#63BA3C', '#BFD02C', '#FADA00', '#F8B400', '#F08000'
-            ]
-            
-            # Bright / contrasting palette for borders (Technologies)
-            tech_palette = [
-                '#D0021B', '#F5A623', '#F8E71C', '#8B572A', '#BD10E0',
-                '#9013FE', '#4A90E2', '#E24A8D', '#00FF00', '#FF00FF'
-            ]
-            
-            # Map processes to colors
-            proc_ids = sorted(list({col.split('##')[0] for col in df_bars.columns if '##' in col}))
-            proc_to_color = {pid: proc_palette[i % len(proc_palette)] for i, pid in enumerate(proc_ids)}
-            
-            # Map technologies to borders
-            tech_ids = sorted(list({col.split('##')[1] if '##' in col else col.split('##')[0] for col in df_bars.columns if '##' in col}))
-            tech_to_edge_color = {tid: tech_palette[i % len(tech_palette)] for i, tid in enumerate(tech_ids)}
-
-            colors_for_text = []
-
-            # Shadows
-            df_plot['Yearly_Total'] = df_bars.sum(axis=1)
-            max_h_shadow = df_plot['Yearly_Total'].max()
-            for xi, total in enumerate(df_plot['Yearly_Total']):
-                if total > 0:
-                    shadow = plt.Rectangle((xi - 0.48, -max_h_shadow*0.005), 0.96, total,
-                                         color='black', alpha=0.03, zorder=1)
-                    ax_main.add_patch(shadow)
-
-            # Build Custom Legend handles
-            import matplotlib.patches as mpatches
-            
-            # Header entry for the legend explanation
-            custom_handles.append(mpatches.Patch(color='none'))
-            custom_labels.append("Investment Plan (Implementation Costs)")
-            
-            for pid in proc_ids:
-                if pid == 'INDIRECT':
-                    proc_name = "Indirect Tech (DAC/Credits)"
-                elif hasattr(self.opt, 'entity') and hasattr(self.opt.entity, 'processes') and pid in self.opt.entity.processes:
-                    proc_name = getattr(self.opt.entity.processes[pid], 'name', pid)
-                else:
-                    proc_name = pid
-                custom_handles.append(mpatches.Patch(facecolor=proc_to_color[pid], edgecolor='none'))
-                custom_labels.append(f"Process: {proc_name}")
-                
-            for tid in tech_ids:
-                tech_name = self.data.technologies[tid].name if tid in self.data.technologies else tid
-                custom_handles.append(mpatches.Patch(facecolor='none', edgecolor=tech_to_edge_color[tid], linewidth=3.0))
-                custom_labels.append(f"Tech: {tech_name}")
-
-            # Bar plot
-            bottoms = np.zeros(n_years)
-            for i, col in enumerate(df_bars.columns):
-                parts = col.split('##')
-                pid = parts[0]
-                tid = parts[1] if len(parts) > 1 else pid
-                fill_color = proc_to_color[pid]
-                edge_color = tech_to_edge_color[tid]
-                
-                colors_for_text.append(fill_color)
-                
-                vals = df_bars[col].values
-                edge_colors = [edge_color if v > 1e-4 else 'none' for v in vals]
-                
-                ax_main.bar(x_idx, df_bars[col], bottom=bottoms, color=fill_color,
-                               alpha=0.92, width=0.92, edgecolor=edge_colors, linewidth=2.0, zorder=3)
-                bottoms += df_bars[col].values
-
-            # Unit Labels
-            cumul_bott = np.zeros(n_years)
-            for i, col in enumerate(df_bars.columns):
-                vals = df_bars[col].values
-                for xi, val in enumerate(vals):
-                    yr = years[xi]
-                    y_bot = cumul_bott[xi]
-                    y_mid = y_bot + val / 2.0
-                    
-                    if val > 1e-4:
-                        label = process_labels.get(col, {}).get(yr, "")
-                        if label:
-                            import matplotlib.colors as mcolors
-                            c = colors_for_text[i]
-                            lumi = 0.299 * mcolors.to_rgb(c)[0] + 0.587 * mcolors.to_rgb(c)[1] + 0.114 * mcolors.to_rgb(c)[2]
-                            text_color = 'white' if lumi < 0.6 else '#333333'
-                            
-                            bbox_props = None
-                            if "DAC" in label.upper() or "CREDIT" in label.upper() or "INDIRECT" in label.upper():
-                                bbox_props = dict(facecolor='black', alpha=0.85, edgecolor='none', boxstyle='round,pad=0.2')
-                                text_color = 'white'
-                            
-                            ax_main.text(xi, y_mid, label, ha='center', va='center', 
-                                         fontsize=8, color=text_color, weight='bold', zorder=25,
-                                         bbox=bbox_props)
-                    cumul_bott[xi] += val
-
-            # --- Investment Limits ---
-            # Extract limits from df (converted to M€)
-            if 'Budget_Limit' in self.df_costs.columns:
-                budget_lim = self.df_costs.set_index('Year')['Budget_Limit'] / 1_000_000.0
-                total_lim = self.df_costs.set_index('Year')['Total_Limit'] / 1_000_000.0
-                
-                # Plot Budget Limit (Cash Propre)
-                ax_main.step(x_idx, budget_lim, where='mid', color='#2ECC71', linestyle='--', linewidth=2.5, 
-                             label='Self-funded Limit (Own Cash)', zorder=10)
-                custom_handles.append(plt.Line2D([0], [0], color='#2ECC71', linestyle='--', linewidth=2.5))
-                custom_labels.append('Self-funded Limit (Own Cash)')
-                
-                # Plot Total Limit (Loans included)
-                ax_main.step(x_idx, total_lim, where='mid', color='#E74C3C', linestyle='-.', linewidth=2.5, 
-                             label='Total Investment Limit (Incl. Loans)', zorder=11)
-                custom_handles.append(plt.Line2D([0], [0], color='#E74C3C', linestyle='-.', linewidth=2.5))
-                custom_labels.append('Total Investment Limit (Incl. Loans)')
-
-        # ── Main axis labels & grid ──────────────────────────────────────────────
-        ax_main.set_title('Investment Plan: Implementation Costs (M€)', 
-                         fontsize=16, weight='bold', pad=30, color='#1A1A1A')
-        ax_main.set_ylabel('Annual Implementation Cost (M€)', fontsize=12, weight='semibold', color='#333333')
-        
-        ax_main.grid(axis='y', color='#E0E0E0', linestyle='-', linewidth=0.5, alpha=0.8, zorder=0)
-        for spine in ['top', 'right']:
-            ax_main.spines[spine].set_visible(False)
-        for spine in ['left', 'bottom']:
-            ax_main.spines[spine].set_color('#CCCCCC')
-            ax_main.spines[spine].set_linewidth(0.8)
-        
-        # Show years per 5-year steps
-        ticks_5yr = [xi for xi, y in enumerate(years) if y % 5 == 0]
-        ax_main.set_xticks(ticks_5yr)
-        ax_main.set_xticklabels([str(years[xi]) for xi in ticks_5yr], rotation=0, ha='center', fontsize=11, color='#444444', weight='semibold')
-        ax_main.set_xlim(-0.5, n_years - 0.5)
-        
-        # Legend with description
-        explanation = "This chart displays the annual implementation costs (CAPEX) for new projects, compared against investment limits."
-        
-        leg = ax_main.legend(custom_handles, custom_labels,
-                       loc='upper center', bbox_to_anchor=(0.5, -0.18), 
-                       ncol=min(3, len(custom_labels)), 
-                       fontsize=12, frameon=True, title=explanation, title_fontsize=11)
-        
-        self._apply_premium_style(ax_main)
-        
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.28) # Make room for the large legend
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Investment_Plan_Costs.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data for Excel
-        self.charts_data.append(("Investment Plan: Implementation Costs", df_plot))
+        # Only divide numeric CAPEX columns for the summary table
+        df_summary = df_plot.set_index('Year')[capex_cols] / 1_000_000.0
+        self.charts_data.append(("Investment Plan: Implementation Costs", df_summary))
 
     def _plot_external_financing(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame):
         """Standardizes the Public Aids chart to include private bank loans (Financing)."""

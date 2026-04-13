@@ -3,6 +3,16 @@ import glob
 import json
 import pandas as pd
 from datetime import datetime
+import sys
+from pathlib import Path
+
+# Ensure we can import from src/
+repo_root = str(Path(__file__).resolve().parent)
+src_path = os.path.join(repo_root, "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from pathway.core.plots.financial import build_transition_cost_figure
 
 # --- HTML TEMPLATE ---
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -305,26 +315,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 }, {responsive: true});
 
             } else if (type === 'transition') {
-                if (!data.transition) return showNoData();
-                const colors = ['#1D4ED8', '#2C3E50', '#6D28D9', '#9D174D', '#16A34A'];
-                
-                const traces = [
-                    { x: data.transition.time, y: data.transition.self_funded_capex, name: 'Self-Funded CAPEX', type: 'bar', marker: {color: colors[0]} },
-                    { x: data.transition.time, y: data.transition.bank_loan_service, name: 'Loan Service', type: 'bar', marker: {color: colors[1]} },
-                    { x: data.transition.time, y: data.transition.tech_dac_opex, name: 'OPEX', type: 'bar', marker: {color: colors[2]} },
-                    { x: data.transition.time, y: data.transition.additional_resource_cost, name: 'Add. Resources', type: 'bar', marker: {color: '#8B5CF6'} },
-                    { x: data.transition.time, y: data.transition.voluntary_carbon_credits, name: 'Credits', type: 'bar', marker: {color: colors[3]} },
-                    { x: data.transition.time, y: data.transition.annual_avoided_tax, name: 'Tax Savings', type: 'bar', marker: {color: '#16A085'} },
-                    { x: data.transition.time, y: data.transition.avoided_resource_saving, name: 'Resource Savings', type: 'bar', marker: {color: '#10B981'} },
-                    { x: data.transition.time, y: data.transition.cumulative_net_cost, name: 'Cumulative Balance', line: {color: '#FF4D4D', width: 4}, mode: 'lines+markers', type: 'scatter' }
-                ];
-                
-                Plotly.newPlot('plotlyChart', traces, {
+                if (!data.transition_fig) return showNoData();
+                const fig = data.transition_fig;
+                Plotly.newPlot('plotlyChart', fig.data, {
                     ...layout,
-                    title: 'Ecological Transition Costs',
-                    barmode: 'relative',
-                    yaxis: { ...layout.yaxis, title: 'Amount (M€)' },
-                    shapes: [{ type: 'line', x0: data.transition.time[0], x1: data.transition.time[data.transition.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.4)', width: 1} }]
+                    ...fig.layout,
+                    margin: { t: 60, b: 80, l: 60, r: 60 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    xaxis: { ...layout.xaxis, ...fig.layout.xaxis },
+                    yaxis: { ...layout.yaxis, ...fig.layout.yaxis },
+                    yaxis2: { ...fig.layout.yaxis2, overlaying: 'y', side: 'right', showgrid: false },
+                    legend: { ...fig.layout.legend, orientation: "h", yanchor: "top", y: -0.2, xanchor: "center", x: 0.5 }
                 }, {responsive: true});
                 
             } else if (type === 'financial') {
@@ -471,27 +473,39 @@ def parse_excel_scenarios(data_dir: str) -> dict:
             if 'Charts' in dfs:
                 df_charts = dfs['Charts']
                 try:
-                    trans_idx = df_charts[df_charts.iloc[:, 0].str.contains("Ecological Transition", na=False)].index
-                    if not trans_idx.empty:
-                        idx = trans_idx[0]
+                    if "TRANSITION_COST_HIGH_FIDELITY" in str(df_charts.columns[0]):
+                        idx = -1
+                    else:
+                        trans_idx = df_charts[df_charts.iloc[:, 0].astype(str).str.contains("TRANSITION_COST_HIGH_FIDELITY", na=False)].index
+                        idx = trans_idx[0] if not trans_idx.empty else None
+                        
+                    if idx is not None:
                         header = df_charts.iloc[idx+1].tolist()
                         df_trans_raw = df_charts.iloc[idx+2:].copy()
                         end_idx = df_trans_raw[df_trans_raw.iloc[:, 0].isna()].index
                         if not end_idx.empty: df_trans_raw = df_trans_raw.loc[:end_idx[0]-1]
                         df_trans_raw.columns = header
-                        df_trans_raw = df_trans_raw.set_index(header[0])
-                        s_data["transition"] = {
-                            "time": [int(float(y)) for y in df_trans_raw.index],
-                            "self_funded_capex": pd.to_numeric(df_trans_raw.get('Self-funded CAPEX', 0), errors='coerce').fillna(0.0).tolist(),
-                            "bank_loan_service": pd.to_numeric(df_trans_raw.get('Bank Loan Service', 0), errors='coerce').fillna(0.0).tolist(),
-                            "tech_dac_opex": pd.to_numeric(df_trans_raw.get('Tech & DAC OPEX', 0), errors='coerce').fillna(0.0).tolist(),
-                            "additional_resource_cost": pd.to_numeric(df_trans_raw.get('Additional Resource Cost', 0), errors='coerce').fillna(0.0).tolist(),
-                            "avoided_resource_saving": pd.to_numeric(df_trans_raw.get('Avoided Resource Saving', 0), errors='coerce').fillna(0.0).tolist(),
-                            "voluntary_carbon_credits": pd.to_numeric(df_trans_raw.get('Voluntary Carbon Credits', 0), errors='coerce').fillna(0.0).tolist(),
-                            "annual_avoided_tax": pd.to_numeric(df_trans_raw.get('Avoided Carbon Tax', 0), errors='coerce').fillna(0.0).tolist(),
-                            "cumulative_net_cost": pd.to_numeric(df_trans_raw.get('Net Transition Balance (Cumulative)', 0), errors='coerce').fillna(0.0).tolist()
-                        }
-                except: pass
+                        
+                        year_col = next((c for c in df_trans_raw.columns if "year" in str(c).lower() or "index" in str(c).lower()), df_trans_raw.columns[1] if len(df_trans_raw.columns)>1 else df_trans_raw.columns[0])
+                        years = [int(float(y)) for y in df_trans_raw[year_col].dropna()]
+                        
+                        all_cols = [str(c) for c in df_trans_raw.columns if c != year_col and not str(c).startswith("Unnamed:")]
+                        pos_cols = [c for c in all_cols if c.startswith("Effort:")]
+                        neg_cols = [c for c in all_cols if c.startswith("Saving:")]
+                        
+                        for c in (pos_cols + neg_cols):
+                            df_trans_raw[c] = pd.to_numeric(df_trans_raw[c], errors="coerce").fillna(0.0)
+                        
+                        fig = build_transition_cost_figure(
+                            df_annual=df_trans_raw,
+                            years=years,
+                            pos_cols=pos_cols,
+                            neg_cols=neg_cols,
+                            is_dark_bg=True,
+                            title="ECOLOGICAL TRANSITION COSTS"
+                        )
+                        s_data["transition_fig"] = json.loads(fig.to_json())
+                except Exception as e: print(f"  [DEBUG] Failed to parse transition_fig for {scenario_name}: {e}")
 
             master_data["data"][scenario_name] = s_data
         except Exception as e: print(f"Error reading {file_path}: {e}")
@@ -620,13 +634,7 @@ def main():
     dashboard_dict = parse_excel_scenarios(RESULTS_DIR)
     json_string = json.dumps(dashboard_dict)
     
-    try:
-        with open("dashboard.html", "r", encoding="utf-8") as f:
-            html = f.read()
-    except:
-        html = "<html><body><script>const scenarioData = {{INJECTED_JSON_HERE}};</script></body></html>"
-        
-    html = html.replace('{{INJECTED_JSON_HERE}}', json_string)
+    html = HTML_TEMPLATE.replace('{{INJECTED_JSON_HERE}}', json_string)
     with open("dashboard.html", "w", encoding="utf-8") as f:
         f.write(html)
     print("[OK] Dashboard generated successfully: dashboard.html")

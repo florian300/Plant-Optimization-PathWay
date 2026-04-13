@@ -73,16 +73,23 @@ def build_transition_cost_figure(
         yaxis='y2', hovertemplate="<b>Cumulative Balance</b><br>Year: %{x}<br>Value: %{y:.2f} M€<extra></extra>"
     ))
 
-    # 5. Layout (Clear Style)
+    # 5. Layout (Dynamic Style based on mode)
+    bg_color = 'rgba(0,0,0,0)' if is_dark_bg else 'white'
+    text_color = '#EEEEEE' if is_dark_bg else '#2c3e50'
+    grid_color = '#2B2B36' if is_dark_bg else '#eeeeee'
+    zeroline_color = '#555555' if is_dark_bg else 'black'
+    legend_border = '#333333' if is_dark_bg else '#e0e0e0'
+    template = 'plotly_dark' if is_dark_bg else 'plotly_white'
+
     fig.update_layout(
-        template='plotly_white',
-        paper_bgcolor='white', plot_bgcolor='white',
-        title=dict(text=title, font=dict(size=20, weight='bold', color='#2c3e50')),
-        xaxis=dict(title='Year', gridcolor='#eeeeee', tickmode='linear'),
-        yaxis=dict(title='Annual Impact (M€)', gridcolor='#eeeeee', zeroline=True, zerolinecolor='black', zerolinewidth=1.5),
+        template=template,
+        paper_bgcolor=bg_color, plot_bgcolor=bg_color,
+        title=dict(text=title, font=dict(size=20, weight='bold', color=text_color)),
+        xaxis=dict(title='Year', gridcolor=grid_color, tickmode='linear', color=text_color),
+        yaxis=dict(title='Annual Impact (M€)', gridcolor=grid_color, zeroline=True, zerolinecolor=zeroline_color, zerolinewidth=1.5, color=text_color),
         yaxis2=dict(title=dict(text='Cumulative Net Balance (M€)', font=dict(color=glow_color)), 
                     overlaying='y', side='right', showgrid=False, tickfont=dict(color=glow_color)),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor="#e0e0e0", borderwidth=1),
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=legend_border, borderwidth=1, font=dict(color=text_color)),
         margin=dict(l=60, r=60, t=100, b=120),
     )
 

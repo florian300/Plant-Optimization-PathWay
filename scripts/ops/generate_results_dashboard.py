@@ -26,6 +26,7 @@ from pathway.core.plots.financial import build_transition_cost_figure
 from pathway.core.plots.carbon import build_carbon_price_figure
 from pathway.core.plots.carbon_tax import build_carbon_tax_figure
 from pathway.core.plots.energy_mix import build_energy_mix_figure
+from pathway.core.plots.investment import build_investment_plan_figure
 
 
 DEFAULT_DISCOUNT_RATE = 0.08
@@ -1062,8 +1063,25 @@ def build_indirect_emissions_graph(df_indir: pd.DataFrame) -> Tuple[Dict[str, An
     return {"data": traces, "layout": layout}, description
 
 
-def build_investment_plan_graph(df_investments: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
+def build_investment_plan_graph(df_investments: pd.DataFrame, df_costs: pd.DataFrame = None, df_hf_invest: pd.DataFrame = None) -> Tuple[Dict[str, Any], str]:
     title = "INVESTMENT PLAN"
+    
+    # CASE 1: High-fidelity data available from Excel export
+    if df_hf_invest is not None and not df_hf_invest.empty and "Year" in df_hf_invest.columns:
+        years = year_axis(df_hf_invest["Year"])
+        
+        # Exact matching based on existing Plotly module logic
+        fig = build_investment_plan_figure(
+            df_projects=df_hf_invest,
+            df_costs=df_costs,
+            years=years,
+            is_dark_bg=False,
+            title="INVESTMENT PLAN: Implementation Costs (M€)"
+        )
+        description = "This graph uses high-fidelity CAPEX data exported directly from the optimizer for perfect consistency with the PDF report."
+        return fig_to_dict(fig), description
+
+    # CASE 2: Fallback to basic Investments sheet aggregation
     required_cols = {"Year", "Technology", "Capex_Euros"}
     if df_investments.empty or not required_cols.issubset(set(df_investments.columns)):
         return (
@@ -1096,14 +1114,7 @@ def build_investment_plan_graph(df_investments: pd.DataFrame) -> Tuple[Dict[str,
 
     pivot, tech_cols = split_major_minor(pivot, tech_cols, MAX_STACK_SERIES, "Other_Technologies")
     palette = [
-        "#1D4ED8",
-        "#2563EB",
-        "#0EA5E9",
-        "#10B981",
-        "#22C55E",
-        "#4F46E5",
-        "#EA580C",
-        "#475569",
+        "#1D4ED8", "#2563EB", "#0EA5E9", "#10B981", "#22C55E", "#4F46E5", "#EA580C", "#475569",
     ]
 
     traces = []
@@ -1121,7 +1132,8 @@ def build_investment_plan_graph(df_investments: pd.DataFrame) -> Tuple[Dict[str,
 
     layout = base_layout(title, "CAPEX (MEUR)", years, barmode="stack")
     description = (
-        "CAPEX from Investments is aggregated by Year and Technology (sum of Capex_Euros) and rendered as stacked bars in MEUR."
+        "Reconstructed from raw Investments sheet. aggregation by Year and Technology (sum of Capex_Euros). "
+        "For best results, re-run the simulation to export high-fidelity investment data."
     )
     return {"data": traces, "layout": layout}, description
 
@@ -1350,40 +1362,14 @@ def build_transition_cost_graph(
         for c in (pos_cols + neg_cols):
              df_hf_transition[c] = pd.to_numeric(df_hf_transition[c], errors="coerce").fillna(0.0)
         
-        # Enrich high-fidelity data with BAU deltas if missing
-        if "Saving: Baseline Tax Offset" not in df_hf_transition.columns and bau_tax_costs:
-            df_hf_transition["Saving: Baseline Tax Offset"] = [-(bau_tax_costs.get(y, 0.0)) for y in years]
-            if "Saving: Baseline Tax Offset" not in neg_cols: neg_cols.append("Saving: Baseline Tax Offset")
-
-        if "Saving: Avoided Resources" not in df_hf_transition.columns and df_energy is not None and df_data_used is not None and bau_res_costs is not None:
-            actual_res = _calculate_resource_costs(df_energy, df_data_used)
-            res_avoid = [0.0] * len(years)
-            for i, a_cost in enumerate(actual_res):
-                if i < len(years):
-                    b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
-                    delta = a_cost - b_cost
-                    if delta < -1e-4: res_avoid[i] = delta
-            df_hf_transition["Saving: Avoided Resources"] = res_avoid
-            if "Saving: Avoided Resources" not in neg_cols: neg_cols.append("Saving: Avoided Resources")
-            
-        # Also check for Effort: Additional Resources if missing
-        if "Effort: Additional Resources" not in df_hf_transition.columns and df_energy is not None and df_data_used is not None and bau_res_costs is not None:
-             actual_res = _calculate_resource_costs(df_energy, df_data_used)
-             res_add = [0.0] * len(years)
-             for i, a_cost in enumerate(actual_res):
-                 if i < len(years):
-                     b_cost = bau_res_costs[i] if i < len(bau_res_costs) else bau_res_costs[-1]
-                     delta = a_cost - b_cost
-                     if delta > 1e-4: res_add[i] = delta
-             df_hf_transition["Effort: Additional Resources"] = res_add
-             if "Effort: Additional Resources" not in pos_cols: pos_cols.append("Effort: Additional Resources")
+        # High-fidelity data is used exactly as exported to maintain full parity with the static PNG report.
 
         fig = build_transition_cost_figure(
             df_annual=df_hf_transition,
             years=years,
             pos_cols=pos_cols,
             neg_cols=neg_cols,
-            title=title
+            title="ECOLOGICAL TRANSITION: ANNUAL EFFORTS & SAVINGS"
         )
         description = "This graph uses high-fidelity data exported directly from the optimizer for perfect consistency."
         return fig_to_dict(fig), description
@@ -1465,11 +1451,11 @@ def build_transition_cost_graph(
         "Effort: Bank Loan Service": interest_effort.tolist(),
         "Effort: Tech & DAC OPEX": opex_effort.tolist(),
         "Effort: Voluntary Credits": credits_effort.tolist(),
-        "Effort: Additional Resources": res_add.tolist(),
+        "Effort: Additional Resource Cost": res_add.tolist(),
         "Effort: Carbon Tax (Actual)": tax_actual.tolist(),
         "Saving: Public Aids": (-aids_saving).tolist(),
-        "Saving: Baseline Tax Offset": tax_offset.tolist(),
-        "Saving: Avoided Resources": res_avoid.tolist()
+        "Saving: Baseline Carbon Tax Offset": tax_offset.tolist(),
+        "Saving: Avoided Resource Saving": res_avoid.tolist()
     })
     
     all_cols = [c for c in df_annual.columns if c != "Year"]
@@ -1806,6 +1792,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         df_transition_balance = load_transition_balance_table(workbook)
         df_data_used = load_sheet(workbook, "Data_Used")
         df_hf_transition = load_high_fidelity_table(workbook, "TRANSITION_COST_HIGH_FIDELITY")
+        df_hf_invest = load_high_fidelity_table(workbook, "INVESTMENT_PLAN_HIGH_FIDELITY")
         df_metadata = load_sheet(workbook, "Resource_Metadata")
 
         carbon_price_fig, carbon_price_desc = build_carbon_price_graph(df_co2)
@@ -1814,7 +1801,7 @@ def build_dashboard_data(workbooks: Dict[str, Path], discount_rate: float) -> Di
         energy_mix_fig, energy_mix_desc = build_energy_mix_full_graph(df_energy, df_metadata)
         ext_finance_fig, ext_finance_desc = build_external_financing_graph(df_financing, df_costs)
         indirect_fig, indirect_desc = build_indirect_emissions_graph(df_indir)
-        invest_fig, invest_desc = build_investment_plan_graph(df_invest)
+        invest_fig, invest_desc = build_investment_plan_graph(df_invest, df_costs, df_hf_invest)
         resources_opex_fig, resources_opex_desc = build_resources_opex_graph(df_costs)
         data_used_fig, data_used_desc = build_data_used_graph(df_data_used)
         transition_fig, transition_desc = build_transition_cost_graph(

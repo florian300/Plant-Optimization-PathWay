@@ -9,58 +9,46 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-light: #F8FAFC;
-            --card-bg: #FFFFFF;
-            --accent-emerald: #10B981;
-            --accent-blue: #3B82F6;
-            --text-main: #1E293B;
-            --text-dim: #64748B;
-            --border-color: #E2E8F0;
+            --bg-dark: #0D0D14;
+            --card-bg: rgba(22, 22, 30, 0.7);
+            --accent-green: #00FF7F;
+            --accent-blue: #3498DB;
+            --accent-red: #E74C3C;
+            --text-main: #EEEEEE;
+            --text-dim: #94A3B8;
+            --grid-color: #2B2B36;
         }
         body { 
-            background-color: var(--bg-light); 
+            background-color: var(--bg-dark); 
             color: var(--text-main); 
             font-family: 'Inter', sans-serif;
-            background-image: radial-gradient(circle at top right, #F1F5F9 0%, #F8FAFC 100%);
+            background-image: radial-gradient(circle at 50% 50%, #161622 0%, #0D0D14 100%);
         }
         .glass-card {
             background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-        }
-        .premium-shadow {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
         }
         select, option {
-            background-color: white !important;
-            border-color: var(--border-color) !important;
-            color: var(--text-main) !important;
+            background-color: #1E293B !important;
+            border-color: #334155 !important;
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         
+        /* Premium Glow Effects */
+        .glow-text { text-shadow: 0 0 10px rgba(0, 255, 127, 0.3); }
         .btn-premium {
-            background: #FFFFFF;
-            border: 1px solid var(--border-color);
-            color: var(--text-main);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .btn-premium:hover {
-            border-color: var(--accent-emerald);
-            background: #F1F5F9;
+            border-color: var(--accent-green);
+            box-shadow: 0 0 15px rgba(0, 255, 127, 0.2);
             transform: translateY(-1px);
-        }
-        .data-card {
-            background: #FFFFFF;
-            border-radius: 1rem;
-            padding: 1.25rem;
-            border: 1px solid var(--border-color);
-            transition: all 0.3s ease;
-        }
-        .data-card:hover {
-            border-color: var(--accent-blue);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
         }
     </style>
 </head>
@@ -70,12 +58,12 @@
     <header class="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
             <div class="flex items-center gap-3 mb-2">
-                <div class="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg">
+                <div class="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)]">
                     <span class="text-white font-bold text-xl">P</span>
                 </div>
-                <h1 class="text-3xl font-extrabold tracking-tight text-slate-800">PathWay <span class="text-emerald-600">Intelligence</span></h1>
+                <h1 class="text-4xl font-bold tracking-tight text-white glow-text">PathWay <span class="text-emerald-400">Intelligence</span></h1>
             </div>
-            <p class="text-slate-500 font-medium" id="generationDate">Report generated on: {{GENERATION_DATE}}</p>
+            <p class="text-slate-400 font-medium" id="generationDate">Report generated on: {{GENERATION_DATE}}</p>
         </div>
         <div class="flex gap-3">
              <button onclick="downloadGraph()" class="btn-premium px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
@@ -94,17 +82,14 @@
                 
                 <div class="space-y-5">
                     <div>
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Scenario Analysis</label>
-                        <select id="scenarioSelect" class="w-full bg-white text-slate-800 rounded-xl p-3 border border-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500/20 transition duration-300">
+                        <label class="block text-sm font-semibold text-slate-300 mb-2">Scenario Analysis</label>
+                        <select id="scenarioSelect" class="w-full bg-slate-900 text-white rounded-xl p-3 border border-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/50 transition duration-300">
                         </select>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-bold text-slate-700 mb-2">Insight Category</label>
-                        <select id="graphSelect" class="w-full bg-white text-slate-800 rounded-xl p-3 border border-slate-200 shadow-sm outline-none focus:ring-2 focus:ring-blue-500/20 transition duration-300">
-                            <optgroup label="System Overview">
-                                <option value="simulation_details">Simulation Details</option>
-                            </optgroup>
+                        <label class="block text-sm font-semibold text-slate-300 mb-2">Insight Category</label>
+                        <select id="graphSelect" class="w-full bg-slate-900 text-white rounded-xl p-3 border border-slate-700 outline-none focus:ring-2 focus:ring-blue-500/50 transition duration-300">
                             <optgroup label="Core Trajectories">
                                 <option value="co2">CO2 Emissions & Targets</option>
                                 <option value="mac">Marginal Abatement Cost (MAC)</option>
@@ -125,12 +110,12 @@
             </div>
 
             <!-- Context Card -->
-            <div class="glass-card rounded-2xl p-6 border-l-4 border-l-emerald-500 shadow-sm">
-                <h3 class="text-sm font-bold text-emerald-600 mb-2 flex items-center gap-2">
+            <div class="glass-card rounded-2xl p-6 border-l-4 border-l-emerald-500">
+                <h3 class="text-sm font-bold text-emerald-400 mb-2 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     Methodology
                 </h3>
-                <p id="methodologyText" class="text-sm text-slate-600 leading-relaxed italic">
+                <p id="methodologyText" class="text-sm text-slate-400 leading-relaxed italic">
                     Loading methodology parameters...
                 </p>
             </div>
@@ -138,1837 +123,25 @@
 
         <!-- Main Chart Display -->
         <section class="col-span-12 lg:col-span-9 space-y-6">
-            <div class="glass-card rounded-[2rem] p-8 min-h-[700px] flex flex-col premium-shadow">
+            <div class="glass-card rounded-[2rem] p-8 min-h-[650px] flex flex-col">
                 <div class="flex items-center justify-between mb-8">
-                    <h2 id="graphTitle" class="text-2xl font-bold text-slate-800 tracking-tight">Strategy Overview</h2>
-                    <div class="flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full border border-slate-200">
-                        <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live Insight</span>
+                    <h2 id="graphTitle" class="text-2xl font-bold text-white tracking-tight">Strategy Overview</h2>
+                    <div class="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-full border border-white/5">
+                        <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Interactive Result</span>
                     </div>
                 </div>
                 
                 <div id="plotlyChart" class="flex-1 w-full"></div>
-                <div id="detailsContainer" class="hidden flex-1 w-full space-y-10 overflow-y-auto custom-scrollbar pr-2">
-                    <!-- Global Parameters -->
-                    <section>
-                        <h3 class="text-xl font-bold text-slate-800 mb-4">Global Simulation Parameters</h3>
-                        <div id="globalParamsGrid" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
-                    </section>
-
-                    <!-- Resource Prices -->
-                    <section>
-                        <h3 class="text-xl font-bold text-slate-800 mb-4">Resource Prices & CO2 Factors</h3>
-                        <div class="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
-                            <table class="w-full text-left text-sm border-collapse">
-                                <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                                    <tr>
-                                        <th class="px-6 py-4">Resource</th>
-                                        <th class="px-6 py-4">Price (€/unit)</th>
-                                        <th class="px-6 py-4">CO2 Intensity (t/unit)</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="resourcePriceBody" class="divide-y divide-slate-100 bg-white">
-                                    <tr class="hover:bg-slate-50/50 transition-colors">
-                                        <td class="px-6 py-4 font-medium text-slate-700">EN_ELEC</td>
-                                        <td class="px-6 py-4 text-slate-600">65.00</td>
-                                        <td class="px-6 py-4 text-slate-600">0.05</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-
-                    <!-- Technologies -->
-                    <section>
-                        <h3 class="text-xl font-bold text-slate-800 mb-4">Technology & Constraints</h3>
-                        <div id="techGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
-                    </section>
-                </div>
             </div>
         </section>
 
     </main>
 
     <script>
-        const dashboardData = {
-  "data": {
-    "BUSINESS AS USUAL": {
-      "co2": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "direct_emissions": [
-          2776920.0,
-          2763035.4,
-          2706744.8,
-          2601777.8,
-          2588768.9,
-          2575825.1,
-          2562946.0,
-          2550131.2,
-          2537380.6,
-          2524693.7,
-          2512070.2,
-          2499509.9,
-          2487012.3,
-          2474577.2,
-          2462204.4,
-          2449893.3,
-          2437643.9,
-          2425455.7,
-          2413328.4,
-          2401261.7,
-          1248755.5,
-          357908.59,
-          356119.05,
-          354338.46,
-          352566.76,
-          350803.93
-        ],
-        "net_direct_emissions": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "taxed_emissions": [
-          0.0,
-          69075.885,
-          135337.24,
-          260177.78,
-          582473.01,
-          1249275.2,
-          1563397.0,
-          1874346.5,
-          2182147.3,
-          2524693.7,
-          2512070.2,
-          2499509.9,
-          2487012.3,
-          2474577.2,
-          2462204.4,
-          2335593.3,
-          2323343.9,
-          2311155.7,
-          2299028.4,
-          2286961.7,
-          1134455.5,
-          243608.59,
-          241819.05,
-          240038.46,
-          238266.76,
-          236503.93
-        ],
-        "tax_cost": [
-          0.0,
-          5.5509381186,
-          11.8108809348,
-          24.5035433204,
-          58.88219658090001,
-          134.9217216,
-          177.2892198,
-          222.6723642,
-          271.02269466,
-          327.20030352,
-          339.129477,
-          350.93118996,
-          362.60639334,
-          374.15607264,
-          385.58120904,
-          378.3661145999999,
-          464.20411122,
-          549.13059432,
-          633.15242136,
-          716.2764044400001,
-          398.1938805,
-          88.576083324,
-          90.97232661,
-          93.326953248,
-          95.64027746400001,
-          97.91262702
-        ],
-        "dac": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3,
-          114.3
-        ],
-        "credits": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ]
-      },
-      "financial": {
-        "capex": 0.0,
-        "opex": 0.0,
-        "aids": 0.0,
-        "revenues": 0.0,
-        "npv": 0.0
-      },
-      "investment": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "capex_by_process_tech": {},
-        "budget_limit": [
-          82332088,
-          80240200,
-          80177824,
-          80226184,
-          81198896,
-          81233232,
-          82365024,
-          81856944,
-          81883576,
-          82959304,
-          83992984,
-          84374920,
-          85187144,
-          83776432,
-          83609648,
-          83879456,
-          84094600,
-          84531200,
-          83981072,
-          84300632,
-          84522088,
-          84570440,
-          85653880,
-          86737312,
-          87869104,
-          87862800
-        ],
-        "total_limit": [
-          123498132,
-          120360300,
-          120266736,
-          120339276,
-          121798344,
-          121849848,
-          123547536,
-          122785416,
-          122825364,
-          124438956,
-          125989476,
-          126562380,
-          127780716,
-          125664648,
-          125414472,
-          125819184,
-          126141900,
-          126796800,
-          125971608,
-          126450948,
-          126783132,
-          126855660,
-          128480820,
-          130105968,
-          131803656,
-          131794200
-        ]
-      },
-      "carbon_policy": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "tax_price": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "simulationDetails": {
-        "global": [
-          {
-            "Parameter": "Start Year",
-            "Value": 2025,
-            "Unit": "Year",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": "Horizon",
-            "Value": 25,
-            "Unit": "Years",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": "Time Limit",
-            "Value": 40,
-            "Unit": "Seconds",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": "MIP Gap",
-            "Value": "99.0",
-            "Unit": "%",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": "Discount Rate",
-            "Value": "6.0",
-            "Unit": "%",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": "Target Scenarios",
-            "Value": "BUSINESS AS USUAL",
-            "Unit": "Name",
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          },
-          {
-            "Parameter": NaN,
-            "Value": NaN,
-            "Unit": NaN,
-            "Unnamed: 3": NaN,
-            "Unnamed: 4": NaN,
-            "Unnamed: 5": NaN
-          }
-        ],
-        "resources": [
-          {
-            "Resource": "EN_GREEN_H2_C",
-            "Price": "30.50",
-            "CO2_Intensity": "0.000"
-          },
-          {
-            "Resource": "EN_GASO",
-            "Price": "92.00",
-            "CO2_Intensity": "nan"
-          },
-          {
-            "Resource": "EN_B_H2_C",
-            "Price": "35.90",
-            "CO2_Intensity": "0.000"
-          },
-          {
-            "Resource": "EN_DIE",
-            "Price": "164.00",
-            "CO2_Intensity": "nan"
-          },
-          {
-            "Resource": "EN_ELEC",
-            "Price": "156.87",
-            "CO2_Intensity": "0.016"
-          },
-          {
-            "Resource": "EN_LGP",
-            "Price": "105.00",
-            "CO2_Intensity": "nan"
-          },
-          {
-            "Resource": "EN_Y_H2_C",
-            "Price": "78.50",
-            "CO2_Intensity": "0.000"
-          },
-          {
-            "Resource": "EN_JET",
-            "Price": "118.00",
-            "CO2_Intensity": "nan"
-          },
-          {
-            "Resource": "EN_GREY_H2_C",
-            "Price": "12.50",
-            "CO2_Intensity": "0.001"
-          },
-          {
-            "Resource": "EN_FUEL",
-            "Price": "61.93",
-            "CO2_Intensity": "nan"
-          }
-        ],
-        "technologies": [
-          {
-            "ID": "CCS",
-            "Name": "CCS",
-            "CAPEX Baseline": 88,
-            "OPEX Baseline": 91.67,
-            "Implementation Time": 3,
-            "Impacts Count": 2
-          },
-          {
-            "ID": "ERH",
-            "Name": "ELECTRIVE RESISTIVE HEATERS",
-            "CAPEX Baseline": 1400000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 3
-          },
-          {
-            "ID": "PEM_H2",
-            "Name": "PEM ELECTROLYSER",
-            "CAPEX Baseline": 1104000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 5
-          },
-          {
-            "ID": "FUEL_TO_H2_Y",
-            "Name": "CHANGE FUEL FOR YELLOW H2",
-            "CAPEX Baseline": 341000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 3
-          },
-          {
-            "ID": "FUEL_TO_H2_B",
-            "Name": "CHANGE FUEL FOR BLUE H2",
-            "CAPEX Baseline": 341000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 3
-          },
-          {
-            "ID": "FUEL_TO_H2_GN",
-            "Name": "CHANGE FUEL FOR GREEN H2",
-            "CAPEX Baseline": 341000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 3
-          },
-          {
-            "ID": "FUEL_TO_H2_GY",
-            "Name": "CHANGE FUEL FOR GREY H2",
-            "CAPEX Baseline": 341000,
-            "OPEX Baseline": 0,
-            "Implementation Time": 2,
-            "Impacts Count": 3
-          }
-        ],
-        "constraints": [
-          {
-            "Constraint": "Self-Funding Limit (% of CA)",
-            "Value": "0.8",
-            "Type": "%",
-            "NaN": NaN
-          },
-          {
-            "Constraint": "Objective: French Target",
-            "Value": -0.97,
-            "Type": "CAP",
-            "NaN": NaN
-          },
-          {
-            "Constraint": "Objective: EU Target",
-            "Value": -0.9,
-            "Type": "CAP",
-            "NaN": NaN
-          },
-          {
-            "Constraint": "Objective: French Target",
-            "Value": -0.68,
-            "Type": "CAP",
-            "NaN": NaN
-          }
-        ]
-      }
-    },
-    "CLEAN TECH": {
-      "co2": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "direct_emissions": [
-          2776920.0,
-          2763035.4,
-          2664269.3,
-          1853269.1,
-          1393607.7,
-          960978.25,
-          908191.8,
-          903650.84,
-          824318.38,
-          820196.79,
-          696847.58,
-          619665.74,
-          616567.41,
-          613484.57,
-          365690.25,
-          363861.8,
-          362042.49,
-          360232.28,
-          358431.12,
-          356638.96,
-          354855.77,
-          353081.49,
-          351316.08,
-          349559.5,
-          347811.71,
-          346072.65
-        ],
-        "net_direct_emissions": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "taxed_emissions": [
-          0.0,
-          69075.885,
-          133213.47,
-          185326.91,
-          313561.74,
-          466074.45,
-          553997.0,
-          664183.37,
-          708913.81,
-          820196.79,
-          696847.58,
-          619665.74,
-          616567.41,
-          613484.57,
-          365690.25,
-          238640.92,
-          236821.61,
-          235011.4,
-          233210.24,
-          231418.08,
-          229634.89,
-          227860.61,
-          226095.2,
-          224338.62,
-          222590.82,
-          220851.76
-        ],
-        "tax_cost": [
-          0.0,
-          5.744350596599999,
-          12.3715349589,
-          19.0108344278,
-          35.20984778459999,
-          56.8610829,
-          70.9670157,
-          89.13340825399999,
-          99.46060754300001,
-          120.076810056,
-          106.26925595,
-          98.27898636399999,
-          101.548652427,
-          104.783164556,
-          64.690605225,
-          43.67128836,
-          53.450637377,
-          63.07705975999999,
-          72.55170566400001,
-          81.875716704,
-          91.05023388500001,
-          93.59009978773999,
-          96.08322495360001,
-          98.52997058124,
-          100.93069105752,
-          103.2857425992
-        ],
-        "dac": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088,
-          125.22088
-        ],
-        "credits": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          39.637816,
-          83.282589,
-          125.22088
-        ]
-      },
-      "financial": {
-        "capex": 0.0,
-        "opex": 0.0,
-        "aids": 0.0,
-        "revenues": 0.0,
-        "npv": 0.0
-      },
-      "investment": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "capex_by_process_tech": {},
-        "budget_limit": [
-          82332088.0,
-          79211424.0,
-          78551971.2,
-          78871536.0,
-          79191100.8,
-          80260520.0,
-          80308880.0,
-          79905216.0,
-          80758088.0,
-          81236736.0,
-          81444176.0,
-          81874464.0,
-          82151984.0,
-          81818400.0,
-          82095920.0,
-          82206640.0,
-          82470144.0,
-          82580872.0,
-          83288680.0,
-          82467344.0,
-          82786904.0,
-          83056712.0,
-          84244568.0,
-          84564136.0,
-          84612488.0,
-          84994424.0
-        ],
-        "total_limit": [
-          123498132.0,
-          118817136.0,
-          117827956.8,
-          118307304.0,
-          118786651.2,
-          120390780.0,
-          120463320.0,
-          119857824.0,
-          121137132.0,
-          121855104.0,
-          122166264.0,
-          122811696.0,
-          123227976.0,
-          122727600.0,
-          123143880.0,
-          123309960.0,
-          123705216.0,
-          123871308.0,
-          124933020.0,
-          123701016.0,
-          124180356.0,
-          124585068.0,
-          126366852.0,
-          126846204.0,
-          126918732.0,
-          127491636.0
-        ]
-      },
-      "carbon_policy": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "tax_price": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "simulationDetails": {
-        "global": [],
-        "resources": [],
-        "technologies": [],
-        "constraints": []
-      },
-      "transition": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "self_funded_capex": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "bank_loan_service": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "tech_dac_opex": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "voluntary_carbon_credits": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "annual_avoided_tax": [
-          0.0,
-          0.193412,
-          0.560654,
-          -5.492709,
-          -23.672349,
-          -78.060639,
-          -106.322204,
-          -133.538956,
-          -171.562087,
-          -207.123493,
-          -232.860221,
-          -252.652204,
-          -261.057741,
-          -269.372908,
-          -320.890604,
-          -334.694826,
-          -410.753474,
-          -486.053535,
-          -560.600716,
-          -634.400688,
-          -307.143647,
-          5.014016,
-          5.110898,
-          5.203017,
-          5.290414,
-          5.373116
-        ],
-        "additional_resource_cost": [
-          0,
-          119.539875,
-          226.116295,
-          328.439892,
-          490.599267,
-          434.902641,
-          576.998499,
-          560.684444,
-          469.895435,
-          541.334797,
-          666.818497,
-          671.529149,
-          733.40275,
-          593.837027,
-          585.742534,
-          600.584643,
-          586.587932,
-          619.439326,
-          454.383998,
-          589.252201,
-          323.736871,
-          100.826542,
-          84.017409,
-          175.78441,
-          307.536498,
-          255.367795
-        ],
-        "avoided_resource_saving": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        "cumulative_net_cost": [
-          0.0,
-          119.733287,
-          346.410236,
-          669.357419,
-          1136.284337,
-          1493.126339,
-          1963.802634,
-          2390.948122,
-          2689.28147,
-          3023.492774,
-          3457.45105,
-          3876.327995,
-          4348.673004,
-          4673.137123,
-          4937.989053,
-          5203.87887,
-          5379.713328,
-          5513.099119,
-          5406.882401,
-          5361.733914,
-          5378.327138,
-          5484.167696,
-          5573.296003,
-          5754.28343,
-          6067.110342,
-          6327.851253
-        ]
-      }
-    },
-    "LOW CARBON BREAK": {
-      "co2": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "direct_emissions": [
-          2776920.0,
-          2763035.4,
-          2664269.3,
-          1853269.1,
-          1427518.1,
-          1001767.1,
-          906689.66,
-          902156.21,
-          822831.22,
-          818717.07,
-          747950.78,
-          625559.04,
-          622431.25,
-          619319.09,
-          365690.25,
-          363861.8,
-          362042.49,
-          360232.28,
-          358431.12,
-          356638.96,
-          354855.77,
-          353081.49,
-          351316.08,
-          349559.5,
-          347811.71,
-          346072.65
-        ],
-        "net_direct_emissions": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "taxed_emissions": [
-          0.0,
-          69075.885,
-          133213.47,
-          185326.91,
-          321191.57,
-          485857.03,
-          553080.69,
-          663084.82,
-          707634.85,
-          818717.07,
-          747950.78,
-          625559.04,
-          622431.25,
-          619319.09,
-          365690.25,
-          269946.14,
-          268126.83,
-          266316.62,
-          264515.46,
-          262723.3,
-          260940.11,
-          259165.83,
-          257400.42,
-          255643.84,
-          253896.04,
-          252156.98
-        ],
-        "tax_cost": [
-          0.0,
-          5.9101327206,
-          13.0109596149,
-          20.3451881798,
-          39.15004046729999,
-          65.10484202,
-          77.818453083,
-          97.738702468,
-          109.046530385,
-          131.649704856,
-          125.28175565,
-          108.972384768,
-          112.597813125,
-          116.184261284,
-          71.05361557500001,
-          54.25917414,
-          66.46864115700001,
-          78.510139576,
-          90.38493268200001,
-          102.09427438,
-          113.639417905,
-          114.53419191522,
-          115.41011151456,
-          116.26732971968,
-          117.10599390544,
-          117.9262548366
-        ],
-        "dac": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663,
-          93.915663
-        ],
-        "credits": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          27.307047,
-          70.94303699999999,
-          78.263052,
-          78.263052
-        ]
-      },
-      "financial": {
-        "capex": 0.0,
-        "opex": 0.0,
-        "aids": 0.0,
-        "revenues": 0.0,
-        "npv": 0.0
-      },
-      "investment": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "capex_by_process_tech": {},
-        "budget_limit": [
-          82332088.0,
-          79211424.0,
-          78280761.60000001,
-          78551971.2,
-          78919891.2,
-          79559020.8,
-          79384521.60000001,
-          78938812.8,
-          79570233.60000001,
-          80368448.0,
-          80423104.0,
-          80575880.0,
-          80463752.0,
-          80144192.0,
-          80303272.0,
-          79871577.60000001,
-          80357936.0,
-          80135080.0,
-          79862467.2,
-          80292760.0,
-          80069904.0,
-          80771408.0,
-          81472904.0,
-          81896888.0,
-          82049664.0,
-          82751168.0
-        ],
-        "total_limit": [
-          123498132.0,
-          118817136.0,
-          117421142.4,
-          117827956.8,
-          118379836.8,
-          119338531.2,
-          119076782.4,
-          118408219.2,
-          119355350.4,
-          120552672.0,
-          120634656.0,
-          120863820.0,
-          120695628.0,
-          120216288.0,
-          120454908.0,
-          119807366.4,
-          120536904.0,
-          120202620.0,
-          119793700.8,
-          120439140.0,
-          120104856.0,
-          121157112.0,
-          122209356.0,
-          122845332.0,
-          123074496.0,
-          124126752.0
-        ]
-      },
-      "carbon_policy": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "tax_price": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "simulationDetails": {
-        "global": [],
-        "resources": [],
-        "technologies": [],
-        "constraints": []
-      },
-      "transition": {
-        "time": [
-          2025,
-          2026,
-          2027,
-          2028,
-          2029,
-          2030,
-          2031,
-          2032,
-          2033,
-          2034,
-          2035,
-          2036,
-          2037,
-          2038,
-          2039,
-          2040,
-          2041,
-          2042,
-          2043,
-          2044,
-          2045,
-          2046,
-          2047,
-          2048,
-          2049,
-          2050
-        ],
-        "self_funded_capex": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "bank_loan_service": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "tech_dac_opex": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "voluntary_carbon_credits": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "annual_avoided_tax": [
-          0.0,
-          0.359195,
-          1.200079,
-          -4.158355,
-          -19.732156,
-          -69.81688,
-          -99.470767,
-          -124.933662,
-          -161.976164,
-          -195.550599,
-          -213.847721,
-          -241.958805,
-          -250.00858,
-          -257.971811,
-          -314.527593,
-          -324.10694,
-          -397.73547,
-          -470.620455,
-          -542.767489,
-          -614.18213,
-          -284.554463,
-          25.958109,
-          24.437785,
-          22.940376,
-          21.465716,
-          20.013628
-        ],
-        "additional_resource_cost": [
-          0,
-          109.453628,
-          265.199538,
-          367.614457,
-          510.848414,
-          502.486042,
-          670.737495,
-          648.990615,
-          574.934541,
-          595.73325,
-          717.813758,
-          758.466877,
-          862.054214,
-          713.816436,
-          710.716859,
-          786.232177,
-          738.905394,
-          808.038514,
-          760.176656,
-          733.288853,
-          530.329594,
-          246.125816,
-          282.85588,
-          354.391336,
-          465.987356,
-          366.844296
-        ],
-        "avoided_resource_saving": [
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        "cumulative_net_cost": [
-          0.0,
-          109.812823,
-          376.21244,
-          739.668542,
-          1230.7848,
-          1663.453962,
-          2234.72069,
-          2758.777643,
-          3171.73602,
-          3571.918671,
-          4075.884708,
-          4592.39278,
-          5204.438414,
-          5660.283039,
-          6056.472305,
-          6518.597542,
-          6859.767466,
-          7197.185525,
-          7414.594692,
-          7533.701415,
-          7779.476546,
-          8051.560471,
-          8358.854136,
-          8736.185848,
-          9223.63892,
-          9610.496844
-        ]
-      }
-    }
-  }
-};
+        const dashboardData = {"data": {"BUSINESS AS USUAL": {"co2": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "direct_emissions": [2927336.5, 2912699.8, 2853360.1, 2644807.7, 2631583.6, 2618425.7, 2436690.3, 2190757.4, 1947222.9, 1706068.9, 1365910.8, 1219215.8, 842412.06, 838200.0, 834009.0, 829838.96, 825689.76, 821561.31, 817453.5, 813366.24, 379191.27, 377295.31, 375408.83, 373531.79, 371664.13, 369805.81], "net_direct_emissions": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "taxed_emissions": [0.0, 72817.495, 142668.01, 264480.77, 592106.32, 1269936.5, 1486381.1, 1610206.7, 1674611.7, 1706068.9, 1365910.8, 1219215.8, 842412.06, 838200.0, 834009.0, 563138.96, 558989.76, 554861.31, 550753.5, 546666.24, 112491.27, 110595.31, 108708.83, 106831.79, 104964.13, 103105.81], "tax_cost": [0.0, 5.8516138982, 21.9076466216664, 74.77063483471201, 182.79604142756, 342.671412816, 364.8419456472, 366.1167902832, 358.95320078832, 345.86914692096, 262.048965372, 234.47311909632, 124.7920952807664, 139.27116672, 202.255834248, 91.22851152, 111.686154048, 131.835047256, 151.6775139, 171.215866368, 39.48443577, 40.212454716, 40.896261846, 41.536199952, 42.13260178199999, 42.68580533999999], "dac": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7, 266.7], "credits": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 182.13896, 0.0, 0.0, 49.738505, 100.89624, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}, "financial": {"self_funded_capex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "loan_service": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 367136.9468, 1334318.212154267, 1294519.164684672, 1253737.080742579, 1211947.679327116, 1169126.079696692, 1125246.786555395, 1080283.674873509, 1034209.97433308, 2168100.827989303, 2085010.549618456, 1999867.941371849, 1912622.310701551, 1823221.712953697, 1731612.920441471, 1637741.390754193, 1541551.234283639, 1442985.180948263], "tech_dac_opex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001, 4224634.680000001], "credit_cost": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8888381.248, 0.0, 0.0, 2874885.589, 6134491.392, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}}, "CLEAN TECH": {"co2": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "direct_emissions": [2927336.5, 2912699.8, 2853360.1, 2644807.7, 2631583.6, 2618425.7, 2437187.4, 2191252.0, 1947715.0, 1027851.0, 985072.62, 902457.7, 820644.31, 816541.09, 689246.23, 685800.0, 682371.0, 678959.14, 383011.81, 381096.75, 379191.27, 377295.31, 375408.83, 373531.79, 371664.13, 369805.81], "net_direct_emissions": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "taxed_emissions": [0.0, 72817.495, 142668.01, 264480.77, 592106.32, 1269936.5, 1486684.3, 1610570.2, 1675034.9, 1027851.0, 985072.62, 902457.7, 820644.31, 816541.09, 689246.23, 533400.0, 529971.0, 526559.14, 230611.81, 228696.75, 226791.27, 224895.31, 223008.83, 221131.79, 219264.13, 217405.81], "tax_cost": [0.0, 6.055502884199999, 23.3134312106584, 81.439495873272, 203.04844684836, 387.091781144, 412.2617146283999, 413.7154263439999, 405.63745237808, 156.377044589952, 158.9546203158, 146.306497414896, 135.160117857, 148.594388836768, 141.089266925904, 97.6122, 119.6144547, 141.328473176, 71.74333409100001, 80.91291015, 89.922738555, 92.37215025753999, 94.77161646744, 97.12152443158001, 99.42225005068, 101.6741751627], "dac": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4, 152.4], "credits": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 152.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 49.71913, 103.10581]}, "financial": {"self_funded_capex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "loan_service": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 274108.9416, 0.0, 203929.61953, 401865.7780593447, 389730.8175713177, 705619.6385592364, 683228.4286316355, 660284.1558188228, 636773.1594675336, 1408034.557206368, 1359972.46476286, 1310723.238635998, 1260257.556623802, 1208545.372265905, 1155555.896954368, 1101257.581602636, 1045618.097861716, 988604.3188723959, 930182.2995420392, 870317.2563342226], "tech_dac_opex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76], "credit_cost": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 20579080.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7719060.662933333, 16239165.075]}, "transition": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "self_funded_capex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "bank_loan_service": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 274108.9416, 0.0, 203929.61953, 401865.7780593447, 389730.8175713177, 705619.6385592364, 683228.4286316355, 660284.1558188228, 636773.1594675336, 1408034.557206368, 1359972.46476286, 1310723.238635998, 1260257.556623802, 1208545.372265905, 1155555.896954368, 1101257.581602636, 1045618.097861716, 988604.3188723959, 930182.2995420392, 870317.2563342226], "tech_dac_opex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76, 430133.76], "voluntary_carbon_credits": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 20579080.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7719060.662933333, 16239165.075], "annual_avoided_tax": [0.0, 0.203889, 1.405785, 6.668861, 20.252405, 44.420368, 47.419769, 47.598636, 46.684252, -189.492102, -103.094345, -88.166622, 10.368023, 9.323222, -61.166567, 6.383688, 7.928301, 9.493426, -79.93418, -90.302956, 50.438303, 52.159696, 53.875355, 55.585324, 57.289648, 58.98837], "additional_resource_cost": [0, 126.014951, 140.409878, 93.973455, 170.043584, 23.756674, 161.569878, 142.289774, 27.737795, 244.140405, 283.608138, 259.80258, 261.458195, 117.200455, 82.702418, 101.294207, 92.860381, 133.76239, 27.717026, 175.455632, 67.344008, 34.875615, 17.865744, 115.307943, 254.895795, 200.595201], "avoided_resource_saving": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "cumulative_net_cost": [0.0, 126.21884, 268.034503, 368.676819, 558.972808, 627.14985, 274945.081097, 275134.969507, 479139.011084, 881059.437446, 1270970.768811, 1976762.043328, 2660262.298178, 3320672.977673, 3957467.672992, 26374823.668093, 28165030.681538, 29906030.93599, 31596370.03546, 33235134.320402, 34820941.759667, 36352420.136581, 37828243.735542, 39247152.707681, 48326841.615599, 65866717.290505]}}, "LOW CARBON BREAK": {"co2": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "direct_emissions": [2927336.5, 2912699.8, 2853360.1, 2644807.7, 2631583.6, 2618425.7, 2370409.5, 2053458.9, 1130210.3, 998220.0, 993228.9, 863183.79, 781566.76, 777658.93, 459657.73, 457359.44, 455072.64, 452797.28, 383011.81, 381096.75, 379191.27, 377295.31, 375408.83, 373531.79, 371664.13, 369805.81], "net_direct_emissions": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "taxed_emissions": [0.0, 72817.495, 142668.01, 264480.77, 592106.32, 1269936.5, 1445949.8, 1509292.3, 971980.82, 998220.0, 993228.9, 863183.79, 781566.76, 777658.93, 459657.73, 343059.44, 340772.64, 338497.28, 268711.81, 266796.75, 264891.27, 262995.31, 261108.83, 259231.79, 257364.13, 255505.81], "tax_cost": [0.0, 6.2302648722, 24.5183894297944, 87.15566247775199, 220.40765149476, 425.166382568, 434.3026183439999, 411.85783452352, 165.866207504728, 160.513776, 177.81367917, 150.366616218, 141.385426884, 145.9956991552035, 89.311496939, 68.95494744, 84.477537456, 99.788998144, 91.818825477, 103.67721705, 115.360148085, 116.22656932954, 117.07284388944, 117.89913655558, 118.70560186468, 148.7217305079408], "dac": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3, 114.3], "credits": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 34.441789, 87.81913, 95.25]}, "financial": {"self_funded_capex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "loan_service": [0.0, 0.0, 0.0, 0.0, 0.0, 289192.5968100001, 0.0, 0.0, 328323.515, 522603.7555565787, 506722.5759218585, 1327466.033950161, 1286190.833575868, 1243896.135752329, 1200556.75889255, 1339715.370354333, 1288813.537466979, 1236654.429307306, 1183206.99117609, 1128439.401323032, 1072319.052000604, 1014812.530049912, 955885.5970070378, 895503.1687180048, 833629.2944502325, 770227.1354880462], "tech_dac_opex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32], "credit_cost": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9146131.874913333, 24012091.98546667, 26793825.0]}, "transition": {"time": [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045, 2046, 2047, 2048, 2049, 2050], "self_funded_capex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "bank_loan_service": [0.0, 0.0, 0.0, 0.0, 0.0, 289192.5968100001, 0.0, 0.0, 328323.515, 522603.7555565787, 506722.5759218585, 1327466.033950161, 1286190.833575868, 1243896.135752329, 1200556.75889255, 1339715.370354333, 1288813.537466979, 1236654.429307306, 1183206.99117609, 1128439.401323032, 1072319.052000604, 1014812.530049912, 955885.5970070378, 895503.1687180048, 833629.2944502325, 770227.1354880462], "tech_dac_opex": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32, 322600.32], "voluntary_carbon_credits": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9146131.874913333, 24012091.98546667, 26793825.0], "annual_avoided_tax": [0.0, 0.378651, 2.610743, 12.385028, 37.61161, 82.49497, 69.460673, 45.741044, -193.086993, -185.355371, -84.235286, -84.106503, 16.593332, 6.724532, -112.944337, -22.273564, -27.208617, -32.046049, -59.858688, -67.538649, 75.875712, 76.014115, 76.176582, 76.362937, 76.573, 106.035925], "additional_resource_cost": [0, 115.382366, 168.299338, 119.338002, 179.916158, 81.300529, 257.080889, 251.520598, 297.743449, 295.82599, 337.534263, 352.275785, 397.487147, 244.624226, 254.594368, 337.452255, 293.670589, 372.608303, 340.993919, 318.418023, 276.452419, 179.789667, 219.634211, 296.160217, 414.907532, 311.491565], "avoided_resource_saving": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "cumulative_net_cost": [0.0, 115.761017, 286.671098, 418.394128, 635.921896, 289992.314205, 290318.855767, 290616.117409, 619044.288865, 1141758.515041, 1648734.389939, 2976468.593172, 4263073.507226, 5507220.991737, 6707919.40066, 8370550.269706, 9982230.589145, 11541825.900706, 13047914.347113, 14499204.94781, 15894476.647942, 17232145.301774, 18510927.029574, 28875534.916359, 54044347.996808, 81931417.979786]}}}};
 
         const methodologies = {
-            'simulation_details': "Detailed breakdown of the input configuration, technology specifications, and environmental constraints driving the simulation results.",
             'co2': "Comprehensive CO2 trajectory. Areas represent the gross emissions and the taxed/unquoted portions, while lines track the Net emissions after DAC/Credits sequestration.",
             'mac': "Marginal Abatement Cost curve identifying the most cost-effective technologies. Sorted from lowest to highest cost per abated ton of CO2.",
             'carbon_policy': "Trajectory of market carbon prices and the effective strike prices for any active Carbon Contract for Difference (CCfD).",
@@ -1979,240 +152,218 @@
             'power': "Grid interaction profile. Compares power consumption units against the volatile spot market prices."
         };
 
-        const theme = {
-            bg: '#F8FAFC',
-            grid: '#E2E8F0',
-            text: '#1E293B',
-            spine: '#475569',
+        // Layout Constants from Reporting.py
+        const darkTheme = {
+            bg: '#0D0D14',
+            grid: '#2B2B36',
+            text: '#FFFFFF',
+            spine: '#EEEEEE',
             palettes: {
-                standard: ['#2563EB', '#D97706', '#059669', '#7C3AED', '#DB2777', '#475569'],
-                neon: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'],
+                standard: ['#1A5276', '#E67E22', '#2980B9', '#8E44AD', '#16A085', '#D35400'],
+                neon: ['#00E5FF', '#FF007F', '#00FF7F', '#FFD700', '#9D00FF', '#FF00FF'],
                 co2: {
-                    direct: '#1E40AF',
-                    indirect: '#64748B',
-                    total: '#94A3B8',
-                    net: '#2563EB',
-                    free: 'rgba(16, 185, 129, 0.15)',
-                    taxed: 'rgba(239, 68, 68, 0.1)',
-                    dac: '#3B82F6',
-                    credits: '#10B981'
+                    direct: '#1B4965',
+                    indirect: '#A9A9A9',
+                    total: '#BEBEBE',
+                    net: '#3498DB',
+                    free: 'rgba(0, 255, 127, 0.2)',
+                    taxed: 'rgba(148, 163, 184, 0.3)',
+                    dac: '#3498DB',
+                    credits: '#27AE60'
                 }
             }
         };
 
         function updateDashboard() {
-            const scenarioId = document.getElementById('scenarioSelect').value;
-            const insightType = document.getElementById('graphSelect').value;
-            const data = dashboardData.data[scenarioId];
-            
-            // 1. Update Methodology Text
-            document.getElementById('methodologyText').innerText = methodologies[insightType] || "No description available.";
-            
-            // 2. Clear previous view
-            const plotlyEl = document.getElementById('plotlyChart');
-            const detailsEl = document.getElementById('detailsContainer');
-            
-            if (insightType === 'simulation_details') {
-                plotlyEl.style.display = 'none';
-                detailsEl.classList.remove('hidden');
-                renderSimulationDetails(data.simulationDetails);
-                document.getElementById('graphTitle').innerText = "Simulation Input Topology";
-            } else {
-                detailsEl.classList.add('hidden');
-                plotlyEl.style.display = 'block';
-                renderPlotlyChart(data[insightType], insightType);
-            }
-        }
+            const scenario = document.getElementById('scenarioSelect').value;
+            const type = document.getElementById('graphSelect').value;
+            if (!dashboardData.data[scenario]) return;
+            const data = dashboardData.data[scenario];
 
-        function renderSimulationDetails(details) {
-            if (!details) return;
-
-            // Render Global Params
-            const grid = document.getElementById('globalParamsGrid');
-            grid.innerHTML = '';
-            details.global.forEach(p => {
-                grid.innerHTML += `
-                    <div class="data-card">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">${p.Parameter}</p>
-                        <p class="text-xl font-bold text-slate-800">${p.Value}</p>
-                        <p class="text-xs font-medium text-slate-500 mt-1">${p.Unit}</p>
-                    </div>
-                `;
-            });
-
-            // Render Resource Prices
-            const tableBody = document.getElementById('resourcePriceBody');
-            tableBody.innerHTML = '';
-            details.resources.forEach(r => {
-                tableBody.innerHTML += `
-                    <tr class="hover:bg-slate-50/50 transition-colors">
-                        <td class="px-6 py-4 font-bold text-slate-700">${r.Resource}</td>
-                        <td class="px-6 py-4 text-emerald-600 font-semibold">${r.Price} €</td>
-                        <td class="px-6 py-4 text-slate-600">${r.CO2_Intensity} tCO2/u</td>
-                    </tr>
-                `;
-            });
-
-            // Render Tech & Constraints
-            const techGrid = document.getElementById('techGrid');
-            techGrid.innerHTML = `
-                <div class="data-card border-l-4 border-l-blue-500">
-                    <h4 class="text-sm font-bold text-blue-600 mb-4 uppercase tracking-wider">Active Technologies</h4>
-                    <div class="space-y-4">
-                        ${details.technologies.map(t => `
-                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                                <div>
-                                    <p class="text-sm font-bold text-slate-800">${t.Name}</p>
-                                    <p class="text-[10px] text-slate-500 uppercase">${t.ID}</p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-xs font-bold text-slate-700">${t['CAPEX Baseline']} M€</p>
-                                    <p class="text-[10px] text-slate-400">Base Capex</p>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="data-card border-l-4 border-l-amber-500">
-                    <h4 class="text-sm font-bold text-amber-600 mb-4 uppercase tracking-wider">Operational Constraints</h4>
-                    <div class="space-y-4">
-                        ${details.constraints.map(c => `
-                            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                                <p class="text-sm font-medium text-slate-700">${c.Constraint}</p>
-                                <div class="text-right">
-                                    <p class="text-sm font-bold text-slate-800">${c.Value}</p>
-                                    <p class="text-[10px] text-slate-400 uppercase">${c.Type || ''}</p>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderPlotlyChart(data, type) {
-            if (!data) return showNoData();
+            document.getElementById('methodologyText').textContent = methodologies[type] || "No methodology defined.";
+            document.getElementById('graphTitle').textContent = document.querySelector(`#graphSelect option[value="${type}"]`)?.textContent || "Chart";
 
             const layout = {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { family: 'Inter', color: theme.text },
+                font: { color: darkTheme.text, family: 'Inter, Arial, sans-serif' },
+                margin: { t: 20, b: 80, l: 60, r: 60 },
                 xaxis: { 
-                    gridcolor: theme.grid, color: theme.spine, 
-                    showline: true, linecolor: theme.grid,
+                    gridcolor: darkTheme.grid, 
+                    showline: true, linecolor: darkTheme.spine,
                     tickfont: { size: 10 }
                 },
                 yaxis: { 
-                    gridcolor: theme.grid, color: theme.spine, 
-                    showline: true, linecolor: theme.grid,
+                    gridcolor: darkTheme.grid, 
+                    showline: true, linecolor: darkTheme.spine,
                     tickfont: { size: 10 }
                 },
                 legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center', font: {size: 11} },
-                margin: { t: 40, r: 40, b: 80, l: 60 },
                 hovermode: 'x unified'
             };
 
-            let traces = [];
-            let specificLayout = {};
-
             if (type === 'co2') {
-                const c = theme.palettes.co2;
-                traces = [
-                    { x: data.time, y: data.dac.map(v => -v), name: 'DAC Captured', type: 'scatter', fill: 'tozeroy', fillcolor: 'rgba(59, 130, 246, 0.2)', line: {width:0}, stackgroup: 'sinks' },
-                    { x: data.time, y: data.credits.map(v => -v), name: 'Voluntary Credits', type: 'scatter', fill: 'tonexty', fillcolor: 'rgba(16, 185, 129, 0.2)', line: {width:0}, stackgroup: 'sinks' },
-                    { x: data.time, y: data.free_quotas_direct, name: 'Free Quotas', type: 'scatter', fill: 'tozeroy', fillcolor: c.free, line: {width:0} },
-                    { x: data.time, y: data.taxed_emissions, name: 'Taxed Emissions', type: 'scatter', fill: 'tonexty', fillcolor: c.taxed, line: {width:0} },
-                    { x: data.time, y: data.direct_emissions, name: 'Direct Emissions', line: {color: '#1E293B', width: 3} },
-                    { x: data.time, y: data.indirect_emissions, name: 'Indirect Emissions', line: {color: '#94A3B8', width: 2, dash: 'dot'} },
-                    { x: data.time, y: data.net_direct_emissions, name: 'Net Direct Emissions', line: {color: c.net, width: 3, dash: 'dashdot'} }
+                const c = darkTheme.palettes.co2;
+                const traces = [
+                    // Negative Sinks (DAC/Credits) - Plotted first to be at physical bottom
+                    { x: data.co2.time, y: data.co2.dac.map(v => -v), name: 'DAC Captured', type: 'scatter', fill: 'tozeroy', fillcolor: 'rgba(52, 152, 219, 0.4)', line: {width:0}, stackgroup: 'sinks' },
+                    { x: data.co2.time, y: data.co2.credits.map(v => -v), name: 'Voluntary Credits', type: 'scatter', fill: 'tonexty', fillcolor: 'rgba(39, 174, 96, 0.4)', line: {width:0}, stackgroup: 'sinks' },
+
+                    // Positive Emissions (Areas)
+                    { x: data.co2.time, y: data.co2.free_quotas_direct, name: 'Free Quotas', type: 'scatter', fill: 'tozeroy', fillcolor: c.free, line: {width:0} },
+                    { x: data.co2.time, y: data.co2.taxed_emissions, name: 'Taxed Emissions', type: 'scatter', fill: 'tonexty', fillcolor: c.taxed, line: {width:0} },
+                    
+                    // Main lines
+                    { x: data.co2.time, y: data.co2.direct_emissions, name: 'Direct Emissions', line: {color: '#FFFFFF', width: 3} },
+                    { x: data.co2.time, y: data.co2.indirect_emissions, name: 'Indirect Emissions', line: {color: '#888888', width: 2, dash: 'dot'} },
+                    { x: data.co2.time, y: data.co2.net_direct_emissions, name: 'Net Direct Emissions', line: {color: c.net, width: 3, dash: 'dashdot'} }
                 ];
-                const yMax = Math.max(...data.direct_emissions) * 1.2;
-                const yMin = Math.min(...data.dac.map(v => -v)) * 1.2;
-                specificLayout = {
-                    yaxis: { ...layout.yaxis, title: 'ktCO2', range: [yMin < -5 ? yMin : -5, yMax] },
-                    shapes: [{ type: 'line', x0: data.time[0], x1: data.time[data.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(0,0,0,0.2)', width: 1.5} }]
-                };
+
+                // Targets
+                if (data.co2.target_time && data.co2.target_time.length > 0) {
+                    traces.push({
+                        x: data.co2.target_time, y: data.co2.target_values,
+                        mode: 'markers', name: 'Goals',
+                        marker: { symbol: 'x', size: 14, color: '#FF0000', line: {width: 3} },
+                        text: data.co2.target_names
+                    });
+                }
+
+                const yMax = Math.max(...data.co2.direct_emissions, ...data.co2.taxed_emissions.map((v,i) => v + (data.co2.free_quotas_direct[i]||0))) * 1.25;
+                const yMin = Math.min(...data.co2.dac.map(v => -v), ...data.co2.credits.map(v => -v)) * 1.3;
+
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    yaxis: { ...layout.yaxis, title: 'ktCO2 (Carbon Balance)', range: [yMin < -5 ? yMin : -5, yMax] },
+                    shapes: [{ type: 'line', x0: data.co2.time[0], x1: data.co2.time[data.co2.time.length-1], y0: 0, y1: 0, line: {color: 'rgba(255,255,255,0.5)', width: 1.5, dash: 'solid'} }]
+                }, {responsive: true});
 
             } else if (type === 'mac') {
-                traces = [{
+                if (!data.mac) return showNoData();
+                const trace = {
                     type: 'bar', orientation: 'h',
-                    y: data.projects, x: data.mac_values,
+                    y: data.mac.projects, x: data.mac.mac_values,
                     marker: {
-                        color: data.mac_values.map(v => v < 50 ? '#10B981' : v < 150 ? '#F59E0B' : '#EF4444'),
+                        color: data.mac.mac_values.map(v => v < 50 ? '#27AE60' : v < 150 ? '#F1C40F' : '#E74C3C'),
                         line: { color: 'white', width: 0.5 }
                     },
-                    text: data.mac_values.map(v => v.toFixed(0) + ' €/t'),
+                    text: data.mac.mac_values.map(v => v.toFixed(0) + ' €/t'),
                     textposition: 'outside'
-                }];
-                specificLayout = { xaxis: { title: 'MAC (€/tCO2)' }, margin: { ...layout.margin, l: 200 } };
+                };
+                Plotly.newPlot('plotlyChart', [trace], {
+                    ...layout,
+                    xaxis: { ...layout.xaxis, title: 'MAC (€/tCO2)' },
+                    margin: { ...layout.margin, l: 200 }
+                }, {responsive: true});
 
             } else if (type === 'investment') {
-                const p = theme.palettes.standard;
-                let i = 0;
-                for (const [name, vals] of Object.entries(data.capex_by_process_tech)) {
-                    if (vals.some(v => v > 0)) {
-                        traces.push({
-                            x: data.time, y: vals.map(v => v/1e6),
-                            name: name.split('##')[0], type: 'bar',
-                            marker: { color: p[i % p.length] }
-                        });
-                        i++;
+                if (data.investment_fig) {
+                    const fig = data.investment_fig;
+                    Plotly.newPlot('plotlyChart', fig.data, {
+                        ...layout,
+                        ...fig.layout,
+                        margin: { t: 60, b: 80, l: 60, r: 60 },
+                        paper_bgcolor: 'rgba(0,0,0,0)',
+                        plot_bgcolor: 'rgba(0,0,0,0)',
+                        xaxis: { ...layout.xaxis, ...fig.layout.xaxis },
+                        yaxis: { ...layout.yaxis, ...fig.layout.yaxis },
+                        legend: { ...fig.layout.legend, orientation: "h", yanchor: "top", y: -0.2, xanchor: "center", x: 0.5 }
+                    }, {responsive: true});
+                } else {
+                    // Fallback to legacy logic if no new JSON found
+                    const traces = [];
+                    const p = darkTheme.palettes.standard;
+                    let i = 0;
+                    if (data.investment && data.investment.capex_by_process_tech) {
+                        for (const [name, vals] of Object.entries(data.investment.capex_by_process_tech)) {
+                            if (vals.some(v => v > 0)) {
+                                traces.push({
+                                    x: data.investment.time, y: vals.map(v => v/1e6),
+                                    name: name.split('##')[0], type: 'bar',
+                                    marker: { color: p[i % p.length] }
+                                });
+                                i++;
+                            }
+                        }
                     }
+                    if (data.investment && data.investment.budget_limit && data.investment.budget_limit.length > 0) {
+                        traces.push({
+                            x: data.investment.time, y: data.investment.budget_limit.map(v => v/1e6),
+                            name: 'Self-Funded Limit', mode: 'lines', line: {color: '#2ECC71', dash: 'dash', shape: 'hv', width: 3}
+                        });
+                        traces.push({
+                            x: data.investment.time, y: data.investment.total_limit.map(v => v/1e6),
+                            name: 'Total Limit', mode: 'lines', line: {color: '#E74C3C', dash: 'dot', shape: 'hv', width: 3}
+                        });
+                    }
+                    Plotly.newPlot('plotlyChart', traces, {
+                        ...layout,
+                        barmode: 'stack',
+                        yaxis: { ...layout.yaxis, title: 'CAPEX (M€)' }
+                    }, {responsive: true});
                 }
-                if (data.budget_limit && data.budget_limit.length > 0) {
-                    traces.push({ x: data.time, y: data.budget_limit.map(v => v/1e6), name: 'Self-Funded Limit', mode: 'lines', line: {color: '#10B981', dash: 'dash', shape: 'hv', width: 3} });
-                    traces.push({ x: data.time, y: data.total_limit.map(v => v/1e6), name: 'Total Limit', mode: 'lines', line: {color: '#EF4444', dash: 'dot', shape: 'hv', width: 3} });
-                }
-                specificLayout = { barmode: 'stack', yaxis: { title: 'CAPEX (M€)' } };
 
             } else if (type === 'carbon_policy') {
-                traces = [{ x: data.time, y: data.tax_price, name: 'Market Carbon Price', line: {color: '#3B82F6', width: 3} }];
-                specificLayout = { yaxis: { title: '€/tCO2' } };
+                if (!data.carbon_policy) return showNoData();
+                const traces = [
+                    { x: data.carbon_policy.time, y: data.carbon_policy.tax_price, name: 'Market Carbon Price', line: {color: '#00E5FF', width: 3} }
+                ];
+                Plotly.newPlot('plotlyChart', traces, {
+                    ...layout,
+                    yaxis: { ...layout.yaxis, title: '€/tCO2' }
+                }, {responsive: true});
 
             } else if (type === 'transition') {
-                const p = theme.palettes.standard;
-                traces = [
-                    { x: data.time, y: data.self_funded_capex, name: 'Self-Funded CAPEX', type: 'bar', marker: {color: '#1E40AF'} },
-                    { x: data.time, y: data.bank_loan_service, name: 'Loan Service', type: 'bar', marker: {color: '#334155'} },
-                    { x: data.time, y: data.tech_dac_opex, name: 'OPEX', type: 'bar', marker: {color: '#7C3AED'} },
-                    { x: data.time, y: data.additional_resource_cost, name: 'Add. Resources', type: 'bar', marker: {color: '#8B5CF6'} },
-                    { x: data.time, y: data.voluntary_carbon_credits, name: 'Credits', type: 'bar', marker: {color: '#DB2777'} },
-                    { x: data.time, y: data.annual_avoided_tax, name: 'Tax Savings', type: 'bar', marker: {color: '#059669'} },
-                    { x: data.time, y: data.avoided_resource_saving, name: 'Resource Savings', type: 'bar', marker: {color: '#10B981'} },
-                    { x: data.time, y: data.cumulative_net_cost, name: 'Cumulative Balance', line: {color: '#EF4444', width: 4}, mode: 'lines+markers', type: 'scatter' }
-                ];
-                specificLayout = { barmode: 'relative', yaxis: { title: 'Amount (M€)' } };
-
+                if (!data.transition_fig) return showNoData();
+                const fig = data.transition_fig;
+                Plotly.newPlot('plotlyChart', fig.data, {
+                    ...layout,
+                    ...fig.layout,
+                    margin: { t: 60, b: 80, l: 60, r: 60 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    xaxis: { ...layout.xaxis, ...fig.layout.xaxis },
+                    yaxis: { ...layout.yaxis, ...fig.layout.yaxis },
+                    yaxis2: { ...fig.layout.yaxis2, overlaying: 'y', side: 'right', showgrid: false },
+                    legend: { ...fig.layout.legend, orientation: "h", yanchor: "top", y: -0.2, xanchor: "center", x: 0.5 }
+                }, {responsive: true});
+                
             } else if (type === 'financial') {
-                traces = [{
-                    type: "waterfall", orientation: "v",
+                const trace = {
+                    type: "waterfall",
+                    orientation: "v",
                     measure: ["relative", "relative", "relative", "relative", "total"],
                     x: ["CAPEX", "OPEX", "Aids", "Revenues", "NPV"],
-                    y: [-data.capex, -data.opex, data.aids, data.revenues, data.npv],
-                    connector: { line: { color: "#E2E8F0" } },
-                    increasing: { marker: { color: "#10B981" } },
-                    decreasing: { marker: { color: "#EF4444" } },
-                    totals: { marker: { color: "#3B82F6" } }
-                }];
-                specificLayout = { yaxis: { title: 'Amount (M€)' } };
+                    y: [-data.financial.capex, -data.financial.opex, data.financial.aids, data.financial.revenues, data.financial.npv],
+                    connector: { line: { color: "rgb(63, 63, 63)" } },
+                    increasing: { marker: { color: "#27AE60" } },
+                    decreasing: { marker: { color: "#E74C3C" } },
+                    totals: { marker: { color: "#2980B9" } }
+                };
+                Plotly.newPlot('plotlyChart', [trace], { ...layout, yaxis: { ...layout.yaxis, title: 'Amount (M€)' } }, {responsive: true});
 
             } else if (type === 'hydrogen') {
-                traces = [
-                    { x: data.time, y: data.production, name: 'H2 Produced', line: {color: '#10B981', width: 3}, type: 'scatter' },
-                    { x: data.time, y: data.consumption, name: 'H2 Consumed', line: {color: '#EF4444', width: 2, dash: 'dash'}, type: 'scatter' }
-                ];
-                specificLayout = { yaxis: { title: 'kg/h' } };
+                const h = data.hydrogen;
+                Plotly.newPlot('plotlyChart', [
+                    { x: h.time, y: h.production, name: 'H2 Produced', line: {color: '#00FF7F', width: 3}, type: 'scatter' },
+                    { x: h.time, y: h.consumption, name: 'H2 Consumed', line: {color: '#FF007F', width: 2, dash: 'dash'}, type: 'scatter' },
+                    { x: h.time, y: h.storage_level, name: 'Storage', fill: 'tozeroy', fillcolor: 'rgba(0, 229, 255, 0.15)', yaxis: 'y2', line: {width:0}, type: 'scatter' }
+                ], {
+                    ...layout,
+                    yaxis: { title: 'kg/h' },
+                    yaxis2: { overlaying: 'y', side: 'right', title: 'Storage (kg)', showgrid: false }
+                }, {responsive: true});
 
             } else if (type === 'power') {
-                traces = [
-                    { x: data.time, y: data.consumption, name: 'Power Mix', type: 'bar', marker: {color: '#8B5CF6'} },
-                    { x: data.time, y: data.spot_price, name: 'Spot Price', yaxis: 'y2', line: {color: '#F59E0B', width: 3}, type: 'scatter' }
-                ];
-                specificLayout = { yaxis: { title: 'MW' }, yaxis2: { overlaying: 'y', side: 'right', title: 'Price (€/MWh)', showgrid: false } };
+                Plotly.newPlot('plotlyChart', [
+                    { x: data.power.time, y: data.power.consumption, name: 'Power Mix', type: 'bar', marker: {color: '#9D00FF'} },
+                    { x: data.power.time, y: data.power.spot_price, name: 'Spot Price', yaxis: 'y2', line: {color: '#FFD700', width: 3}, type: 'scatter' }
+                ], {
+                    ...layout,
+                    yaxis: { title: 'MW' },
+                    yaxis2: { overlaying: 'y', side: 'right', title: 'Price (€/MWh)', showgrid: false }
+                }, {responsive: true});
             }
-
-            Plotly.newPlot('plotlyChart', traces, { ...layout, ...specificLayout }, { responsive: true, displayModeBar: false });
-        }
         }
 
         function showNoData() {
