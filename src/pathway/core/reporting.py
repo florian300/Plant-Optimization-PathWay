@@ -24,7 +24,7 @@ from pathway.core.plots.carbon import (
     build_co2_trajectory_figure,
     build_indirect_emissions_figure
 )
-from pathway.core.plots.energy_mix import build_energy_mix_figure
+from pathway.core.plots.energy_mix import build_resources_mix_figure
 from pathway.core.plots.investment import build_investment_plan_figure
 from pathway.core.plots.opex import build_opex_figure
 from pathway.core.plots.prices import build_simulation_prices_figure
@@ -285,6 +285,8 @@ class PathFinderReporter:
             quota_penalty_cost = (penal_q * tax_price * penalty_factor) / 1_000_000.0
             
             # --- AGGREGATE OBJECTIVE PENALTIES (Realistic only) ---
+            # IMPORTANT: We only count objective penalties if they are NOT related to the primary CO2 
+            # to avoid double counting the actual Carbon Tax in the "Tax" chart.
             obj_penalty_cost = 0.0
             for idx, obj in enumerate(self.data.objectives):
                 if obj.penalty_type == "PENALTIES":
@@ -292,12 +294,16 @@ class PathFinderReporter:
                     if (idx, t) in self.opt.penalty_vars:
                         v_val = self.opt.penalty_vars[(idx, t)].varValue or 0.0
                         if v_val > 1e-4:
-                            obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
-                    # Check for global penalties assigned to a specific target year
+                            # Only add if it's not the primary emission (which is already in standard_tax_cost)
+                            if not self.opt._is_primary_emission_objective(obj.resource):
+                                obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
+                    
+                    # Check for global penalties
                     if idx in self.opt.penalty_vars and obj.target_year == t:
                         v_val = self.opt.penalty_vars[idx].varValue or 0.0
                         if v_val > 1e-4:
-                            obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
+                            if not self.opt._is_primary_objective_resource(obj.resource):
+                                obj_penalty_cost += (v_val * tax_price * (1.0 + penalty_factor)) / 1_000_000.0
             
             total_penalty_cost = quota_penalty_cost + obj_penalty_cost
             tax_cost_meuros = standard_tax_cost + total_penalty_cost
@@ -1252,7 +1258,7 @@ class PathFinderReporter:
         toggles = self.data.reporting_toggles
 
         # Always process all key visualizations to populate the Dashboard artifacts
-        self._plot_energy_mix(df_cons, show_png=toggles.chart_energy_mix)
+        self._plot_resources_mix(df_cons, df_indir, show_png=toggles.chart_energy_mix)
         _step()
         
         self._plot_co2_trajectory(df_emis, show_png=toggles.chart_co2_trajectory)
@@ -1386,46 +1392,91 @@ class PathFinderReporter:
             for text in leg.get_texts():
                 text.set_fontsize(12)
 
-    def _plot_energy_mix(self, df: pd.DataFrame, show_png: bool = True):
-        df_plot = df.copy()
-        if 'Year' in df_plot.columns:
-            df_plot.set_index('Year', inplace=True)
-        # Remove resources that are all zeros
-        df_plot = df_plot.loc[:, (df_plot != 0).any(axis=0)]
-        
-        years = list(df_plot.index)
-        data_cols = [c for c in df_plot.columns if c != 'Year']
-        
-        cat_map = {}
+    def _plot_resources_mix(self, df_cons: pd.DataFrame, df_indir: pd.DataFrame, show_png: bool = True):
+        """Generates the Resources Mix visualization (Emissions, Consumption, Production)."""
+        years = list(self.years)
+        type_data = {
+            'CONSUMPTION': {},
+            'PRODUCTION': {},
+            'EMISSIONS': {}
+        }
         GJ_TO_MWH = 1.0 / 3.6
-        
-        for col in data_cols:
-            if '##' not in col: continue
-            res_type, res_id = col.split('##', 1)
-            name = self.data.resources[res_id].name if res_id in self.data.resources else res_id
-            unit = self.data.resources[res_id].unit if res_id in self.data.resources else 'unit'
-            vals = df_plot[col].tolist()
+
+        # 1. Process Consumption & Production
+        df_c = df_cons.set_index('Year') if 'Year' in df_cons.columns else df_cons
+        for col in df_c.columns:
+            if col == 'Year': continue
             
-            # Normalization GJ -> MWh
+            # Explicit Production Capture
+            if col == 'EN_H2_ON_SITE':
+                t_id, cat_id = 'PRODUCTION', '[Hydrogen]'
+                name, unit = 'H2 Produced on Site', 'MWh'
+                if cat_id not in type_data[t_id]: type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
+                type_data[t_id][cat_id]['series'][name] = df_c[col].tolist()
+                continue
+
+            if col not in self.data.resources: continue
+            res = self.data.resources[col]
+            
+            # Categorize based on Resource Type
+            res_type = str(res.type).upper()
+            if 'EMISS' in res_type: 
+                t_id = 'EMISSIONS'
+            elif 'PROD' in res_type:
+                t_id = 'PRODUCTION'
+            else:
+                t_id = 'CONSUMPTION'
+            
+            # Only include energy-related or requested resources for this specific mix
+            if not (col.startswith('EN_') or t_id != 'CONSUMPTION'):
+                continue
+
+            name = res.name if res.name else col
+            unit = res.unit if res.unit else 'unit'
+            vals = df_c[col].tolist()
+            
             if unit.upper() == 'GJ':
                 vals = [v * GJ_TO_MWH for v in vals]
                 unit = 'MWh'
 
-            display_cat = f"[{res_type}]"
-            if display_cat not in cat_map:
-                cat_map[display_cat] = {'unit': unit, 'series': {}}
-            cat_map[display_cat]['series'][name] = vals
+            cat_id = f"[{res.category}]"
+            if cat_id not in type_data[t_id]:
+                type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
+            type_data[t_id][cat_id]['series'][name] = vals
 
-        # Build figure
-        fig = build_energy_mix_figure(
+        # 2. Process Indirect Emissions
+        df_i = df_indir.set_index('Year') if 'Year' in df_indir.columns else df_indir
+        t_id = 'EMISSIONS'
+        for col in df_i.columns:
+            if col == 'Year' or df_i[col].sum() < 1e-6: continue
+            
+            # Use resource info if column is a resource ID
+            res_id = col
+            if '_' in col and col not in self.data.resources:
+                # Handle special columns like EN_ELEC_BASE
+                res_id = col.split('_')[0] + '_' + col.split('_')[1]
+            
+            res = self.data.resources.get(res_id)
+            name = col.replace('_', ' ')
+            cat_name = res.category if res else 'Indirect'
+            unit = 'tCO2'
+            vals = df_i[col].tolist()
+            
+            cat_id = f"[{cat_name}]"
+            if cat_id not in type_data[t_id]:
+                type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
+            type_data[t_id][cat_id]['series'][name] = vals
+
+        # 3. Build figure
+        fig = build_resources_mix_figure(
             years=years,
-            category_data=cat_map,
+            type_data=type_data,
             theme="report",
-            title="ENERGY MIX BREAKDOWN"
+            title="RESOURCES MIX BREAKDOWN"
         )
         
         self._save_plotly_figure(fig, "Energy_Mix", show_png=show_png)
-        self.charts_data.append(("Energy Mix Breakdown by Category", df_plot))
+        self.charts_data.append(("Resources Mix Breakdown (Consumption, Production, Emissions)", df_cons))
 
     def _plot_co2_trajectory(self, df: pd.DataFrame, show_png: bool = True):
         """Generates the CO2 Trajectory visualization using the centralized module."""
@@ -1646,6 +1697,18 @@ class PathFinderReporter:
                                 yr_ccs_st += (s_price + tr_price) * captured_tons_per_unit * act_v
             ccs_st_costs.append(yr_ccs_st / 1_000_000.0)
 
+        # 1. Create Resources-Only Figure
+        df_res_export = df_res_costs.copy()
+        df_res_export['Year'] = years
+        fig_res = build_opex_figure(
+            df_opex=df_res_export,
+            years=years,
+            theme="report",
+            title=f"RESOURCES OPEX: {self.scenario_name}"
+        )
+        self._save_plotly_figure(fig_res, "Resources_Opex", show_png=show_png)
+
+        # 2. Create Total OPEX Figure (including tech, tax, etc.)
         df_bars = pd.concat([df_res_costs, df_tech_costs], axis=1)
         if sum(ccs_st_costs) > 1e-4: df_bars['CCS STORAGE & TRANSPORT'] = ccs_st_costs
         if sum(dac_opex) > 1e-4: df_bars['DAC OPEX'] = dac_opex
@@ -1653,21 +1716,19 @@ class PathFinderReporter:
         if sum(credit_costs) > 1e-4: df_bars['CARBON CREDITS'] = credit_costs
             
         df_bars = df_bars.loc[:, (df_bars.abs() > 1e-4).any(axis=0)]
-        df_bars_export = df_bars.copy()
-        df_bars_export['Year'] = years
-        df_bars_export['TOTAL ANNUAL OPEX (M€)'] = df_bars.sum(axis=1).values
+        df_total_export = df_bars.copy()
+        df_total_export['Year'] = years
+        df_total_export['TOTAL ANNUAL OPEX (M€)'] = df_bars.sum(axis=1).values
         
-        # Build Plotly Figure
-        fig = build_opex_figure(
-            df_opex=df_bars_export,
+        fig_total = build_opex_figure(
+            df_opex=df_total_export,
             years=years,
             theme="report",
-            title=f"ANNUAL OPERATIONAL EXPENDITURE: {self.scenario_name}"
+            title=f"TOTAL ANNUAL OPEX: {self.scenario_name}"
         )
         
-        self._save_plotly_figure(fig, "Resources_Opex", show_png=show_png)
-        self._save_plotly_figure(fig, "Total_Annual_Opex", show_png=show_png)
-        self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_bars_export))
+        self._save_plotly_figure(fig_total, "Total_Annual_Opex", show_png=show_png)
+        self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_total_export))
 
     def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame, show_png: bool = True):
         """Generates an interactive Plotly visualization using the high-fidelity builder."""

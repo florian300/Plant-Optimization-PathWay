@@ -14,12 +14,21 @@ class PathFinderParser:
         self.file_path = file_path
         self.xl = pd.ExcelFile(file_path)
         self.verbose = verbose
+        self.sim_row_found = False        # Track if SIM row exists in OverView
+        self.all_scenarios_meta = []      # Store all scenarios found before filtering
 
     def _parse_scenarios(self) -> list:
-        """Parse the MODELING START/END block from OverView and return list of {id, name} dicts."""
+        """Parse the MODELING START/END block from OverView and return list of {id, name} dicts.
+
+        SIM row behaviour:
+            - SIM row absent          → simulate all SC-DES scenarios (backward-compatible default)
+            - SIM row present + IDs   → simulate only the listed scenario IDs
+            - SIM row present + empty → simulate nothing (user explicitly left it blank)
+        """
         df_overview = self.xl.parse('OverView', header=None)
         all_scenarios = []
         to_simulate = []
+        self.sim_row_found = False
         in_modeling = False
         for _, row in df_overview.iterrows():
             vals_upper = [str(x).strip().upper() for x in row.values if pd.notna(x) and str(x).strip()]
@@ -41,6 +50,7 @@ class PathFinderParser:
                         all_scenarios.append({'id': sc_id, 'name': sc_name})
 
                 elif 'SIM' in vals_upper:
+                    self.sim_row_found = True   # Mark that a SIM row was explicitly defined
                     # Collect all tokens after SIM as scenario IDs to simulate
                     if len(raw) > 1:
                         for token in raw[1:]:
@@ -48,13 +58,18 @@ class PathFinderParser:
                             if token.upper() not in ['SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…']:
                                 to_simulate.append(token.upper())
 
-        # If a filtering list was found, restrict the scenarios
+        self.all_scenarios_meta = [s.copy() for s in all_scenarios]
+
+        # SIM row was present but left empty → user wants no simulations
+        if self.sim_row_found and not to_simulate:
+            return []
+
+        # SIM row had IDs → only run those
         if to_simulate:
             filtered = [s for s in all_scenarios if s['id'].upper() in to_simulate]
-            if filtered:
-                return filtered
-            # Fallback if names were mismatched: return all but with warning (not easy here, but better safe)
+            return filtered if filtered else all_scenarios
 
+        # SIM row was absent entirely → backward-compatible: run all SC-DES scenarios
         return all_scenarios
 
     def _find_blocks(self, df: pd.DataFrame) -> list:
@@ -198,6 +213,7 @@ class PathFinderParser:
                         elif "CARBON PRICE" in name: reporting_toggles.chart_carbon_prices = is_yes
                         elif "SIMULATION PRICES" in name or "RESOURCE PRICES" in name: reporting_toggles.chart_resource_prices = is_yes
                         elif "INTEREST PAID" in name: reporting_toggles.chart_interest_paid = is_yes
+                        elif "ABATEMENT" in name or "MAC CURVE" in name: reporting_toggles.chart_co2_abatement_cost = is_yes
                     
                     # 2. Handle Numeric Settings (e.g., INVESTMENT CAP)
                     elif "CAP" in name:

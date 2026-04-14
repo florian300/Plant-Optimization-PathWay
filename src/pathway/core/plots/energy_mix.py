@@ -2,20 +2,31 @@ import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict, Any
 
-def build_energy_mix_figure(
+def build_resources_mix_figure(
     years: List[int],
-    category_data: Dict[str, Dict[str, Any]],
-    title: str = "ENERGY MIX",
+    type_data: Dict[str, Dict[str, Dict[str, Any]]],
+    title: str = "RESOURCES MIX",
     theme: str = "report"
 ) -> go.Figure:
     """
-    Builds a Plotly figure for Energy Mix with a dropdown to select categories.
+    Builds a Plotly figure for Resources Mix with a dropdown to select Type (Emissions, Consumption, Production).
+    
+    type_data structure: {
+        'CONSUMPTION': { 'Electricity': { 'unit': 'MWh', 'series': { 'Grid': [...] } } },
+        'PRODUCTION': { ... },
+        'EMISSIONS': { ... }
+    }
     """
     fig = go.Figure()
     
-    categories = sorted(list(category_data.keys()))
-    if not categories:
-        fig.add_annotation(text="No data available for Energy Mix", showarrow=False)
+    # Sort types: CONSUMPTION, PRODUCTION, EMISSIONS
+    available_types = []
+    for t in ['CONSUMPTION', 'PRODUCTION', 'EMISSIONS']:
+        if t in type_data and type_data[t]:
+            available_types.append(t)
+    
+    if not available_types:
+        fig.add_annotation(text="No data available for Resources Mix", showarrow=False)
         return fig
 
     # --- Theme Configuration ---
@@ -26,56 +37,74 @@ def build_energy_mix_figure(
     grid_color = "#f1f5f9"
     template = "plotly_white"
 
-    # Create traces for all categories, but only show the first one initially
-    trace_indices_per_cat = {}
+    # Create traces for all Types and Categories
+    trace_indices_per_type = {}
     current_idx = 0
     
-    for cat in categories:
-        data = category_data[cat]
-        unit = data['unit']
-        series_dict = data['series']
-        
-        trace_indices_per_cat[cat] = []
-        
-        # Sort series by average value to have a consistent look
-        sorted_series = sorted(series_dict.items(), key=lambda x: sum(abs(v) for v in x[1]), reverse=True)
-        
-        for name, values in sorted_series:
-            fig.add_trace(go.Scatter(
-                x=years,
-                y=values,
-                name=name,
-                mode='lines',
-                line=dict(width=0.5),
-                stackgroup=cat, # Stack by category
-                visible=(cat == categories[0]),
-                hovertemplate=f"%{{y:,.1f}} {unit}<extra>{name}</extra>"
-            ))
-            trace_indices_per_cat[cat].append(current_idx)
-            current_idx += 1
+    # We want to identify the "initial" type to show
+    initial_type = available_types[0]
 
-    # Create dropdown buttons
+    for t_id in available_types:
+        trace_indices_per_type[t_id] = []
+        categories = sorted(list(type_data[t_id].keys()))
+        
+        for cat in categories:
+            data = type_data[t_id][cat]
+            unit = data['unit']
+            series_dict = data['series']
+            
+            # Sort series by average value
+            sorted_series = sorted(series_dict.items(), key=lambda x: sum(abs(v) for v in x[1]), reverse=True)
+            
+            for name, values in sorted_series:
+                fig.add_trace(go.Scatter(
+                    x=years,
+                    y=values,
+                    name=name,
+                    mode='lines',
+                    line=dict(width=0.5),
+                    stackgroup=f"{t_id}_{cat}", # Stack within Type-Category
+                    visible=(t_id == initial_type),
+                    hovertemplate=f"%{{y:,.1f}} {unit}<extra>{name} [{cat}]</extra>"
+                ))
+                trace_indices_per_type[t_id].append(current_idx)
+                current_idx += 1
+
+    # Create dropdown buttons for Types
     buttons = []
-    for cat in categories:
-        # Visibility list: True for traces in this category, False otherwise
+    for t_id in available_types:
+        # Visibility list: True for traces in this Type, False otherwise
         visibility = [False] * current_idx
-        for idx in trace_indices_per_cat[cat]:
+        for idx in trace_indices_per_type[t_id]:
             visibility[idx] = True
             
-        unit = category_data[cat]['unit']
+        # Get the first unit found in this Type
+        first_cat = next(iter(type_data[t_id]))
+        unit = type_data[t_id][first_cat]['unit']
         
+        y_title = "Resources Volume"
+        if t_id == 'EMISSIONS': y_title = "Indirect CO2 Emissions"
+        elif t_id == 'PRODUCTION': y_title = "Local Production"
+        else: y_title = "Gross Consumption"
+
         buttons.append(dict(
-            label=cat,
+            label=t_id,
             method="update",
             args=[
                 {"visible": visibility},
                 {"yaxis": {
-                    "title": f"Energy Flow ({unit})", 
+                    "title": f"{y_title} ({unit})", 
                     "gridcolor": grid_color,
                     "tickfont": dict(family=font_family, color=text_color)
                 }}
             ]
         ))
+
+    initial_y_title = "Resources Volume"
+    if initial_type == 'EMISSIONS': initial_y_title = "Indirect CO2 Emissions"
+    elif initial_type == 'PRODUCTION': initial_y_title = "Local Production"
+    else: initial_y_title = "Gross Consumption"
+    initial_unit = type_data[initial_type][next(iter(type_data[initial_type]))]['unit']
 
     fig.update_layout(
         updatemenus=[
@@ -110,7 +139,7 @@ def build_energy_mix_figure(
             tickfont=dict(family=font_family, color=text_color)
         ),
         yaxis=dict(
-            title=f"Energy Flow ({category_data[categories[0]]['unit']})",
+            title=f"{initial_y_title} ({initial_unit})",
             gridcolor=grid_color,
             tickfont=dict(family=font_family, color=text_color)
         ),

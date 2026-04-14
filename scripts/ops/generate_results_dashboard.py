@@ -246,7 +246,7 @@ def build_dashboard_data(scenario_dirs: Dict[str, Path], discount_rate: float) -
     chart_mapping = [
         ("co2_trajectory",    "CO2 TRAJECTORY",      "CO2_Trajectory"),
         ("indirect_emissions", "INDIRECT EMISSIONS", "Indirect_Emissions"),
-        ("energy_mix",        "ENERGY MIX",          "Energy_Mix"),
+        ("energy_mix",        "RESOURCES MIX",       "Energy_Mix"),
         ("investment_plan",   "INVESTMENT PLAN",     "Investment_Plan"),
         ("external_financing", "EXTERNAL FINANCING", "Financing"),
         ("interest_paid",      "INTEREST PAID",      "Interest_Paid"),
@@ -571,38 +571,65 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         <div>
           <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
             <i class=\"fa-solid fa-chart-line\"></i>
-            Analyse de Risque — One-At-a-Time (OAT)
+            Risk Analysis — One-At-a-Time (OAT)
           </p>
-          <h2 class=\"font-heading text-2xl md:text-3xl font-bold mt-3\">Analyse de Sensibilité au Prix EUA</h2>
+          <h2 id=\"sens-main-title\" class=\"font-heading text-2xl md:text-3xl font-bold mt-3\">Sensitivity Analysis</h2>
           <p class=\"text-slate-500 mt-2 text-sm\">
-            Variation symétrique du prix du carbone (EUA) appliquée au scénario de référence (BS).
-            Chaque point représente une simulation MILP indépendante.
+            One parameter is varied at a time while all others remain at their baseline values.
+            Each point represents an independent MILP simulation.
           </p>
         </div>
         <div id=\"sens-status-badge\" class=\"rounded-2xl subtle-pill px-4 py-3 text-sm\"></div>
       </div>
     </section>
 
-    <!-- Grille des 4 graphiques -->
+    <!-- 1. VUE GLOBALE DES RISQUES (Comparative) -->
+    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-8 fade-in\">
+      <h3 class=\"font-heading text-xl font-bold text-slate-800 mb-6 flex items-center gap-2\">
+        <i class=\"fa-solid fa-earth-americas text-sky-500\"></i>
+        Vue Globale des Risques (Comparaison Multi-Paramètres)
+      </h3>
+      
+      <div class=\"grid grid-cols-1 xl:grid-cols-2 gap-8\">
+        <!-- Packed Bubble -->
+        <div>
+          <h4 class=\"text-sm font-bold text-slate-500 uppercase tracking-wider mb-2\">Variance du Bilan</h4>
+          <p class=\"text-xs text-slate-400 mb-4\">Rayon proportionnel à la variance maximale du coût de transition par paramètre.</p>
+          <div id=\"sens-bubble-chart\" class=\"bg-slate-50/50 rounded-2xl\" style=\"height:500px;\"></div>
+        </div>
+        
+        <!-- Tornado Chart -->
+        <div>
+          <h4 class=\"text-sm font-bold text-slate-500 uppercase tracking-wider mb-2\">Impact Financier Relatif</h4>
+          <p class=\"text-xs text-slate-400 mb-4\">Écart du coût de transition vs baseline pour les variations extrêmes.</p>
+          <div id=\"sens-tornado-chart\" class=\"bg-slate-50/50 rounded-2xl\" style=\"height:500px;\"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. ANALYSE DÉTAILLÉE PAR PARAMÈTRE -->
+    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in border-t-4 border-sky-400\">
+      <div class=\"flex flex-col lg:flex-row lg:items-center justify-between gap-6\">
+        <div class=\"flex-1\">
+          <h3 class=\"font-heading text-xl font-bold text-slate-800 flex items-center gap-2\">
+            <i class=\"fa-solid fa-magnifying-glass-chart text-sky-500\"></i>
+            Analyse Détaillée par Paramètre
+          </h3>
+          <p class=\"text-sm text-slate-500 mt-1\">Sélectionnez un paramètre pour explorer l'impact précis de ses variations.</p>
+        </div>
+        
+        <div class=\"flex flex-col sm:flex-row sm:items-center gap-4 bg-white/50 p-2 rounded-2xl border border-slate-100 shadow-sm\">
+          <label class=\"block min-w-[300px]\">
+            <span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1\">Sensitivity Parameter (OAT)</span>
+            <select id=\"target-selector\" class=\"selector mt-1\" onchange=\"filterSensitivityData()\"></select>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Grille des graphiques détaillés -->
     <div class=\"grid grid-cols-1 gap-6\">
 
-      <!-- 1. Vue Globale des Risques (Packed Bubble) -->
-      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
-        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Vue Globale des Risques</h3>
-        <p class=\"text-xs text-slate-500 mb-3\">
-          Chaque bulle représente un paramètre perturbé. Le rayon est proportionnel à la variance maximale du coût de transition.
-        </p>
-        <div id=\"sens-bubble-chart\" style=\"height:500px;\"></div>
-      </section>
-
-      <!-- 2. Tornado Chart (Impact Financier) -->
-      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
-        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Impact Financier (Tornado)</h3>
-        <p class=\"text-xs text-slate-500 mb-3\">
-          Barres horizontales signant l'écart du coût de transition par rapport au scénario de base pour les variations extrêmes testées.
-        </p>
-        <div id=\"sens-tornado-chart\" style=\"height:500px;\"></div>
-      </section>
 
       <!-- 3. Trajectoires de Décarbonation (Net CO2) -->
       <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
@@ -805,43 +832,68 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
     init();
 
+    // Initialise the OAT target selector and render charts for the default target
+    populateTargetSelector();
+    filterSensitivityData();
+
     // ═══════════════════════════════════════════════════════════════════════
-    // GRAPHIQUES DE SENSIBILITÉ
+    // SENSITIVITY CHARTS — OAT (One-At-a-Time)
     // ═══════════════════════════════════════════════════════════════════════
 
-    (function buildSensitivityCharts() {
-      const data = sensitivityData || [];
+    /**
+     * Reads all unique `target` values from sensitivityData and populates
+     * the #target-selector dropdown. Called once on page load.
+     */
+    function populateTargetSelector() {
+      const selector = document.getElementById('target-selector');
+      if (!selector) return;
 
-      // Badge de statut
-      const badge = document.getElementById('sens-status-badge');
-      if (badge) {
-        if (data.length === 0) {
-          badge.innerHTML = '<span style="color:#d97706;"><i class="fa-solid fa-triangle-exclamation"></i> Aucune donnée — Exécutez run_sensitivity.py</span>';
-        } else {
-          const validCount = data.filter(r => r.status === 'Optimal' || r.status === 'Feasible').length;
-          const shortfallCount = data.filter(r => (r.penalty_cost || 0) > 1.0).length;
-          let html = `<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> ${validCount} / ${data.length} simulations valides</span>`;
-          if (shortfallCount > 0) {
-            html += ` <span style="color:#dc2626; margin-left:10px;"><i class="fa-solid fa-circle-exclamation"></i> ${shortfallCount} cibles non atteintes (Pénalités réduites dans les graphiques)</span>`;
-          }
-          badge.innerHTML = html;
-        }
+      const allTargets = [...new Set((sensitivityData || []).map(r => r.target).filter(Boolean))];
+      selector.innerHTML = '';
+
+      if (allTargets.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '__all__';
+        opt.textContent = '— No sensitivity data available —';
+        selector.appendChild(opt);
+        return;
       }
 
-      if (data.length === 0) return;
+      allTargets.forEach(target => {
+        const opt = document.createElement('option');
+        opt.value = target;
+        opt.textContent = target;
+        selector.appendChild(opt);
+      });
 
-      // ── Données valides uniquement ──────────────────────────────────────
-      const valid = data.filter(r => r.transition_cost != null);
+      // Default to the first target
+      selector.value = allTargets[0];
+    }
 
-      // Paramètre de base (variation = 0)
+    /**
+     * Called whenever the #target-selector changes.
+     * Filters sensitivityData to the selected target and re-renders all charts.
+     */
+    function filterSensitivityData() {
+      const selector = document.getElementById('target-selector');
+      const selectedTarget = selector ? selector.value : null;
+
+      const filtered = (sensitivityData || []).filter(r => r.target === selectedTarget);
+      buildDetailedSensitivityCharts(filtered, selectedTarget);
+      buildGlobalSensitivityCharts(sensitivityData);
+    }
+
+    /**
+     * Renders the comparative global risk charts (Bubble & Tornado).
+     * @param {Array} allData - The complete sensitivity dataset.
+     */
+    function buildGlobalSensitivityCharts(allData) {
+      if (!allData || allData.length === 0) return;
+
+      const valid = allData.filter(r => r.transition_cost != null);
       const baseRecord = valid.find(r => Math.abs(r.variation_pct) < 0.001) || valid[0];
-      
-      // transition_cost est désormais déjà le NET BALANCE (M€ ou €)
-      // On convertit en M€ pour l'affichage
       const baseCost = baseRecord ? baseRecord.transition_cost / 1_000_000.0 : 0;
-      const baseEmis = baseRecord ? (baseRecord.total_emissions || 0) : 0;
 
-      // Groupement par cible
       const targets = {};
       valid.forEach(r => {
         if (!targets[r.target]) targets[r.target] = [];
@@ -858,7 +910,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         hovermode: 'closest',
       }, extra || {});
 
-      // ── 1. Packed Bubble (Vue Globale) ───────────────────────────────────
+      // ── 1. Packed Bubble ───────────────────────────────────────────────
       (function buildBubble() {
         const bubbleTraces = Object.entries(targets).map(([target, records]) => {
           const costs = records.map(r => r.transition_cost / 1_000_000.0);
@@ -868,78 +920,127 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
             type: 'scatter',
             mode: 'markers+text',
             name: target,
-            x: [0],
-            y: [0],
+            x: [Math.random() * 2 - 1], // Jitter to avoid direct overlap if centered
+            y: [Math.random() * 2 - 1],
             text: [target],
             textposition: 'middle center',
-            textfont: { size: 13, color: '#fff' },
+            textfont: { size: 11, color: '#fff', weight: 'bold' },
             marker: {
-              size: [Math.max(60, Math.min(180, maxVariance * 5))], // Scale factors
+              size: [Math.max(70, Math.min(200, maxVariance * 6))],
               sizemode: 'diameter',
               color: ['#0ea5e9'],
-              opacity: 0.85,
-              line: { width: 2, color: '#fff' },
+              opacity: 0.8,
+              line: { width: 1.5, color: '#fff' },
             },
             hovertemplate: `<b>${target}</b><br>Variance max : %{customdata:,.1f} M€<extra></extra>`,
             customdata: [maxVariance],
           };
         });
         const layout = plotLayout({
-          title: { text: 'Variance maximale du Bilan de Transition (M€)', font: { size: 13 } },
-          xaxis: { visible: false, zeroline: false },
-          yaxis: { visible: false, zeroline: false },
+          title: { text: 'Variance Maximale du Bilan (M€)', font: { size: 13, weight: 'bold' } },
+          xaxis: { visible: false, range: [-2, 2] },
+          yaxis: { visible: false, range: [-2, 2] },
           showlegend: false,
         });
         Plotly.newPlot('sens-bubble-chart', bubbleTraces, layout, plotConfig);
       })();
 
-      // ── 2. Tornado Chart (Impact Financier) ─────────────────────────────
+      // ── 2. Tornado Chart ───────────────────────────────────────────────
       (function buildTornado() {
         const tornadoTraces = [];
-
-        Object.entries(targets).forEach(([target, records], idx) => {
-          const sorted = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
-          const minRec = sorted[0];
-          const maxRec = sorted[sorted.length - 1];
-
+        const sortedTargets = Object.entries(targets).map(([target, records]) => {
+          const sortedRecs = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
+          const minRec = sortedRecs[0];
+          const maxRec = sortedRecs[sortedRecs.length - 1];
           const deltaMin = (minRec && minRec.transition_cost != null) ? (minRec.transition_cost / 1_000_000.0) - baseCost : 0;
           const deltaMax = (maxRec && maxRec.transition_cost != null) ? (maxRec.transition_cost / 1_000_000.0) - baseCost : 0;
+          return { target, minRec, maxRec, deltaMin, deltaMax, range: Math.abs(deltaMax - deltaMin) };
+        }).sort((a, b) => b.range - a.range);
 
+        sortedTargets.forEach(({target, minRec, maxRec, deltaMin, deltaMax}) => {
           tornadoTraces.push({
             type: 'bar',
             orientation: 'h',
-            name: `${target} (variation basse ${minRec ? minRec.variation_pct.toFixed(0) : ''}%)`,
+            name: `${target} (-)`,
             y: [target],
             x: [deltaMin],
-            marker: { color: deltaMin < 0 ? '#16a34a' : '#dc2626' },
-            hovertemplate: `<b>${target}</b><br>Variation : ${minRec ? minRec.variation_pct.toFixed(1) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
+            marker: { color: deltaMin < 0 ? '#10b981' : '#ef4444' },
+            hovertemplate: `<b>${target}</b><br>Variation : ${minRec ? minRec.variation_pct.toFixed(0) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
           });
           tornadoTraces.push({
             type: 'bar',
             orientation: 'h',
-            name: `${target} (variation haute ${maxRec ? maxRec.variation_pct.toFixed(0) : ''}%)`,
+            name: `${target} (+)`,
             y: [target],
             x: [deltaMax],
-            marker: { color: deltaMax < 0 ? '#16a34a' : '#dc2626' },
-            hovertemplate: `<b>${target}</b><br>Variation : ${maxRec ? maxRec.variation_pct.toFixed(1) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
+            marker: { color: deltaMax < 0 ? '#10b981' : '#ef4444' },
+            hovertemplate: `<b>${target}</b><br>Variation : ${maxRec ? maxRec.variation_pct.toFixed(0) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
           });
         });
 
         const layout = plotLayout({
           barmode: 'overlay',
-          title: { text: 'Impact sur le Bilan Net / Scénario de Base', font: { size: 13 } },
+          title: { text: 'Impact sur le Bilan Net vs Baseline', font: { size: 13, weight: 'bold' } },
           xaxis: { title: 'Δ Bilan Net de Transition (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
-          yaxis: { automargin: true },
+          yaxis: { automargin: true, categoryorder: 'total ascending' },
+          showlegend: false
         });
         Plotly.newPlot('sens-tornado-chart', tornadoTraces, layout, plotConfig);
       })();
+    }
+
+    /**
+     * Renders detailed charts (Trajectories, Scatter) for a specific target.
+     * @param {Array} data - Filtered sensitivity result objects.
+     * @param {string} selectedTarget - The name of the selected target.
+     */
+    function buildDetailedSensitivityCharts(data, selectedTarget) {
+      data = data || [];
+
+      // Badge de statut
+      const badge = document.getElementById('sens-status-badge');
+      if (badge) {
+        if (data.length === 0) {
+          badge.innerHTML = '<span style="color:#d97706;"><i class=\"fa-solid fa-triangle-exclamation\"></i> Aucune donnée — Exécutez run_sensitivity.py</span>';
+        } else {
+          const validCount = data.filter(r => r.status === 'Optimal' || r.status === 'Feasible').length;
+          const shortfallCount = data.filter(r => (r.penalty_cost || 0) > 1.0).length;
+          let html = `<span style="color:#16a34a;"><i class=\"fa-solid fa-circle-check\"></i> ${validCount} / ${data.length} simulations valides</span>`;
+          if (shortfallCount > 0) {
+            html += ` <span style="color:#dc2626; margin-left:10px;"><i class=\"fa-solid fa-circle-exclamation\"></i> ${shortfallCount} cibles non atteintes</span>`;
+          }
+          badge.innerHTML = html;
+        }
+      }
+
+      if (data.length === 0) return;
+
+      const valid = data.filter(r => r.transition_cost != null);
+      const baseRecord = (sensitivityData || []).find(r => Math.abs(r.variation_pct) < 0.001) || valid[0];
+      const baseCost = baseRecord ? baseRecord.transition_cost / 1_000_000.0 : 0;
+      const baseEmis = baseRecord ? (baseRecord.total_emissions || 0) : 0;
+
+      const targets = {};
+      valid.forEach(r => {
+        if (!targets[r.target]) targets[r.target] = [];
+        targets[r.target].push(r);
+      });
+
+      const plotConfig = { responsive: true, displaylogo: false };
+      const plotLayout = (extra) => Object.assign({
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor:  'rgba(0,0,0,0)',
+        font: { family: 'Bookman Old Style, serif', size: 11, color: '#1e293b' },
+        margin: { l: 56, r: 24, t: 40, b: 50 },
+        legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+        hovermode: 'closest',
+      }, extra || {});
 
       // ── 3. Trajectoires et Sensibilité CO₂ ───────────────────────────────
       (function buildDecarbonizationViews() {
         const trajectoryTraces = [];
         const summaryTraces = [];
         
-        // ── 3a. Trajectoires Temporelles (Gauche) ──────────────────────────
         Object.entries(targets).forEach(([target, records]) => {
           records.forEach(r => {
             if (!r.co2_trajectory || !r.co2_trajectory.years) return;
@@ -964,38 +1065,34 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         });
 
         const trajectoryLayout = plotLayout({
-          title: { text: 'Projection Temporelle du Net CO₂', font: { size: 13 } },
+          title: { text: 'Projection Temporelle du Net CO₂', font: { size: 13, weight: 'bold' } },
           xaxis: { title: 'Année' },
           yaxis: { title: 'Net CO₂ (t)', zeroline: true },
           showlegend: true,
           legend: { orientation: 'h', y: -0.25 }
         });
-        
         Plotly.newPlot('sens-trajectory-chart', trajectoryTraces, trajectoryLayout, plotConfig);
 
-        // ── 3b. Émissions Totales vs Variation (Droite) ────────────────────
         Object.entries(targets).forEach(([target, records]) => {
           const sorted = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
-          
           summaryTraces.push({
             type: 'scatter',
-            mode: 'markers',
+            mode: 'lines+markers',
             name: target,
             x: sorted.map(r => r.variation_pct),
             y: sorted.map(r => r.total_emissions),
+            line: { shape: 'spline', color: '#0ea5e9' },
             marker: { size: 10, line: { width: 1, color: '#fff' } },
             hovertemplate: `<b>${target}</b><br>Var. Paramètre : %{x:+.1f}%<br>Émissions Totales : %{y:,.0f} t<extra></extra>`
           });
         });
 
         const summaryLayout = plotLayout({
-          title: { text: 'Sensibilité : Émissions Totales vs Variation Paramètre', font: { size: 13 } },
+          title: { text: 'Émissions Totales vs Variation (%)', font: { size: 13, weight: 'bold' } },
           xaxis: { title: 'Variation du Paramètre (%)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
-          yaxis: { title: 'Émissions Totales Horizon (tCO₂)', gridcolor: '#f1f5f9' },
-          showlegend: true,
-          legend: { orientation: 'h', y: -0.25 }
+          yaxis: { title: 'Émissions Totales (tCO₂)' },
+          showlegend: false
         });
-
         Plotly.newPlot('sens-total-co2-chart', summaryTraces, summaryLayout, plotConfig);
       })();
 
@@ -1017,45 +1114,39 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
               color: filtered.map(r => r.variation_pct),
               colorscale: 'RdYlGn',
               reversescale: true,
-              colorbar: { title: { text: 'Var. EUA (%)' }, thickness: 12, len: 0.7 },
+              colorbar: { title: { text: 'Var. (%)', font: { size: 10 } }, thickness: 12, len: 0.7 },
               line: { width: 1.5, color: '#fff' },
             },
             text: filtered.map(r => {
               const deltaBalance = (r.transition_cost / 1_000_000.0) - baseCost;
               const deltaE = (r.total_emissions - baseEmis) / Math.abs(baseEmis) * 100;
-              return `${r.timed_out ? '⏱ Temps limité<br>' : ''}Paramètre : ${target}<br>` +
+              return `Paramètre : ${target}<br>` +
                      `Variation : ${r.variation_pct.toFixed(1)}%<br>` +
-                     `<b>Δ Bilan Net de Transition : ${deltaBalance >= 0 ? '+' : ''}${deltaBalance.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} M€</b><br>` +
+                     `<b>Δ Bilan Net : ${deltaBalance >= 0 ? '+' : ''}${deltaBalance.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} M€</b><br>` +
                      `Δ Émissions : ${deltaE >= 0 ? '+' : ''}${deltaE.toFixed(4)}%<br>` +
-                     `Émissions : ${r.total_emissions.toLocaleString('fr-FR')} tCO₂` +
-                     (r.penalty_cost > 1.0 ? `<br><span style="color:red">⚠️ Cible non atteinte (Gap: ${r.gap_from_final_target.toFixed(0)}t)</span>` : '');
+                     (r.penalty_cost > 1.0 ? `<span style=\"color:red\">⚠️ Cible non atteinte</span>` : '');
             }),
             hovertemplate: '%{text}<extra></extra>',
           };
         });
 
-        // Ligne de base (Origine)
         scatterTraces.push({
           type: 'scatter',
           mode: 'markers',
           name: 'Baseline',
           x: [0], y: [0],
           marker: { size: 18, color: '#7c3aed', symbol: 'star', line: { width: 2, color: '#fff' } },
-          hovertemplate: 'Scénario de base (Origine)<br>Δ Bilan : 0 M€<br>Δ Émissions : 0%<extra></extra>',
+          hovertemplate: 'Scénario de base (Origine)<extra></extra>',
         });
 
         const layout = plotLayout({
-          title: { text: 'Variation du Bilan Net (M€) vs Variation des Émissions (%)', font: { size: 13 } },
-          xaxis: { title: 'Δ Bilan Net de Transition (M€ / Base)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8', tickformat: ',.0f' },
-          yaxis: { title: 'Δ Émissions Totales (%)',  zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8', tickformat: '.3f' },
-          shapes: [
-            { type: 'line', x0: 0, x1: 0, y0: -1, y1: 1, line: { color: '#cbd5e1', width: 1, dash: 'dot' } },
-          ],
+          title: { text: 'Variation Bilan (M€) vs Émissions (%)', font: { size: 13, weight: 'bold' } },
+          xaxis: { title: 'Δ Bilan Net (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+          yaxis: { title: 'Δ Émissions (%)',  zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
         });
         Plotly.newPlot('sens-scatter-chart', scatterTraces, layout, plotConfig);
       })();
-
-    })();
+    }
 
   </script>
 </body>

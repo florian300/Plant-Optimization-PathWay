@@ -24,7 +24,7 @@ from rich.align import Align
 from .core.ingestion import PathFinderParser
 from .core.optimizer import PathFinderOptimizer
 from .core.reporting import PathFinderReporter
-from .core.sensitivity_engine import run_sensitivity
+from .core.sensitivity_engine import run_sensitivity, extract_kpis, get_model_solution
 
 console = Console()
 
@@ -159,7 +159,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
     """
     Execute the full pipeline for a single scenario:
       parse → build → solve (with watchdog) → report
-    Returns a status string.
+    Returns (status_string, solution_dict, kpis_dict).
     """
     sc_id   = sc['id']
     sc_name = sc['name']
@@ -174,7 +174,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         console.print(f"  [bold red][ERROR][/bold red] [{sc_name}] Ingestion failed: {e}")
         if os.environ.get('PATHFINDER_DEBUG'):
             traceback.print_exc()
-        return 'Error'
+        return 'Error', None, None
 
     # --- 2. Build model ------------------------------------------------------
     try:
@@ -185,7 +185,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         console.print(f"  [bold red][ERROR][/bold red] [{sc_name}] Model build failed: {e}")
         if os.environ.get('PATHFINDER_DEBUG'):
             traceback.print_exc()
-        return 'Error'
+        return 'Error', None, None
 
     # --- 3. Solve (with OS-level watchdog) -----------------------------------
     progress.update(task_id, description=f"[cyan]{sc_name}[/cyan] Solving...", completed=20)
@@ -270,7 +270,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
                             f"Recovery attempts failed — skipping report."
                         )
                         progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
-                        return 'Timeout'
+                        return 'Timeout', None, None
             except Exception as rec_e:
                 console.print(
                     f"  [bold red][ERROR][/bold red] [{sc_name}] Timeout recovery failed: {rec_e}"
@@ -278,7 +278,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
                 if os.environ.get('PATHFINDER_DEBUG'):
                     traceback.print_exc()
                 progress.update(task_id, description=f"[yellow]{sc_name} — TIMEOUT[/yellow]", completed=100)
-                return 'Timeout'
+                return 'Timeout', None, None
     except Exception as e:
         solve_done.set()
         spinner_thread.join(timeout=1)
@@ -286,7 +286,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         if os.environ.get('PATHFINDER_DEBUG'):
             traceback.print_exc()
         progress.update(task_id, description=f"[red]{sc_name} — ERROR[/red]", completed=100)
-        return 'Error'
+        return 'Error', None, None
     finally:
         solve_done.set()
         spinner_thread.join(timeout=1)
@@ -331,7 +331,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
                         f"Recovery attempts failed — remaining Infeasible."
                     )
                     progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
-                    return 'Infeasible'
+                    return 'Infeasible', None, None
         except Exception as e:
             console.print(
                 f"  [bold red][ERROR][/bold red] [{sc_name}] Recovery pass failed: {e}"
@@ -339,7 +339,7 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
             if os.environ.get('PATHFINDER_DEBUG'):
                 traceback.print_exc()
             progress.update(task_id, description=f"[yellow]{sc_name} — Infeasible[/yellow]", completed=100)
-            return 'Infeasible'
+            return 'Infeasible', None, None
 
     if watchdog_fired:
         console.print(f"  [bold yellow][OK][/bold yellow]   [{sc_name}] Solver status: {status} (best available — time limit exceeded)")
@@ -366,10 +366,14 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
         if os.environ.get('PATHFINDER_DEBUG'):
             traceback.print_exc()
         progress.update(task_id, description=f"[red]{sc_name} — Report Error[/red]", completed=100)
-        return 'ReportError'
+        return 'ReportError', None, None
+
+    # Extract solution and KPIs for sensitivity warm starts
+    solution = get_model_solution(optimizer)
+    kpis = extract_kpis(optimizer)
 
     progress.update(task_id, description=f"[green]{sc_name} v[/green]", completed=100)
-    return status
+    return status, solution, kpis
 
 
 def regenerate_results_dashboard() -> bool:
@@ -432,44 +436,55 @@ def main():
     verbose_logging = False
 
     if not scenarios:
-        console.print("[yellow][INFO] No MODELING/SCENARIOS block found. Running in single-scenario mode.[/yellow]")
-        scenarios          = [{'id': 'DEFAULT', 'name': 'Default'}]
-        use_scenario_filter = False
+        if _parser_probe.sim_row_found:
+            console.print("[yellow][INFO] SIM row is empty. Skipping main optimal resolution as requested.[/yellow]")
+            use_scenario_filter = True # No scenarios will be processed
+        else:
+            console.print("[yellow][INFO] No MODELING/SCENARIOS block found. Running in single-scenario mode.[/yellow]")
+            scenarios          = [{'id': 'DEFAULT', 'name': 'Default'}]
+            use_scenario_filter = False
     else:
         use_scenario_filter = True
         console.print(f"[bold cyan]Found {len(scenarios)} scenario(s): {[s['name'] for s in scenarios]}[/bold cyan]")
 
-    # Read time_limit from the first scenario's data
-    try:
-        data_probe = _parser_probe.parse(scenario_id=scenarios[0]['id'] if use_scenario_filter else None)
-        time_limit = data_probe.parameters.time_limit
-    except Exception:
-        time_limit = 60.0  # sensible default
-
     # -- 1. Run scenarios sequentially ----------------------------------------
-    console.print(f"\n[bold magenta]SYSTEM OPTIMAL RESOLUTION ({len(scenarios)} scenario(s))...[/bold magenta]")
-
     summary = {}  # sc_name -> status string
+    precomputed_results = {} # sc_id -> {"solution": ..., "kpis": ...}
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("{task.description}"),
-        BarColumn(bar_width=40),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-        refresh_per_second=4,
-    ) as progress:
-        for sc in scenarios:
-            task_id = progress.add_task(
-                description=f"[cyan]{sc['name']}[/cyan] Initialising...",
-                total=100
-            )
-            status = run_scenario(
-                sc, file_path, use_scenario_filter,
-                generate_excel, progress, task_id, time_limit
-            )
-            summary[sc['name']] = status
+    if scenarios:
+        # Read time_limit from the first scenario's data
+        try:
+            data_probe = _parser_probe.parse(scenario_id=scenarios[0]['id'] if use_scenario_filter else None)
+            time_limit = data_probe.parameters.time_limit
+        except Exception:
+            time_limit = 60.0  # sensible default
+
+        console.print(f"\n[bold magenta]SYSTEM OPTIMAL RESOLUTION ({len(scenarios)} scenario(s))...[/bold magenta]")
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            BarColumn(bar_width=40),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=console,
+            refresh_per_second=4,
+        ) as progress:
+            for sc in scenarios:
+                task_id = progress.add_task(
+                    description=f"[cyan]{sc['name']}[/cyan] Initialising...",
+                    total=100
+                )
+                status, solution, kpis = run_scenario(
+                    sc, file_path, use_scenario_filter,
+                    generate_excel, progress, task_id, time_limit
+                )
+                summary[sc['name']] = status
+                if solution and kpis:
+                    precomputed_results[sc['id']] = {"solution": solution, "kpis": kpis}
+    else:
+        # No main simulations to run
+        pass
 
     # -- 2. Run sensitivity analysis (if requested) ---------------------------
     sens_results = []
@@ -479,18 +494,24 @@ def main():
         
         # We only run if RUN was YES AND we have variations, scenarios and targets
         if sens_params.run:
-            if active_targets and sens_params.variations and sens_params.scenarios:
-                console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations)...[/bold magenta]")
-                sens_results = run_sensitivity(file_path, verbose=False)
+            # Validate each prerequisite independently for clear diagnostic messages
+            if not sens_params.scenarios:
+                console.print("[yellow][INFO][/yellow] Sensitivity: SIM row is empty — no scenarios to simulate. Skipping.")
+            elif not sens_params.variations:
+                console.print("[yellow][INFO][/yellow] Sensitivity: no variation amplitudes defined (VAR row). Skipping.")
+            elif not active_targets:
+                console.print("[yellow][INFO][/yellow] Sensitivity: no targets set to YES (DATA? rows). Skipping.")
+            else:
+                console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations, {len(sens_params.scenarios)} scenario(s))...[/bold magenta]")
+                sens_output_path = os.path.join('artifacts', 'sensitivity', 'sensitivity_results.json')
+                sens_results = run_sensitivity(file_path, output_path=sens_output_path, verbose=False, precomputed_base_sols=precomputed_results)
                 if sens_results:
                     console.print(f"[bold green][OK][/bold green] Sensitivity analysis complete: {len(sens_results)} simulations.")
                 else:
                     console.print("[yellow][WARN][/yellow] Sensitivity analysis returned no results.")
-            else:
-                console.print("[yellow][INFO][/yellow] Sensitivity analysis was requested (RUN YES) but missing variations, targets or scenarios. Skipping.")
         else:
             # RUN was NO or missing (default False)
-            pass 
+            pass
     except Exception as e:
         console.print(f"[bold red][ERROR][/bold red] Sensitivity analysis failed: {e}")
 
