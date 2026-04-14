@@ -8,7 +8,8 @@ def build_carbon_tax_figure(
     avoided_reduced: List[float],
     avoided_captured: List[float],
     ccfd_refunds: Optional[List[float]] = None,
-    title: str = "CARBON TAX & AVOIDED COSTS BALANCE"
+    title: str = "CARBON TAX & AVOIDED COSTS BALANCE",
+    theme: str = "report"
 ) -> go.Figure:
     """
     Creates a high-fidelity Plotly visualization of carbon costs (tax, penalties) 
@@ -67,28 +68,39 @@ def build_carbon_tax_figure(
             hovertemplate="CCfD Refund: %{y:.2f} M€<extra></extra>"
         ))
 
+    # --- Theme Configuration ---
+    is_dashboard = (theme == "dashboard")
+    bg_color = "rgba(0,0,0,0)" if is_dashboard else "white"
+    font_family = "Bookman Old Style, Bookman, serif" if is_dashboard else "Arial"
+    text_color = "#1e293b" if is_dashboard else "#1F2937"
+    grid_color = "#f1f5f9" if is_dashboard else "#E5E7EB"
+
     # --- Layout ---
     fig.update_layout(
         title=dict(
             text=title,
             x=0.5,
-            font=dict(size=18, color="#1F2937", family="Arial")
+            font=dict(size=18, color=text_color, family=font_family)
         ),
         template="plotly_white",
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
         barmode="relative", # Stacked for positive, stacked for negative
         hovermode="x unified",
         xaxis=dict(
             title="Year",
             tickmode="linear",
             dtick=5,
-            gridcolor="#E5E7EB"
+            gridcolor=grid_color,
+            tickfont=dict(family=font_family, color=text_color)
         ),
         yaxis=dict(
             title="Annual Financial Impact (M€)",
-            gridcolor="#E5E7EB",
+            gridcolor=grid_color,
             zeroline=True,
             zerolinecolor="#9CA3AF",
-            zerolinewidth=2
+            zerolinewidth=2,
+            tickfont=dict(family=font_family, color=text_color)
         ),
         legend=dict(
             orientation="h",
@@ -96,12 +108,14 @@ def build_carbon_tax_figure(
             y=-0.3,
             xanchor="center",
             x=0.5,
-            bgcolor="rgba(255, 255, 255, 0.8)",
-            bordercolor="#E5E7EB",
-            borderwidth=1
+            bgcolor="rgba(255, 255, 255, 0.5)" if is_dashboard else "rgba(255, 255, 255, 0.8)",
+            bordercolor=grid_color,
+            borderwidth=1,
+            font=dict(family=font_family, color=text_color, size=11)
         ),
         margin=dict(t=80, b=100, l=60, r=40),
-        height=600
+        height=600,
+        font=dict(family=font_family)
     )
 
     return fig

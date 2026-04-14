@@ -5,20 +5,11 @@ from typing import List, Dict, Any
 def build_energy_mix_figure(
     years: List[int],
     category_data: Dict[str, Dict[str, Any]],
-    title: str = "ENERGY MIX"
+    title: str = "ENERGY MIX",
+    theme: str = "report"
 ) -> go.Figure:
     """
     Builds a Plotly figure for Energy Mix with a dropdown to select categories.
-    
-    category_data: {
-        'Category Name': {
-            'unit': 'MWh',
-            'series': {
-                'Resource Name': [vals...],
-                ...
-            }
-        }
-    }
     """
     fig = go.Figure()
     
@@ -26,6 +17,14 @@ def build_energy_mix_figure(
     if not categories:
         fig.add_annotation(text="No data available for Energy Mix", showarrow=False)
         return fig
+
+    # --- Theme Configuration ---
+    is_dashboard = (theme == "dashboard")
+    bg_color = "rgba(0,0,0,0)" if is_dashboard else "white"
+    font_family = "Bookman Old Style, Bookman, serif" if is_dashboard else "Arial"
+    text_color = "#1e293b" if is_dashboard else "#0f172a"
+    grid_color = "#f1f5f9"
+    template = "plotly_white"
 
     # Create traces for all categories, but only show the first one initially
     trace_indices_per_cat = {}
@@ -42,10 +41,6 @@ def build_energy_mix_figure(
         sorted_series = sorted(series_dict.items(), key=lambda x: sum(abs(v) for v in x[1]), reverse=True)
         
         for name, values in sorted_series:
-            # We use absolute values for stacked areas if we separate cons/prod 
-            # but usually energy mix is all positive (consumption).
-            # If there are productions (negative), we plot them as well.
-            
             fig.add_trace(go.Scatter(
                 x=years,
                 y=values,
@@ -74,7 +69,11 @@ def build_energy_mix_figure(
             method="update",
             args=[
                 {"visible": visibility},
-                {"yaxis": {"title": f"Energy Flow ({unit})", "gridcolor": "#f1f5f9"}}
+                {"yaxis": {
+                    "title": f"Energy Flow ({unit})", 
+                    "gridcolor": grid_color,
+                    "tickfont": dict(family=font_family, color=text_color)
+                }}
             ]
         ))
 
@@ -89,27 +88,31 @@ def build_energy_mix_figure(
                 xanchor="left",
                 y=1.15,
                 yanchor="top",
-                bgcolor="white",
+                bgcolor="white" if not is_dashboard else "rgba(255, 255, 255, 0.9)",
                 bordercolor="#e2e8f0",
-                font=dict(size=12, color="#1e293b")
+                font=dict(size=12, color="#1e293b", family=font_family)
             ),
         ],
-        template="plotly_white",
+        template=template,
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
         title=dict(
             text=title,
-            font=dict(size=20, weight='bold', color="#0f172a"),
+            font=dict(size=20, weight='bold', color=text_color, family=font_family),
             x=0.5,
             xanchor="center"
         ),
         xaxis=dict(
             title="Year",
-            gridcolor="#f1f5f9",
+            gridcolor=grid_color,
             tickmode='linear',
-            dtick=5
+            dtick=5,
+            tickfont=dict(family=font_family, color=text_color)
         ),
         yaxis=dict(
             title=f"Energy Flow ({category_data[categories[0]]['unit']})",
-            gridcolor="#f1f5f9"
+            gridcolor=grid_color,
+            tickfont=dict(family=font_family, color=text_color)
         ),
         legend=dict(
             orientation="h",
@@ -117,12 +120,14 @@ def build_energy_mix_figure(
             y=-0.3,
             xanchor="center",
             x=0.5,
-            bgcolor="rgba(255,255,255,0.8)",
+            bgcolor="rgba(255,255,255,0.5)" if is_dashboard else "rgba(255,255,255,0.8)",
             bordercolor="#e2e8f0",
-            borderwidth=1
+            borderwidth=1,
+            font=dict(family=font_family, color=text_color)
         ),
         margin=dict(l=60, r=40, t=100, b=100),
-        hovermode="x unified"
+        hovermode="x unified",
+        font=dict(family=font_family)
     )
 
     return fig

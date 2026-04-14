@@ -6,7 +6,7 @@ def build_investment_plan_figure(
     df_projects: pd.DataFrame,
     df_costs: pd.DataFrame,
     years: List[int],
-    is_dark_bg: bool = False,
+    theme: str = "report",
     title: str = "INVESTMENT PLAN: IMPLEMENTATION COSTS"
 ) -> go.Figure:
     """
@@ -119,45 +119,52 @@ def build_investment_plan_figure(
             hovertemplate="Total Limit: %{y:.1f} M€<extra></extra>"
         ))
 
-    # 6. Layout & styling
-    bg_color = 'rgba(0,0,0,0)' if is_dark_bg else 'white'
-    text_color = '#EEEEEE' if is_dark_bg else '#2c3e50'
-    grid_color = '#2B2B36' if is_dark_bg else '#eeeeee'
-    template = 'plotly_dark' if is_dark_bg else 'plotly_white'
+    # --- Theme Configuration ---
+    is_dashboard = (theme == "dashboard")
+    is_dark = (theme == "dark")
+    bg_color = "rgba(0,0,0,0)" if is_dashboard else ("#111827" if is_dark else "white")
+    text_color = "#EEEEEE" if (is_dark or is_dashboard) else "#2c3e50"
+    grid_color = "#2B2B36" if (is_dark or is_dashboard) else "#eeeeee"
+    font_family = "Bookman Old Style, Bookman, serif" if is_dashboard else "Arial"
+    template = "plotly_dark" if (is_dark or is_dashboard) else "plotly_white"
 
+    # 6. Layout & styling
     fig.update_layout(
         template=template,
         barmode='stack',
         paper_bgcolor=bg_color, plot_bgcolor=bg_color,
-        title=dict(text=title, font=dict(size=20, weight='bold', color=text_color)),
+        title=dict(text=title, font=dict(size=20, weight='bold', color=text_color, family=font_family)),
         xaxis=dict(
             title='Year', gridcolor=grid_color, 
-            tickmode='linear', dtick=5, color=text_color
+            tickmode='linear', dtick=5, color=text_color,
+            tickfont=dict(family=font_family)
         ),
         yaxis=dict(
             title='Annual Implementation Cost (M€)', 
             gridcolor=grid_color, color=text_color,
-            zeroline=True, zerolinecolor=text_color
+            zeroline=True, zerolinecolor=text_color,
+            tickfont=dict(family=font_family)
         ),
         legend=dict(
             orientation="h", 
             yanchor="top", y=-0.15, 
             xanchor="center", x=0.5,
             groupclick="toggleitem", # Important to allow individual selection in categories
-            font=dict(color=text_color, size=11),
+            font=dict(color=text_color, size=11, family=font_family),
             bgcolor='rgba(0,0,0,0)',
             bordercolor=grid_color,
             borderwidth=1
         ),
         margin=dict(l=60, r=60, t=100, b=150),
-        hovermode="x unified"
+        hovermode="x unified",
+        font=dict(family=font_family)
     )
 
-    # 6. Watermark
+    # 7. Watermark
     fig.add_annotation(
         text="PATHFINDER Industrial Decarbonization Simulation",
         xref="paper", yref="paper", x=0.5, y=1.07,
-        showarrow=False, font=dict(size=12, color="gray"),
+        showarrow=False, font=dict(size=12, color="gray", family=font_family),
         opacity=0.6
     )
 

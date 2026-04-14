@@ -13,11 +13,21 @@ from .optimizer import PathFinderOptimizer
 import plotly.graph_objects as go
 import plotly.io as pio
 from .plots.carbon_tax import build_carbon_tax_figure
-from pathway.core.plots.financial import build_transition_cost_figure
-from pathway.core.plots.carbon import build_carbon_price_figure
+from pathway.core.plots.financial import (
+    build_transition_cost_figure, 
+    build_external_financing_figure,
+    build_interest_paid_figure,
+    build_mac_figure
+)
+from pathway.core.plots.carbon import (
+    build_carbon_price_figure, 
+    build_co2_trajectory_figure,
+    build_indirect_emissions_figure
+)
 from pathway.core.plots.energy_mix import build_energy_mix_figure
 from pathway.core.plots.investment import build_investment_plan_figure
 from pathway.core.plots.opex import build_opex_figure
+from pathway.core.plots.prices import build_simulation_prices_figure
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -33,18 +43,46 @@ class PathFinderReporter:
         self.results_dir = os.path.join(repo_root, 'artifacts', 'reports', self.scenario_name)
         self.charts_data = [] # List of (title, dataframe) tuples
 
-    def _save_plotly_figure(self, fig, base_filename):
+    def _save_plotly_figure(self, fig, base_filename, show_png: bool = True):
         """Unified save method for Plotly figures (PNG + JSON)."""
         charts_dir = os.path.join(self.results_dir, "charts")
         os.makedirs(charts_dir, exist_ok=True)
         
         # 1. Export static PNG (Golden Rule: exactly like Matplotlib)
-        png_path = os.path.join(self.results_dir, f"{self.scenario_name}_{base_filename}.png")
-        fig.write_image(png_path, scale=2, width=1200, height=800)
+        # ONLY if show_png is enabled.
+        if show_png:
+            png_path = os.path.join(self.results_dir, f"{self.scenario_name}_{base_filename}.png")
+            fig.write_image(png_path, scale=2, width=1200, height=800)
         
-        # 2. Export JSON for web dashboard
+        # 2. Export JSON for web dashboard (ALWAYS)
         json_path = os.path.join(charts_dir, f"{base_filename}.json")
-        fig.write_json(json_path)
+        # Explicitly save as UTF-8 to prevent Windows locale issues (cp1252)
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(fig.to_json())
+
+    def _save_plotly_placeholder(self, base_filename: str, title: str, message: str, show_png: bool = True):
+        """Creates a styled Plotly placeholder when no data is available, keeping artifact parity."""
+        fig = go.Figure()
+        
+        # Add a central annotation with the message
+        fig.add_annotation(
+            text=f"<b>{title}</b><br><br>{message}",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color="#64748b"),
+            align="center"
+        )
+        
+        # Simple styled layout
+        fig.update_layout(
+            template="plotly_white",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            margin=dict(l=40, r=40, t=60, b=40),
+            height=600
+        )
+        
+        self._save_plotly_figure(fig, base_filename, show_png=show_png)
 
     def _add_scenario_label(self, fig):
         """Add a colored label box in the top-right corner with the scenario name."""
@@ -1207,62 +1245,48 @@ class PathFinderReporter:
         if not df_mac.empty:
             df_mac = df_mac.sort_values(by='MAC (€/tCO2)').reset_index(drop=True)
 
-        # 4. Generate Visualizations
+        # 4. Generate Visualizations (Always export JSON for Dashboard, gate PNG via show_png)
         if self.verbose:
             print("  [yellow][Reporter][/yellow] [PLOT] Generating visualizations...")
         self.charts_data = [] # Clear/Re-init for collection
         toggles = self.data.reporting_toggles
 
-        if toggles.chart_energy_mix: 
-            self._plot_energy_mix(df_cons)
-            _step()
-        if toggles.chart_co2_trajectory: 
-            self._plot_co2_trajectory(df_emis)
-            _step()
-        if toggles.chart_indirect_emissions:
-            if not df_indir.empty:
-                self._plot_indirect_emissions(df_indir)
-            else:
-                self._save_no_data_chart(
-                    f'{self.scenario_name}_Indirect_Emissions.png',
-                    'INDIRECT EMISSIONS',
-                    'No indirect emissions data available for this scenario.'
-                )
-            _step()
-        if toggles.chart_investment_costs: 
-            self._plot_investment_costs(df_costs, df_finance)
-            _step()
-        if toggles.chart_total_opex: 
-            self._plot_total_opex(df_cons, df_emis)
-            _step()
-        if toggles.chart_carbon_tax_avoided: 
-            self._plot_carbon_tax_and_avoided(df_emis)
-            _step()
-        if toggles.chart_external_financing: 
-            self._plot_external_financing(df_costs, df_finance)
-            _step()
-        if toggles.chart_transition_costs: 
-            self._plot_transition_costs(df_costs, df_finance, df_emis)
-            _step()
-        if toggles.chart_carbon_prices: 
-            self._plot_carbon_prices()
-            _step()
-        if toggles.chart_interest_paid: 
-            self._plot_interest_paid(df_finance)
-            _step()
-        if toggles.chart_resource_prices: 
-            self._plot_prices()
-            _step()
-        if toggles.chart_co2_abatement_cost:
-            if not df_mac.empty:
-                self._plot_co2_abatement_cost(df_mac)
-            else:
-                self._save_no_data_chart(
-                    f'{self.scenario_name}_CO2_Abatement_Cost.png',
-                    'MARGINAL ABATEMENT COST',
-                    'No valid abatement projects found to build a MAC curve.'
-                )
-            _step()
+        # Always process all key visualizations to populate the Dashboard artifacts
+        self._plot_energy_mix(df_cons, show_png=toggles.chart_energy_mix)
+        _step()
+        
+        self._plot_co2_trajectory(df_emis, show_png=toggles.chart_co2_trajectory)
+        _step()
+        
+        self._plot_indirect_emissions(df_indir, show_png=toggles.chart_indirect_emissions)
+        _step()
+        
+        self._plot_investment_costs(df_costs, df_finance, show_png=toggles.chart_investment_costs)
+        _step()
+        
+        self._plot_total_opex(df_cons, df_emis, show_png=toggles.chart_total_opex)
+        _step()
+        
+        self._plot_carbon_tax_and_avoided(df_emis, show_png=toggles.chart_carbon_tax_avoided)
+        _step()
+        
+        self._plot_external_financing(df_costs, df_finance, show_png=toggles.chart_external_financing)
+        _step()
+        
+        self._plot_transition_costs(df_costs, df_finance, df_emis, show_png=toggles.chart_transition_costs)
+        _step()
+        
+        self._plot_carbon_prices(show_png=toggles.chart_carbon_prices)
+        _step()
+        
+        self._plot_interest_paid(df_finance, show_png=toggles.chart_interest_paid)
+        _step()
+        
+        self._plot_prices(show_png=toggles.chart_resource_prices)
+        _step()
+        
+        self._plot_co2_abatement_cost(df_mac, show_png=toggles.chart_co2_abatement_cost)
+        _step()
         
         # 4. Final step: Re-run Excel export to include the charts sheet if needed
         # (This is a bit redundant but ensures we have the data captured AFTER plots are run)
@@ -1362,227 +1386,75 @@ class PathFinderReporter:
             for text in leg.get_texts():
                 text.set_fontsize(12)
 
-    def _plot_energy_mix(self, df: pd.DataFrame):
-        GJ_TO_MWH = 1.0 / 3.6
+    def _plot_energy_mix(self, df: pd.DataFrame, show_png: bool = True):
         df_plot = df.copy()
-        df_plot.set_index('Year', inplace=True)
+        if 'Year' in df_plot.columns:
+            df_plot.set_index('Year', inplace=True)
         # Remove resources that are all zeros
         df_plot = df_plot.loc[:, (df_plot != 0).any(axis=0)]
         
-        years = [int(y) for y in df_plot.index]
-        if not years:
-            return
-
-        # 1. Group resources by Type and Category
-        # We use a hierarchical key: "[TYPE] Category"
-        cat_map = {} 
+        years = list(df_plot.index)
+        data_cols = [c for c in df_plot.columns if c != 'Year']
         
-        for res_id in df_plot.columns:
-            if res_id not in self.data.resources:
-                continue
-                
-            res = self.data.resources[res_id]
-            res_type = res.type.upper()
-            cat = res.category
-            unit = res.unit
-            name = res.name if res.name and res.name != res_id else res_id
+        cat_map = {}
+        GJ_TO_MWH = 1.0 / 3.6
+        
+        for col in data_cols:
+            if '##' not in col: continue
+            res_type, res_id = col.split('##', 1)
+            name = self.data.resources[res_id].name if res_id in self.data.resources else res_id
+            unit = self.data.resources[res_id].unit if res_id in self.data.resources else 'unit'
+            vals = df_plot[col].tolist()
             
-            vals = df_plot[res_id].values.tolist()
-            
-            # Basic normalization GJ -> MWh
+            # Normalization GJ -> MWh
             if unit.upper() == 'GJ':
                 vals = [v * GJ_TO_MWH for v in vals]
                 unit = 'MWh'
 
-            # Hierarchical key
-            display_cat = f"[{res_type}] {cat}"
-
+            display_cat = f"[{res_type}]"
             if display_cat not in cat_map:
                 cat_map[display_cat] = {'unit': unit, 'series': {}}
-            
             cat_map[display_cat]['series'][name] = vals
-
-        # Sort cat_map by Type then Category for the dropdown
-        sorted_keys = sorted(cat_map.keys())
-        cat_map = {k: cat_map[k] for k in sorted_keys}
 
         # Build figure
         fig = build_energy_mix_figure(
             years=years,
             category_data=cat_map,
+            theme="report",
             title="ENERGY MIX BREAKDOWN"
         )
         
-        # Save results
-        self._save_plotly_figure(fig, "Energy_Mix")
-        
-        # Store for Excel
+        self._save_plotly_figure(fig, "Energy_Mix", show_png=show_png)
         self.charts_data.append(("Energy Mix Breakdown by Category", df_plot))
 
-    def _plot_co2_trajectory(self, df: pd.DataFrame):
-        """Conversion fidèle du graphique CO2 Trajectory en Plotly Python."""
-        # --- 1. Préparation des données (Identique au Matplotlib original) ---
-        KT = 1000.0
-        df = df.copy()
-        for col in ['Direct_CO2', 'Indirect_CO2', 'Total_CO2', 'Taxed_CO2', 'Free_Quota']:
-            if col in df.columns:
-                df[col] = df[col] / KT
-        
-        dac_cap = df.get('DAC_Captured_kt', pd.Series(0, index=df.index))
-        cred = df.get('Credits_Purchased_kt', pd.Series(0, index=df.index))
-        has_dac_or_cred = (dac_cap + cred).max() > 1e-4
-
-        # Calcul des bilans nets
-        net_direct = df['Direct_CO2'] - dac_cap - cred
-        net_total = net_direct + df['Indirect_CO2']
-
-        fig = go.Figure()
-
-        # --- 2. AIRES DE RÉFÉRENCE (Remplissages continus) ---
-        
-        # Remplissage sous Net Direct (Ombre légère)
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=net_direct,
-            fill='tozeroy', fillcolor='rgba(52, 152, 219, 0.1)',
-            mode='none', showlegend=False, name='Net Direct Shade'
-        ))
-
-        # DAC et Crédits (Aires Négatives)
-        if has_dac_or_cred:
-            # Trace de base pour DAC (remplissage vers 0)
-            fig.add_trace(go.Scatter(
-                x=df['Year'], y=[-x for x in dac_cap],
-                name='DAC Captured (ktCO2)',
-                fill='tozeroy', fillcolor='rgba(52, 152, 219, 0.6)',
-                mode='lines', line=dict(width=0)
-            ))
-            # Trace pour Credits (remplissage entre DAC et (DAC+Credits))
-            fig.add_trace(go.Scatter(
-                x=df['Year'], y=[-(d + c) for d, c in zip(dac_cap, cred)],
-                name='Voluntary Credits (ktCO2)',
-                fill='tonexty', fillcolor='rgba(39, 174, 96, 0.6)',
-                mode='lines', line=dict(width=0)
-            ))
-
-        # Quotas Gratuits (Vert transparent, 0 vers Free_Quota)
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=df['Free_Quota'],
-            name='Free Quotas (Direct)',
-            fill='tozeroy', fillcolor='rgba(0, 128, 0, 0.3)',
-            mode='lines', line=dict(width=0)
-        ))
-
-        # Émissions Taxées (Hachuré / Motifs, Free_Quota vers Total)
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=df['Free_Quota'] + df['Taxed_CO2'],
-            name='Taxed Emissions (Surface)',
-            fill='tonexty',
-            fillcolor='rgba(128, 128, 128, 0.4)',
-            fillpattern=dict(shape=".", solidity=0.3),
-            mode='lines', line=dict(width=0)
-        ))
-
-        # --- 3. COURBES DE TRAJECTOIRE ---
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=df['Direct_CO2'],
-            name='Direct Emissions', line=dict(color='black', width=3), mode='lines'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=df['Indirect_CO2'],
-            name='Indirect Emissions', line=dict(color='black', width=2, dash='dot'), mode='lines'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=net_total,
-            name='Total Emissions (Net)', line=dict(color='darkred', width=3, dash='dash'), mode='lines'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df['Year'], y=net_direct,
-            name='Net Direct Emissions', line=dict(color='#3498db', width=3, dash='dashdot'), mode='lines'
-        ))
-
-        # --- 4. OBJECTIFS (Scatter 'x') ---
-        plotted_groups = set()
-        available_colors = ['#e74c3c', '#9b59b6', '#f39c12', '#1abc9c', '#34495e', '#d35400', '#2ecc71']
-        group_colors = {}
-
-        for obj in self.data.objectives:
-            if obj.resource == 'CO2_EM':
-                if obj.comparison_year and -1.0 <= obj.cap_value <= 1.0:
-                    limit = self.opt.entity.base_emissions * (1 + obj.cap_value) / KT
-                else:
-                    limit = obj.cap_value / KT
-                
-                display_name = obj.name if obj.name else (obj.group if obj.group else 'Goal')
-                show_legend = display_name not in plotted_groups
-                plotted_groups.add(display_name)
-                
-                grp = obj.group if obj.group else 'Default'
-                if grp not in group_colors:
-                    group_colors[grp] = available_colors[len(group_colors) % len(available_colors)]
-                
-                fig.add_trace(go.Scatter(
-                    x=[obj.target_year], y=[limit],
-                    mode='markers', name=display_name, showlegend=show_legend,
-                    marker=dict(symbol='x', size=12, line=dict(width=3), color=group_colors[grp])
-                ))
-
-        # --- 5. LOGIQUE DE LAYOUT ET STYLE ---
-        # Ligne de Zéro
-        fig.add_shape(type="line", x0=df['Year'].min(), x1=df['Year'].max(), y0=0, y1=0, 
-                      line=dict(color="black", width=1.2))
-
-        # Configuration des Axes et Titre
-        fig.update_layout(
-            template='plotly_white',
-            title=dict(text='CO2 EMISSIONS TRAJECTORY & GOALS', font=dict(size=20, weight='bold')),
-            xaxis=dict(title='Year', gridcolor='#eeeeee', tickmode='linear'),
-            yaxis=dict(title='ktCO2', gridcolor='#eeeeee', zeroline=False),
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, 
-                        bordercolor="#E0E0E0", borderwidth=1),
-            margin=dict(l=60, r=40, t=100, b=120),
-            bargap=0, # Crucial pour l'effet "surface"
+    def _plot_co2_trajectory(self, df: pd.DataFrame, show_png: bool = True):
+        """Generates the CO2 Trajectory visualization using the centralized module."""
+        fig = build_co2_trajectory_figure(
+            df=df,
+            objectives=self.data.objectives,
+            base_emissions=self.opt.entity.base_emissions,
+            theme="report",
+            title=f"CO2 EMISSIONS TRAJECTORY: {self.scenario_name}"
         )
-
-        # Label de Scénario (Top-Right)
-        palette_label = {'BS': '#1A5276', 'CT': '#1E8449', 'LCB': '#6E2F7C'}
-        label_color = palette_label.get(self.scenario_id.upper(), '#333333')
-        fig.add_annotation(
-            xref="paper", yref="paper", x=1.0, y=1.05,
-            text=f" <b>{self.scenario_name}</b> ",
-            showarrow=False, font=dict(color="white", size=12),
-            bgcolor=label_color, borderpad=4, borderwidth=0
-        )
-
-        # Watermark
-        logo_path = os.path.join('INPUT', 'logo_dark.png')
-        if os.path.exists(logo_path):
-            import base64
-            with open(logo_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode()
-            fig.add_layout_image(dict(
-                source=f"data:image/png;base64,{encoded_string}",
-                xref="paper", yref="paper", x=0.5, y=0.5,
-                sizex=0.6, sizey=0.6, xanchor="center", yanchor="middle",
-                opacity=0.08, layer="below"
-            ))
-
-        # --- 6. SAUVEGARDE ET EXPORT ---
-        self._save_plotly_figure(fig, "CO2_Trajectory")
         
-        # Collecte des données pour l'Excel
+        self._save_plotly_figure(fig, "CO2_Trajectory", show_png=show_png)
         self.charts_data.append(("CO2 Emissions Trajectory & Decarbonization Goals", df))
 
-    def _plot_indirect_emissions(self, df: pd.DataFrame):
-        """Plot indirect emissions breakdown by resource."""
-        fig = plt.figure(figsize=(12, 9))
-        # No tight_layout call here yet, wait for end
+    def _plot_indirect_emissions(self, df: pd.DataFrame, show_png: bool = True):
+        """Plot indirect emissions breakdown using the centralized module."""
         df_plot = df.copy()
-        df_plot.set_index('Year', inplace=True)
-        
+        if 'Year' in df_plot.columns:
+            df_plot.set_index('Year', inplace=True)
         # Remove resources that are all zeros
         df_plot = df_plot.loc[:, (df_plot != 0).any(axis=0)]
         
         if df_plot.empty:
+            self._save_plotly_placeholder(
+                "Indirect_Emissions", 
+                "INDIRECT EMISSIONS", 
+                "No indirect emissions data available for this scenario.",
+                show_png=show_png
+            )
             return
 
         # Convert to ktCO2
@@ -1601,90 +1473,56 @@ class PathFinderReporter:
         
         for cat_name, keywords in categories.items():
             if cat_name == 'Other': continue
-            matching_cols = []
-            for col in df_plot.columns:
-                name_upper = str(self.data.resources[col].name if col in self.data.resources else col).upper()
-                if any(k in name_upper for k in keywords):
-                    matching_cols.append(col)
-                    used_cols.add(col)
-            if matching_cols:
-                cat_df[cat_name] = df_plot[matching_cols].sum(axis=1)
+            cols = [c for c in df_plot.columns if any(k in c.upper() for k in keywords) and c not in used_cols]
+            if cols:
+                cat_df[cat_name] = df_plot[cols].sum(axis=1)
+                used_cols.update(cols)
         
-        # Add remaining columns to 'Other'
-        remaining_cols = [c for c in df_plot.columns if c not in used_cols]
-        if remaining_cols:
-            cat_df['Other'] = df_plot[remaining_cols].sum(axis=1)
-
-        # Plot stacked area chart with a premium corporate palette
-        premium_palette = ['#2C3E50', '#E67E22', '#2980B9', '#8E44AD', '#16A085', '#D35400']
-        ax = cat_df.plot.area(stacked=True, alpha=0.85, colormap='tab10' if len(cat_df.columns) > 6 else None)
-        if len(cat_df.columns) <= 6:
-            for i, poly in enumerate(ax.get_children()):
-                if isinstance(poly, plt.Polygon):
-                    if i < len(premium_palette):
-                        poly.set_facecolor(premium_palette[i])
-
-        plt.title('INDIRECT EMISSIONS BREAKDOWN (SCOPE 2 & 3)', fontsize=15, weight='bold', pad=20)
-        plt.ylabel('ktCO2', fontsize=12, weight='semibold')
-        plt.xlabel('Year', fontsize=12, weight='semibold')
+        other_cols = [c for c in df_plot.columns if c not in used_cols]
+        if other_cols:
+            cat_df['Other'] = df_plot[other_cols].sum(axis=1)
+            
+        fig = build_indirect_emissions_figure(
+            df_cat=cat_df,
+            years=list(cat_df.index),
+            theme="report",
+            title=f"INDIRECT EMISSIONS: {self.scenario_name}"
+        )
         
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), title="Category", title_fontsize='12', ncol=3, fontsize=12)
-        self._apply_premium_style(ax)
-
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.2)
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Indirect_Emissions.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data
+        self._save_plotly_figure(fig, "Indirect_Emissions", show_png=show_png)
         self.charts_data.append(("Indirect Emissions Breakdown by Category (Scope 2 & 3)", cat_df))
         
-    def _plot_investment_costs(self, df: pd.DataFrame, df_finance: pd.DataFrame = None):
+    def _plot_investment_costs(self, df: pd.DataFrame, df_finance: pd.DataFrame = None, show_png: bool = True):
         """Plot the Investment Plan, focusing on Implementation Costs (M€) and budget limits using Plotly."""
         # 1. Prepare Data using the high-fidelity builder
         fig = build_investment_plan_figure(
             df_projects=self.df_projects,
             df_costs=self.df_costs,
             years=list(self.years),
-            is_dark_bg=False,
+            theme="report",
             title=f"INVESTMENT PLAN: {self.scenario_name}"
         )
 
-        # 2. Add Scenario Label (Parity with other Plotly charts)
-        palette_label = {'BS': '#1A5276', 'CT': '#1E8449', 'LCB': '#6E2F7C'}
-        label_color = palette_label.get(self.scenario_id.upper(), '#333333')
-        fig.add_annotation(
-            xref="paper", yref="paper", x=1.0, y=1.05,
-            text=f" <b>{self.scenario_name}</b> ",
-            showarrow=False, font=dict(color="white", size=12),
-            bgcolor=label_color, borderpad=4, borderwidth=0
-        )
+        # 2. Save Results (PNG + JSON)
+        self._save_plotly_figure(fig, "Investment_Plan", show_png=show_png)
 
-        # 3. Save Results (PNG + JSON)
-        self._save_plotly_figure(fig, "Investment_Plan_Costs")
-
-        # 4. Store data for Excel (with marker for high-fidelity dashboard loading)
+        # 3. Store data for Excel
         excluded_suffixes = ('##tCO2', '_labels', '_is_new', 'Financing Interests', 'Year', 'Yearly_Total')
         capex_cols = [c for c in self.df_projects.columns if not any(c.endswith(s) for s in excluded_suffixes) and c != 'Year']
         df_plot = self.df_projects[['Year'] + capex_cols].copy()
-        
-        # Add labels to the exported dataframe for hover parity in dashboard (if needed)
         for col in self.df_projects.columns:
             if col.endswith('_labels'):
                 df_plot[col] = self.df_projects[col]
 
-        # Use a distinct marker in the Charts sheet
         self.charts_data.append(("INVESTMENT_PLAN_HIGH_FIDELITY", df_plot))
         
-        # Only divide numeric CAPEX columns for the summary table
-        df_summary = df_plot.set_index('Year')[capex_cols] / 1_000_000.0
-        self.charts_data.append(("Investment Plan: Implementation Costs", df_summary))
+        # Defensive check before set_index
+        if 'Year' in df_plot.columns:
+            df_summary = df_plot.set_index('Year')[capex_cols] / 1_000_000.0
+            self.charts_data.append(("Investment Plan: Implementation Costs", df_summary))
 
-    def _plot_external_financing(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame):
-        """Standardizes the Public Aids chart to include private bank loans (Financing)."""
+    def _plot_external_financing(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame, show_png: bool = True):
+        """Standardizes the Public Aids chart using the high-fidelity builder."""
         df_costs = df_costs.copy()
         if 'Year' in df_costs.columns:
             df_costs.set_index('Year', inplace=True)
@@ -1696,34 +1534,28 @@ class PathFinderReporter:
         df_aids = df_aids / 1_000_000.0 # Convert to M€
         
         # 2. Private Financing (Bank Loans)
-        df_fin = df_finance.set_index('Year')
-        private_loans = df_fin['Loan_Principal_Taken (M€)']
+        df_fin = df_finance.copy()
+        if 'Year' in df_fin.columns:
+            df_fin.set_index('Year', inplace=True)
+        private_loans = df_fin['Loan_Principal_Taken (M€)'] if 'Loan_Principal_Taken (M€)' in df_fin.columns else pd.Series(0.0, index=df_fin.index)
         
         # Merge for plotting
-        df_plot = df_aids.copy()
+        df_plot_data = df_aids.copy()
         if private_loans.any():
-            df_plot['Private Bank Loans'] = private_loans
+            df_plot_data['Private Bank Loans'] = private_loans
 
-        if df_plot.empty:
-            self._save_no_data_chart(
-                f'{self.scenario_name}_Financing.png',
-                'FINANCING STRATEGY',
-                'No public aids or private loans were triggered in this scenario.'
+        if df_plot_data.empty:
+            self._save_plotly_placeholder(
+                "Financing",
+                "FINANCING STRATEGY",
+                "No external financing or public aids data available for this scenario.",
+                show_png=show_png
             )
             return
-            
-        # Design a dark-themed, highly aesthetic chart
-        fig, ax = plt.subplots(figsize=(12, 9), facecolor='#0D0D14')
-        ax.set_facecolor('#0D0D14')
-        
-        years = list(df_plot.index)
-        
-        # High-contrast, neon-like color palette
-        colors = ['#00E5FF', '#FF007F', '#00FF7F', '#FFD700', '#FF8C00', '#9D00FF', '#FF00FF', '#CCFF00']
-        
-        # Rename columns to show Grant/CCfD clearly for public aids
+
+        # Rename columns for clarity
         rename_map = {}
-        for col in df_plot.columns:
+        for col in df_plot_data.columns:
             if col.startswith('Aid_'):
                 parts = col.split('_', 2)
                 if len(parts) == 3:
@@ -1731,133 +1563,28 @@ class PathFinderReporter:
                     rename_map[col] = f"{parts[1]} - {t_name}"
             else:
                 rename_map[col] = col
-        df_plot = df_plot.rename(columns=rename_map)
-        
-        # Plot stacked bars
-        pos_bottoms = [0.0] * len(years)
-        neg_bottoms = [0.0] * len(years)
-        for i, col in enumerate(df_plot.columns):
-            c = colors[i % len(colors)]
-            values = df_plot[col].values
-            
-            # Determine starting points for this stack (positive vs negative)
-            current_bottoms = []
-            for v_idx, v in enumerate(values):
-                if v >= 0:
-                    current_bottoms.append(pos_bottoms[v_idx])
-                    pos_bottoms[v_idx] += v
-                else:
-                    current_bottoms.append(neg_bottoms[v_idx])
-                    neg_bottoms[v_idx] += v
-            
-            # Sublte glow effect on bars
-            ax.bar(years, values, bottom=current_bottoms, color=c, alpha=0.9, 
-                   edgecolor=c, linewidth=1.5, label=col, width=0.55, zorder=3)
-            # Core bar highlight
-            ax.bar(years, values, bottom=current_bottoms, color='white', alpha=0.15, 
-                   width=0.55, zorder=3)
-                   
-        # Cumulative Line (Net Total over time)
-        yearly_net = [p + n for p, n in zip(pos_bottoms, neg_bottoms)]
-        cumul_sum = []
-        c_val = 0
-        for v in yearly_net:
-            c_val += v
-            cumul_sum.append(c_val)
-            
-        ax2 = ax.twinx()
-        glow_color = '#00ffcc'
-        for alpha, lw in zip([0.05, 0.1, 0.2, 0.4, 0.7], [18, 12, 8, 4, 2]):
-            ax2.plot(years, cumul_sum, color=glow_color, alpha=alpha, linewidth=lw, zorder=4)
-            
-        ax2.plot(years, cumul_sum, color='#FFFFFF', linewidth=2.0, marker='o', 
-                 markersize=7, markerfacecolor=glow_color, markeredgecolor='#FFFFFF', 
-                 markeredgewidth=1.5, label='Cumulative Total (M€)', zorder=5)
-                 
-        # Text annotations on the cumulative line
-        for i, (yr, val) in enumerate(zip(years, cumul_sum)):
-            if i % 5 == 0 or i == len(years)-1:
-                if val > 0.1:
-                    ax2.annotate(f"{val:.1f} M€", xy=(yr, val), xytext=(0, 20), 
-                                 textcoords="offset points", ha='center', color=glow_color,
-                                 fontsize=10, weight='bold', 
-                                 bbox=dict(boxstyle="round,pad=0.3", fc="#0D0D14", ec=glow_color, alpha=0.7),
-                                 arrowprops=dict(arrowstyle="-", color=glow_color, alpha=0.8), zorder=6)
-        
-        # Styling details
-        fig.suptitle("FINANCING STRATEGY", 
-                     color='white', fontsize=18, weight='bold', fontfamily='sans-serif', y=0.96)
-        ax.set_title("Annual support from public aids (grants/CCfD) and private loans", 
-                     color='#AAAAAA', fontsize=12, pad=10)
-                     
-        ax.set_ylabel("Annual Triggered Support (M€)", color='white', fontsize=12, labelpad=10)
-        ax2.set_ylabel("Cumulative Support (M€)", color=glow_color, fontsize=12, labelpad=10, weight='bold')
-        
-        self._apply_premium_style(ax, is_dark=True)
-        
-        for spine in ax2.spines.values():
-            spine.set_visible(False)
-            
-        # Custom Legends at the BOTTOM
-        lines_1, labels_1 = ax.get_legend_handles_labels()
-        lines_2, labels_2 = ax2.get_legend_handles_labels()
-        if lines_1 or lines_2:
-            leg = ax.legend(lines_1 + lines_2, labels_1 + labels_2,
-                      loc='upper center', bbox_to_anchor=(0.5, -0.15), 
-                      facecolor='#0D0D14', edgecolor='#2B2B36', labelcolor='white', fontsize=14, 
-                      framealpha=0.9, borderpad=1, ncol=min(3, len(lines_1)+len(lines_2)))
-            for text in leg.get_texts():
-                text.set_weight("bold")
-                
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.22)
-        self._add_watermark(fig, is_dark_bg=True)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        try:
-            # We construct the path absolutely and explicitly to avoid invisible unicode characters
-            f_name = f'{self.scenario_name}_Financing.png'
-            out_file = os.path.join(self.results_dir, f_name)
-            plt.savefig(out_file, dpi=300, bbox_inches='tight', facecolor='#0D0D14')
-        except Exception as e:
-            print(f"  [red][Reporter][/red] [!] Error saving {f_name}: {e}")
-        plt.close()
+        df_plot_data = df_plot_data.rename(columns=rename_map)
 
-        # Store data
-        self.charts_data.append(("Financing Strategy: Public & Private", df_plot))
+        fig = build_external_financing_figure(
+            df_plot=df_plot_data,
+            years=list(df_plot_data.index),
+            theme="report",
+            title=f"FINANCING STRATEGY: {self.scenario_name}"
+        )
+        
+        self._save_plotly_figure(fig, "Financing", show_png=show_png)
+        self.charts_data.append(("Generalized Financing Breakdown", df_plot_data))
 
-    def _plot_total_opex(self, df_cons: pd.DataFrame, df_emis: pd.DataFrame):
-        df_plot = df_cons.copy()
-        df_plot.set_index('Year', inplace=True)
-        years = list(df_plot.index)
+    def _plot_total_opex(self, df_cons: pd.DataFrame, df_emis: pd.DataFrame, show_png: bool = True):
+        """Unified Plotly visualization for OPEX breakdown using the centralized module."""
+        years = list(self.opt.years)
         
-        # 1. Resource Costs (grouped by resource ID)
-        res_costs = {}
-        for res_id in df_plot.columns:
-            if res_id in ['EN_H2_ON_SITE']: continue # Avoid double counting
-            res_costs[res_id] = []
-            for t in years:
-                cons = df_plot.at[t, res_id]
-                price = self.data.time_series.resource_prices.get(res_id, {}).get(t, 0.0)
-                if price == 0.0 and ('H2' in res_id.upper() or 'HYDROGEN' in res_id.upper()):
-                    price = self.data.time_series.resource_prices.get('EN_GREY_H2_C', {}).get(t, 0.0)
-                cost = (cons * price if cons > 0 else 0) / 1_000_000.0
-                res_costs[res_id].append(cost)
-        
-        df_res_costs = pd.DataFrame(res_costs, index=years)
-        # Rename resource columns for humans
-        res_rename = {}
-        for col in df_res_costs.columns:
-            if col in self.data.resources:
-                res_name = self.data.resources[col].name
-                res_rename[col] = res_name.upper() if res_name else col.upper()
-        df_res_costs.rename(columns=res_rename, inplace=True)
-        # Filter zero resources
-        df_res_costs = df_res_costs.loc[:, (df_res_costs.abs() > 1e-4).any(axis=0)]
-        
-        # 2. Technology Individual OPEX
+        # 1. Prepare Data (Internal Calculation parity)
+        df_cons_plot = df_cons.copy()
+        if 'Year' in df_cons_plot.columns:
+            df_cons_plot.set_index('Year', inplace=True)
+        df_res_costs = df_cons_plot / 1_000_000.0
         tech_opex_details = {}
-        # We look for all technologies that might be implemented
         for t_id, tech in self.data.technologies.items():
             if t_id == 'UP': continue
             tech_annual_opex = []
@@ -1877,30 +1604,28 @@ class PathFinderReporter:
                             current_opex = tech.opex_by_year.get(t, tech.opex)
                             yr_val += (current_opex * cap_opex / process.nb_units) * act_v
                 tech_annual_opex.append(yr_val / 1_000_000.0)
-            
             if is_active:
                 col_name = f"{tech.name.upper()} OPEX" if tech.name else f"{t_id.upper()} OPEX"
                 tech_opex_details[col_name] = tech_annual_opex
 
         df_tech_costs = pd.DataFrame(tech_opex_details, index=years)
         
-        # 3. DAC OPEX
         dac_opex = []
         if self.data.dac_params.active:
             for t in years:
                 dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
                 dac_opex.append((dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)) / 1_000_000.0)
         
-        # 4. Carbon Tax (Gross)
-        tax_costs = df_emis.set_index('Year')['Tax_Cost_MEuros'].tolist()
+        df_emis_plot = df_emis.copy()
+        if 'Year' in df_emis_plot.columns:
+            df_emis_plot.set_index('Year', inplace=True)
         
-        # 5. Carbon Credits
+        tax_costs = df_emis_plot['Tax_Cost_MEuros'].tolist() if 'Tax_Cost_MEuros' in df_emis_plot.columns else [0.0]*len(years)
         credit_costs = []
         for t in years:
             cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
             credit_costs.append((cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)) / 1_000_000.0)
             
-        # 6. CCS Storage & Transport (Specific calculated OPEX)
         ccs_st_costs = []
         for t in years:
             yr_ccs_st = 0.0
@@ -1921,124 +1646,89 @@ class PathFinderReporter:
                                 yr_ccs_st += (s_price + tr_price) * captured_tons_per_unit * act_v
             ccs_st_costs.append(yr_ccs_st / 1_000_000.0)
 
-        # Combine into a plotting dataframe in a clean order
         df_bars = pd.concat([df_res_costs, df_tech_costs], axis=1)
-        
-        if sum(ccs_st_costs) > 1e-4:
-            df_bars['CCS STORAGE & TRANSPORT'] = ccs_st_costs
-            
-        if sum(dac_opex) > 1e-4:
-            df_bars['DAC OPEX'] = dac_opex
-        
+        if sum(ccs_st_costs) > 1e-4: df_bars['CCS STORAGE & TRANSPORT'] = ccs_st_costs
+        if sum(dac_opex) > 1e-4: df_bars['DAC OPEX'] = dac_opex
         df_bars['CARBON TAX (GROSS)'] = tax_costs
-        
-        if sum(credit_costs) > 1e-4:
-            df_bars['CARBON CREDITS'] = credit_costs
+        if sum(credit_costs) > 1e-4: df_bars['CARBON CREDITS'] = credit_costs
             
-        # Final clean-up of empty columns
         df_bars = df_bars.loc[:, (df_bars.abs() > 1e-4).any(axis=0)]
-        total_opex = df_bars.sum(axis=1)
-        
-        # Add Total to the dataframe for Excel export (before plotting)
         df_bars_export = df_bars.copy()
         df_bars_export['Year'] = years
-        df_bars_export['TOTAL ANNUAL OPEX (M€)'] = total_opex
+        df_bars_export['TOTAL ANNUAL OPEX (M€)'] = df_bars.sum(axis=1).values
         
         # Build Plotly Figure
         fig = build_opex_figure(
             df_opex=df_bars_export,
             years=years,
-            title="RESSOURCES OPEX: ANNUAL OPERATIONAL EXPENDITURE BREAKDOWN",
-            is_dark_bg=False # Standard report is light
+            theme="report",
+            title=f"ANNUAL OPERATIONAL EXPENDITURE: {self.scenario_name}"
         )
         
-        # Save Figure (PNG + JSON)
-        self._save_plotly_figure(fig, "Resources_Opex")
-        
-        # Store data for Excel
+        self._save_plotly_figure(fig, "Resources_Opex", show_png=show_png)
+        self._save_plotly_figure(fig, "Total_Annual_Opex", show_png=show_png)
         self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_bars_export))
 
-    def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame):
-        """Generates an interactive Plotly visualization for carbon taxes and penalties."""
+    def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame, show_png: bool = True):
+        """Generates an interactive Plotly visualization using the high-fidelity builder."""
         df_plot = df.copy()
-        years = df_plot['Year'].tolist()
+        if 'Year' in df_plot.columns:
+            years = df_plot['Year'].tolist()
+        else:
+            years = list(self.opt.years)
         
-        # Data preparation
-        standard_tax = df_plot['Standard_Tax_Cost_MEuros'].tolist()
-        penalty_costs = df_plot['Penalty_Cost_MEuros'].tolist()
-        
-        # Calculate Avoided Costs in MEuros
-        avoided_reduced = (df_plot['Really_Avoided_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist()
+        standard_tax = df_plot['Standard_Tax_Cost_MEuros'].tolist() if 'Standard_Tax_Cost_MEuros' in df_plot.columns else [0.0]*len(years)
+        penalty_costs = df_plot['Penalty_Cost_MEuros'].tolist() if 'Penalty_Cost_MEuros' in df_plot.columns else [0.0]*len(years)
+        avoided_reduced = (df_plot['Really_Avoided_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist() if 'Really_Avoided_CO2_kt' in df_plot.columns else [0.0]*len(years)
         avoided_captured = (df_plot['Captured_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist()
-        
-        ccfd_refunds = []
-        if 'CCfD_Refund_MEuros' in df_plot.columns:
-            ccfd_refunds = df_plot['CCfD_Refund_MEuros'].tolist()
+        ccfd_refunds = df_plot['CCfD_Refund_MEuros'].tolist() if 'CCfD_Refund_MEuros' in df_plot.columns else None
 
-        # Build Plotly Figure
         fig = build_carbon_tax_figure(
             years=years,
             standard_tax=standard_tax,
             penalties=penalty_costs,
             avoided_reduced=avoided_reduced,
             avoided_captured=avoided_captured,
-            ccfd_refunds=ccfd_refunds if ccfd_refunds else None,
-            title="CARBON TAX & PENALTIES BALANCE"
+            ccfd_refunds=ccfd_refunds,
+            theme="report",
+            title=f"CARBON TAX & PENALTIES: {self.scenario_name}"
         )
 
-        # Finalize and Save (PNG + JSON)
-        self._save_plotly_figure(fig, "Carbon_Tax")
-        
-        # Store Data for Excel
+        self._save_plotly_figure(fig, "Carbon_Tax", show_png=show_png)
         self.charts_data.append(("Carbon Tax and Penalties Balance", df_plot))
 
-    def _plot_carbon_prices(self):
-        """Generates a stunning Plotly visualization of carbon price trajectory and policy factors."""
+    def _plot_carbon_prices(self, show_png: bool = True):
+        """Generates a high-fidelity carbon price visualization."""
         years = self.years
         carbon_prices = [self.data.time_series.carbon_prices.get(y, 0.0) for y in years]
         penalties = [self.data.time_series.carbon_penalties.get(y, 0.0) for y in years]
         effective_prices = [p * (1.0 + x) for p, x in zip(carbon_prices, penalties)]
 
-        # --- Extract Carbon Strike Prices for active CCfD contracts ---
         strike_prices = []
         if hasattr(self.opt, "ccfd_used_vars"):
             for (t_inv, p_id, t_id), var in self.opt.ccfd_used_vars.items():
                 if var.varValue and var.varValue > 0.5:
                     tech = self.data.technologies[t_id]
                     ccfd_p = self.data.ccfd_params
-                    
-                    # Calculate strike price at year of investment
                     base_p = self.data.time_series.carbon_prices.get(t_inv, 0.0)
                     strike_val = (1.0 + ccfd_p.eua_price_pct) * base_p
-                    
-                    # Contract period
                     start_yr = t_inv + tech.implementation_time
                     end_yr = start_yr + ccfd_p.duration
-                    
-                    # Plot horizontal line across the contract period
                     contract_years = [y for y in years if start_yr <= y < end_yr]
                     if contract_years:
-                        strike_prices.append({
-                            'name': tech.name or t_id,
-                            'val': strike_val,
-                            'years': contract_years
-                        })
+                        strike_prices.append({'name': tech.name or t_id, 'val': strike_val, 'years': contract_years})
 
-        # Build Plotly Figure (Shared Module)
         fig = build_carbon_price_figure(
             years=years,
             market_prices=carbon_prices,
             effective_prices=effective_prices,
-            penalties=penalties,
             strike_prices=strike_prices,
-            title="CARBON PRICE & POLICY TRAJECTORY"
+            theme="report",
+            title=f"CARBON PRICE & POLICY: {self.scenario_name}"
         )
 
-        # Finalize and Save (PNG + JSON)
-        self._save_plotly_figure(fig, "Carbon_Prices")
+        self._save_plotly_figure(fig, "Carbon_Prices", show_png=show_png)
         
-        # Store Data
-        # For Excel, we'll store a simplified strike price (max across active contracts if many)
         simplified_strikes = []
         for y in years:
             active_at_y = [s['val'] for s in strike_prices if y in s['years']]
@@ -2050,10 +1740,12 @@ class PathFinderReporter:
             'Effective_Price': effective_prices,
             'Penalty_Factor': penalties,
             'Strike_Price': simplified_strikes
-        }).set_index('Year')
+        })
+        if 'Year' in df_cp.columns:
+            df_cp.set_index('Year', inplace=True)
         self.charts_data.append(("Carbon Price & Policy Trajectory", df_cp))
 
-    def _plot_transition_costs(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame, df_emis: pd.DataFrame):
+    def _plot_transition_costs(self, df_costs: pd.DataFrame, df_finance: pd.DataFrame, df_emis: pd.DataFrame, show_png: bool = True):
         """Plots the stacked cumulative costs and savings of the ecological transition using Plotly."""
         df_costs = df_costs.copy()
         if 'Year' in df_costs.columns:
@@ -2230,11 +1922,11 @@ class PathFinderReporter:
             pos_cols=pos_cols_prefixed,
             neg_cols=neg_cols_prefixed,
             investment_cap=self.data.reporting_toggles.investment_cap,
-            is_dark_bg=False
+            title=f"ECOLOGICAL TRANSITION: {self.scenario_name}"
         )
 
         # Finalize and Save
-        self._save_plotly_figure(fig, "Transition_Costs")
+        self._save_plotly_figure(fig, "Transition_Cost", show_png=show_png)
         
         # Data for Excel
         df_store = df_annual[pos_cols_prefixed + neg_cols_prefixed].copy()
@@ -2244,97 +1936,27 @@ class PathFinderReporter:
         
         self.charts_data.append(("Ecological Transition Cumulative Balance", df_store.set_index('Year').cumsum().reset_index()))
 
-    def _plot_interest_paid(self, df_finance: pd.DataFrame):
-        """Plots the annual and cumulative interest paid for bank loans."""
+    def _plot_interest_paid(self, df_finance: pd.DataFrame, show_png: bool = True):
         df_plot = df_finance.copy()
         if 'Year' in df_plot.columns:
             df_plot.set_index('Year', inplace=True)
             
         if 'Interest_Paid (M€)' not in df_plot.columns or df_plot['Interest_Paid (M€)'].sum() < 1e-4:
-            self._save_no_data_chart(
-                f'{self.scenario_name}_Interest_Paid.png',
-                'BANK LOANS: INTEREST & CONTRACTED AMOUNTS',
-                'No loan interest was paid in this scenario.'
-            )
             return
-            
-        fig, ax = plt.subplots(figsize=(12, 9), facecolor='white')
-        
-        years = list(df_plot.index)
-        interest = df_plot['Interest_Paid (M€)'].values
-        loans_taken = df_plot['Loan_Principal_Taken (M€)'].values if 'Loan_Principal_Taken (M€)' in df_plot.columns else np.zeros(len(years))
-        
-        # Plot bar chart for annual interest
-        ax.bar(years, interest, color='#E74C3C', alpha=0.85, edgecolor='#C0392B', width=0.6, label='Annual Interest Paid (M€)')
-        
-        # Plot cumulative line
-        cumul_interest = df_plot['Interest_Paid (M€)'].cumsum()
-        ax2 = ax.twinx()
-        ax2.plot(years, cumul_interest, color='#2C3E50', linewidth=2.5, marker='o', 
-                 markersize=6, markerfacecolor='white', label='Cumulative Interest Paid (M€)', zorder=5)
 
-        # Plot Loans Taken on a new left axis (Only points, no line)
-        ax3 = ax.twinx()
-        ax3.spines['left'].set_position(('outward', 70))
-        ax3.spines['left'].set_visible(True)
-        ax3.yaxis.set_label_position('left')
-        ax3.yaxis.set_ticks_position('left')
-        ax3.plot(years, loans_taken, color='#27AE60', marker='s', 
-                 markersize=9, markerfacecolor='#27AE60', markeredgecolor='white', 
-                 label='Loan Amount Contracted (M€)', linestyle='None')
-                 
-        # Align all zeros on the bottom
-        ax.set_ylim(bottom=0)
-        ax2.set_ylim(bottom=0)
-        ax3.set_ylim(bottom=0)
-                 
-        ax.set_title("BANK LOANS: INTEREST & CONTRACTED AMOUNTS", fontsize=16, weight='bold', pad=20)
-        ax.set_ylabel("Annual Interest Paid (M€)", fontsize=12, weight='semibold', color='#E74C3C')
-        ax2.set_ylabel("Cumulative Interest Paid (M€)", fontsize=12, weight='semibold', color='#2C3E50')
-        ax3.set_ylabel("Loan Amount Contracted (M€)", fontsize=12, weight='semibold', color='#27AE60')
-        ax.set_xlabel("Year", fontsize=12, weight='semibold')
+        fig = build_interest_paid_figure(
+            df_plot=df_plot,
+            years=list(df_plot.index),
+            theme="report",
+            title=f"BANK LOANS & INTEREST: {self.scenario_name}"
+        )
         
-        ax.set_xticks(years)
-        ax.set_xticklabels([str(y) for y in years], rotation=45, ha='right')
-        
-        # Add labels for start and end of cumulative line on ax2
-        for t in [years[0], years[-1]]:
-            val = cumul_interest.at[t]
-            ax2.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15),
-                        textcoords="offset points", ha='center', fontsize=10, weight='bold',
-                        color='#2C3E50', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#2C3E50', alpha=0.8))
-
-        # Combine legends
-        lines1, labels1 = ax.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        lines3, labels3 = ax3.get_legend_handles_labels()
-        ax.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3, 
-                  loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, frameon=True, fontsize=12)
-        
-        self._apply_premium_style(ax)
-        for spine in ax2.spines.values():
-            spine.set_visible(False)
-        for spine in ['top', 'right', 'bottom']:
-            ax3.spines[spine].set_visible(False)
-        ax3.spines['left'].set_color('#27AE60')
-        ax3.tick_params(axis='y', colors='#27AE60')
-            
-        plt.tight_layout()
-        fig.subplots_adjust(bottom=0.2, left=0.15) # More space for the extra left axis
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Interest_Paid.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data for Excel
+        self._save_plotly_figure(fig, "Interest_Paid", show_png=show_png)
         self.charts_data.append(("Bank Loans: Interest Paid", df_plot[['Interest_Paid (M€)']]))
 
-    def _plot_prices(self):
-        """Plots all prices used in the simulation (EUA and Resources)."""
+    def _plot_prices(self, show_png: bool = True):
+        """Plots all prices used in the simulation using the high-fidelity builder."""
         price_series = {}
-        
-        # 1. Carbon Prices (EUA)
         if self.data.time_series.carbon_prices:
             price_series['EUA'] = {
                 'data': self.data.time_series.carbon_prices,
@@ -2343,7 +1965,6 @@ class PathFinderReporter:
                 'color': '#2C3E50'
             }
             
-        # 2. Resource Prices
         colors = ['#2980B9', '#8E44AD', '#D35400', '#C0392B', '#16A085', '#273746', '#F39C12', '#BDC3C7']
         color_idx = 0
         for r_id, p_dict in self.data.time_series.resource_prices.items():
@@ -2361,189 +1982,43 @@ class PathFinderReporter:
                 
         if not price_series:
             return
-            
-        n_plots = len(price_series)
-        import math
-        n_cols = math.ceil(math.sqrt(n_plots))
-        n_rows = math.ceil(n_plots / n_cols)
-        
-        # Adjust figsize based on columns and rows
-        # We want to keep it somewhat squared, so maybe 4-5 inches per subplot
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), facecolor='white')
-        
-        if n_plots == 1:
-            axes = np.array([axes])
-        axes = axes.flatten()
-        
-        i = -1
-        for i, (key, info) in enumerate(price_series.items()):
-            ax = axes[i]
-            years = sorted(info['data'].keys())
-            values = [info['data'][y] for y in years]
-            
-            p_ln = ax.plot(years, values, color=info['color'], linewidth=2.5, marker='o', 
-                    markersize=4, markerfacecolor='white', markeredgewidth=1.5, label='Price')
-            
-            ax.set_title(info['name'].upper(), fontsize=12, weight='bold', pad=10)
-            ax.set_ylabel(info['unit'], fontsize=10, weight='semibold', color=info['color'])
-            ax.set_xlabel('Year', fontsize=9)
-            
-            # --- CO2 Emissions Comparison ---
-            handles, labels = ax.get_legend_handles_labels()
-            
-            if key in self.data.time_series.other_emissions_factors:
-                em_data = self.data.time_series.other_emissions_factors[key]
-                em_values = [em_data.get(y, 0.0) for y in years]
-                
-                ax2 = ax.twinx()
-                em_ln = ax2.plot(years, em_values, color='#27AE60', linewidth=2, linestyle='--', 
-                        marker='s', markersize=3, alpha=0.7, label='CO2 intensity')
-                
-                ax2.set_ylabel('tCO2 / unit', fontsize=9, color='#27AE60', weight='semibold')
-                ax2.tick_params(axis='y', labelcolor='#27AE60')
-                
-                max_em = max(em_values) if em_values and max(em_values) > 0 else 1.0
-                ax2.set_ylim(bottom=0, top=max_em * 1.6)
-                
-                # Combine handles for legend
-                h2, l2 = ax2.get_legend_handles_labels()
-                handles += h2
-                labels += l2
-                
-                # Apply premium style to ax2 spines
-                for spine in ['top', 'left', 'bottom']:
-                    ax2.spines[spine].set_visible(False)
-                ax2.spines['right'].set_color('#27AE60')
-                ax2.spines['right'].set_alpha(0.5)
 
-            # --- Formatting ---
-            ax.xaxis.set_major_locator(ticker.MultipleLocator(5))
-            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{x:,.2f}'))
-            
-            # Ensure axes start at 0 and apply scaling factors
-            max_price = max(values) if values else 1.0
-            ax.set_ylim(bottom=0, top=max_price * 1.2)
-            
-            if key in self.data.time_series.other_emissions_factors:
-                # ax2 was created in the CO2 block above, but we need to reference it here or handle it there.
-                # Actually, it's cleaner to handle ax2 limit inside the CO2 block.
-                pass
-            
-            self._apply_premium_style(ax)
-            
-            # Add Legend if CO2 is present or just to be safe
-            if len(handles) > 1:
-                ax.legend(handles, labels, loc='best', fontsize=12, frameon=True, framealpha=0.8)
-
-            
-        # Hide unused axes
-        for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-            
-        fig.suptitle('SIMULATION PRICE PARAMETERS', fontsize=18, weight='bold', y=0.98)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Simulation_Prices.png'), dpi=300, bbox_inches='tight')
-        plt.close()
+        fig = build_simulation_prices_figure(
+            price_series=price_series,
+            years=list(self.years),
+            theme="report",
+            title=f"PRICE PARAMETERS: {self.scenario_name}"
+        )
         
-        # Store for Excel
+        self._save_plotly_figure(fig, "Simulation_Prices", show_png=show_png)
+        self._save_plotly_figure(fig, "Data_Used", show_png=show_png)
+        
         df_prices = pd.DataFrame({info['name']: info['data'] for info in price_series.values()}).sort_index()
         df_prices.index.name = 'Year'
         self.charts_data.append(("Simulation Prices", df_prices))
 
-    def _plot_co2_abatement_cost(self, df: pd.DataFrame):
-        """Plot the Marginal Abatement Cost (MAC) per technology implementation."""
-        # --- Corporate & Premium Design ---
-        fig, ax = plt.subplots(figsize=(14, 10))
-        fig.set_facecolor('#F8F9FA')
-        ax.set_facecolor('#F8F9FA')
-        
-        # Sort values
+    def _plot_co2_abatement_cost(self, df: pd.DataFrame, show_png: bool = True):
+        """Plot the MAC curve using the high-fidelity builder."""
+        if df is None or df.empty:
+            self._save_plotly_placeholder(
+                "CO2_Abatement",
+                "MARGINAL ABATEMENT COST",
+                "No valid abatement projects found to build a MAC curve.",
+                show_png=show_png
+            )
+            return
         df_plot = df.sort_values(by='MAC (€/tCO2)')
         
-        # Create premium colors - Palette based on cost (green to red)
-        # Handle zero or negative costs explicitly
-        norm = plt.Normalize(df_plot['MAC (€/tCO2)'].min(), df_plot['MAC (€/tCO2)'].max())
-        import matplotlib.cm as cm
-        colors = cm.RdYlGn_r(norm(df_plot['MAC (€/tCO2)'].values))
-        
-        # Adjust colors for negative MAC (profitable)
-        for i, (idx, row) in enumerate(df_plot.iterrows()):
-            if row['MAC (€/tCO2)'] < 0:
-                colors[i] = [0.1, 0.6, 0.2, 0.9] # Solid green for profitable
-        
-        # Visual distinction for Potential vs Invested
-        alphas = [0.9 if s == 'Invested' else 0.45 for s in df_plot['Status']]
-        edge_colors = ['#2C3E50' if s == 'Invested' else '#7F8C8D' for s in df_plot['Status']]
-        linestyles = ['-' if s == 'Invested' else '--' for s in df_plot['Status']]
-        
-        x_labels = df_plot['Display Label'] if 'Display Label' in df_plot.columns else df_plot['Project']
-        y_capex = df_plot['MAC CAPEX (€/tCO2)'].values
-        y_opex = df_plot['MAC OPEX (€/tCO2)'].values
-        y_total = df_plot['MAC (€/tCO2)'].values
-
-        # Plot bars item by item to handle per-technology alpha
-        for i in range(len(x_labels)):
-            label = x_labels.iloc[i] if hasattr(x_labels, 'iloc') else x_labels[i]
-            
-            # Plot CAPEX Part
-            ax.bar(label, y_capex[i], color='#3498DB', alpha=alphas[i], 
-                     edgecolor=edge_colors[i], linewidth=1.2, width=0.65, 
-                     linestyle=linestyles[i], label='CAPEX (Investment) Component' if i == 0 else "", zorder=3)
-            
-            # Plot OPEX Part (Stacked)
-            ax.bar(label, y_opex[i], bottom=y_capex[i], color='#E67E22', alpha=alphas[i],
-                      edgecolor=edge_colors[i], linewidth=1.2, width=0.65,
-                      linestyle=linestyles[i], label='OPEX (Operational) Component' if i == 0 else "", zorder=3)
-        
-        # Add numeric labels at the top of the TOTAL bar
-        for i, (label, val) in enumerate(zip(x_labels, y_total)):
-            va = 'bottom' if val >= 0 else 'top'
-            offset = 5 if val >= 0 else -15
-            ax.annotate(f'{val:,.0f} €/t',
-                        xy=(i, val),
-                        xytext=(0, offset),
-                        textcoords="offset points",
-                        ha='center', va=va, fontsize=10, weight='bold', color='#2C3E50')
-
-        # Average CO2 Price Line
         avg_co2_price = sum(self.data.time_series.carbon_prices.values()) / len(self.data.time_series.carbon_prices) if self.data.time_series.carbon_prices else 0.0
-        if avg_co2_price > 0:
-            ax.axhline(avg_co2_price, color='#E74C3C', linestyle='--', linewidth=2, label=f'Avg Carbon Price ({avg_co2_price:,.0f} €/t)', zorder=4)
-            
-            # Fill region below carbon price as "Economic Zone"
-            ax.fill_between([-1, len(df_plot)], 0, avg_co2_price, color='#2ECC71', alpha=0.07, label='Profitable Zone (Cost < Tax)')
+        total_abated = df_plot['Total Abated (tCO2)'].sum()
 
-        # Style refinement
-        plt.title('CO2 ABATEMENT COST BY TECHNOLOGY (MAC)', fontsize=18, weight='bold', pad=30, color='#1A1A1A')
-        plt.ylabel('Cost of Abatement (€ / tCO2 avoided)', fontsize=13, weight='semibold', color='#333333')
-        plt.xlabel('Implemented Technology per Process', fontsize=13, weight='semibold', color='#333333')
-        
-        plt.xticks(rotation=45, ha='right', fontsize=11)
-        ax.grid(axis='y', linestyle=':', alpha=0.6, zorder=0)
-        
-        # Zero line
-        ax.axhline(0, color='black', linewidth=1.0, zorder=2)
-        
-        # Legend
-        ax.legend(loc='best', fontsize=12, frameon=True, facecolor='white', framealpha=0.9)
-        
-        # Add info box about total abated
-        total_tons = df_plot['Total Abated (tCO2)'].sum()
-        ax.text(0.98, 0.02, f"Total Simulation Abatement: {total_tons/1000:,.0f} ktCO2", 
-                transform=ax.transAxes, ha='right', va='bottom', 
-                bbox=dict(facecolor='white', alpha=0.8, edgecolor='#CCCCCC'), fontsize=11, weight='bold')
+        fig = build_mac_figure(
+            df_plot=df_plot,
+            avg_carbon_price=avg_co2_price,
+            total_simulation_abatement=total_abated,
+            theme="report",
+            title=f"CO2 ABATEMENT COST (MAC): {self.scenario_name}"
+        )
 
-        self._apply_premium_style(ax)
-        plt.tight_layout()
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_CO2_Abatement_Cost.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        # Store data for Excel
+        self._save_plotly_figure(fig, "CO2_Abatement", show_png=show_png)
         self.charts_data.append(("CO2 Abatement Cost (MAC)", df_plot))

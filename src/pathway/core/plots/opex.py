@@ -6,7 +6,7 @@ def build_opex_figure(
     df_opex: pd.DataFrame,
     years: List[int],
     title: str = "RESSOURCES OPEX: ANNUAL OPERATIONAL EXPENDITURE BREAKDOWN",
-    is_dark_bg: bool = False
+    theme: str = "report"
 ) -> go.Figure:
     """
     Builds a high-fidelity OPEX breakdown figure (Stacked Area + Total Line).
@@ -43,9 +43,18 @@ def build_opex_figure(
             hovertemplate="<b>" + cat + "</b><br>Year: %{x}<br>Value: %{y:.2f} M€<extra></extra>"
         ))
 
+    # --- Theme Configuration ---
+    is_dashboard = (theme == "dashboard")
+    is_dark = (theme == "dark")
+    bg_color = "rgba(0,0,0,0)" if is_dashboard else ("#111827" if is_dark else "white")
+    text_color = "#EEEEEE" if (is_dark or is_dashboard) else "#2c3e50"
+    grid_color = "#2B2B36" if (is_dark or is_dashboard) else "#eeeeee"
+    font_family = "Bookman Old Style, Bookman, serif" if is_dashboard else "Arial"
+    template = "plotly_dark" if (is_dark or is_dashboard) else "plotly_white"
+
     # 3. Add Total Line
     total_opex = df_opex.get('TOTAL ANNUAL OPEX (M€)', df_opex[categories].sum(axis=1))
-    line_color = '#111827' if not is_dark_bg else '#EEEEEE'
+    line_color = '#111827' if not (is_dark or is_dashboard) else '#EEEEEE'
     
     fig.add_trace(go.Scatter(
         x=years, y=total_opex,
@@ -71,43 +80,39 @@ def build_opex_figure(
             )
 
     # 5. Layout Styling
-    bg_color = 'rgba(0,0,0,0)' if is_dark_bg else 'white'
-    text_color = '#EEEEEE' if is_dark_bg else '#2c3e50'
-    grid_color = '#2B2B36' if is_dark_bg else '#eeeeee'
-    template = 'plotly_dark' if is_dark_bg else 'plotly_white'
-
     fig.update_layout(
         template=template,
         paper_bgcolor=bg_color, plot_bgcolor=bg_color,
         title=dict(
             text=title,
-            font=dict(size=20, weight='bold', color=text_color),
+            font=dict(size=20, weight='bold', color=text_color, family=font_family),
             x=0.02, y=0.95
         ),
         xaxis=dict(
             title='Year', showgrid=True, gridcolor=grid_color, 
             tickmode='linear', color=text_color,
-            tickfont=dict(size=12)
+            tickfont=dict(size=12, family=font_family)
         ),
         yaxis=dict(
             title='Annual OPEX (M€)', showgrid=True, gridcolor=grid_color,
             zeroline=True, zerolinecolor=text_color, color=text_color,
-            tickfont=dict(size=12)
+            tickfont=dict(size=12, family=font_family)
         ),
         legend=dict(
             orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5,
             bgcolor='rgba(255,255,255,0.1)', bordercolor=grid_color, borderwidth=1,
-            font=dict(size=11, color=text_color)
+            font=dict(size=11, color=text_color, family=font_family)
         ),
         margin=dict(l=60, r=40, t=100, b=100),
-        hovermode='x unified'
+        hovermode='x unified',
+        font=dict(family=font_family)
     )
 
     # 6. Watermark / Subtitle
     fig.add_annotation(
         text="PATHFINDER Industrial Decarbonization Simulation",
         xref="paper", yref="paper", x=0.5, y=1.05,
-        showarrow=False, font=dict(size=12, color="gray"),
+        showarrow=False, font=dict(size=12, color="gray", family=font_family),
         opacity=0.6
     )
 
