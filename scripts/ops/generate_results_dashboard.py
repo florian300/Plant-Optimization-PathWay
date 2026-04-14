@@ -27,6 +27,7 @@ from pathway.core.plots.carbon import build_carbon_price_figure
 from pathway.core.plots.carbon_tax import build_carbon_tax_figure
 from pathway.core.plots.energy_mix import build_energy_mix_figure
 from pathway.core.plots.investment import build_investment_plan_figure
+from pathway.core.plots.opex import build_opex_figure
 
 
 DEFAULT_DISCOUNT_RATE = 0.08
@@ -1147,53 +1148,43 @@ def build_resources_opex_graph(df_costs: pd.DataFrame) -> Tuple[Dict[str, Any], 
         )
 
     years = year_axis(df_costs["Year"])
-    opex_candidates = [col for col in ["DAC_Opex", "Credit_Cost", "Financing Interests"] if col in df_costs.columns]
-    opex_candidates = non_zero_columns(df_costs, opex_candidates)
-    if not opex_candidates:
+    
+    # Identify OPEX categories (exclude control columns)
+    excluded = {"Year", "Budget_Limit", "Total_Limit", "DAC_Opex", "Credit_Cost", "Financing Interests"}
+    
+    # Filter for columns that likely contain OPEX data (from Technology_Costs sheet)
+    opex_cols = [col for col in df_costs.columns if col not in excluded and not col.startswith("Aid_") and not col.endswith("_labels")]
+    
+    # Add explicit ones if they are non-zero
+    for special in ["DAC_Opex", "Credit_Cost", "Financing Interests"]:
+        if special in df_costs.columns and pd.to_numeric(df_costs[special], errors='coerce').fillna(0).sum() > 1e-4:
+            opex_cols.append(special)
+            
+    opex_cols = non_zero_columns(df_costs, opex_cols)
+    
+    if not opex_cols:
         return (
-            placeholder_figure(title, "No OPEX-like columns were found in Technology_Costs."),
-            "Expected one of DAC_Opex, Credit_Cost, or Financing Interests.",
+            placeholder_figure(title, "No non-zero OPEX columns were found."),
+            "The script detected the required columns but all values are zero.",
         )
 
-    color_map = {
-        "DAC_Opex": "#0284C7",
-        "Credit_Cost": "#EA580C",
-        "Financing Interests": "#475569",
-    }
-
-    traces = []
-    for col in opex_candidates:
-        traces.append(
-            {
-                "type": "bar",
-                "name": pretty_label(col),
-                "x": years,
-                "y": to_float_list(pd.to_numeric(df_costs[col], errors="coerce").fillna(0.0), scale=1_000_000.0),
-                "marker": {"color": color_map.get(col, "#1D4ED8")},
-                "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-            }
-        )
-
-    total = pd.DataFrame({col: pd.to_numeric(df_costs[col], errors="coerce").fillna(0.0) for col in opex_candidates}).sum(axis=1)
-    traces.append(
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Total ressources OPEX",
-            "x": years,
-            "y": to_float_list(total, scale=1_000_000.0),
-            "line": {"width": 3, "color": "#0F172A"},
-            "marker": {"size": 6, "color": "#0F172A"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        }
+    # Prepare DataFrame for build_opex_figure
+    df_opex = df_costs[opex_cols].copy()
+    for col in opex_cols:
+        df_opex[col] = pd.to_numeric(df_opex[col], errors='coerce').fillna(0.0) / 1_000_000.0
+    
+    fig = build_opex_figure(
+        df_opex=df_opex,
+        years=years,
+        title=title,
+        is_dark_bg=False # Dashboard cards are light
     )
 
-    layout = base_layout(title, "MEUR", years, barmode="stack")
     description = (
-        "Resource OPEX is reconstructed from OPEX-related outputs available in Technology_Costs: DAC_Opex, Credit_Cost, "
-        "and Financing Interests."
+        "This chart aggregates operational expenditure from the Technology_Costs sheet. "
+        "It includes technology-specific OPEX, DAC operations, and voluntary credits."
     )
-    return {"data": traces, "layout": layout}, description
+    return fig_to_dict(fig), description
 
 
 def build_data_used_graph(df_data_used: pd.DataFrame) -> Tuple[Dict[str, Any], str]:
@@ -1486,63 +1477,34 @@ def build_total_annual_opex_graph(df_costs: pd.DataFrame, df_co2: pd.DataFrame) 
         )
 
     years = year_axis(df_costs["Year"])
-    dac = to_float_list(pd.to_numeric(df_costs.get("DAC_Opex", 0.0), errors="coerce").fillna(0.0), scale=1_000_000.0)
-    credits = to_float_list(pd.to_numeric(df_costs.get("Credit_Cost", 0.0), errors="coerce").fillna(0.0), scale=1_000_000.0)
-    interests = to_float_list(pd.to_numeric(df_costs.get("Financing Interests", 0.0), errors="coerce").fillna(0.0), scale=1_000_000.0)
-    net_tax = _aligned_from_map(years, _series_map_by_year(df_co2, "Net_Tax_Cost_MEuros", scale=1.0))
+    
+    # 1. Gather OPEX components
+    dac = pd.to_numeric(df_costs.get("DAC_Opex", 0.0), errors="coerce").fillna(0.0) / 1_000_000.0
+    credits = pd.to_numeric(df_costs.get("Credit_Cost", 0.0), errors="coerce").fillna(0.0) / 1_000_000.0
+    interests = pd.to_numeric(df_costs.get("Financing Interests", 0.0), errors="coerce").fillna(0.0) / 1_000_000.0
+    net_tax = pd.Series(_aligned_from_map(years, _series_map_by_year(df_co2, "Net_Tax_Cost_MEuros", scale=1.0)))
+    
+    # 2. Build plotting DataFrame
+    df_opex = pd.DataFrame({
+        "DAC OPEX": dac.tolist(),
+        "Carbon Credits": credits.tolist(),
+        "Financing Interests": interests.tolist(),
+        "Net Carbon Tax": net_tax.tolist()
+    }, index=range(len(years)))
+    
+    # 3. Use the unified Plotly builder
+    fig = build_opex_figure(
+        df_opex=df_opex,
+        years=years,
+        title=title,
+        is_dark_bg=False
+    )
 
-    total = [round(a + b + c + d, 6) for a, b, c, d in zip(dac, credits, interests, net_tax)]
-    traces = [
-        {
-            "type": "bar",
-            "name": "DAC OPEX",
-            "x": years,
-            "y": dac,
-            "marker": {"color": "#0284C7"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Credit cost",
-            "x": years,
-            "y": [round(v if v > 0 else -abs(v), 6) for v in credits],
-            "marker": {"color": "#EA580C"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Financing interests",
-            "x": years,
-            "y": interests,
-            "marker": {"color": "#475569"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "bar",
-            "name": "Net carbon tax",
-            "x": years,
-            "y": net_tax,
-            "marker": {"color": "#0F766E"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-        {
-            "type": "scatter",
-            "mode": "lines+markers",
-            "name": "Total annual OPEX",
-            "x": years,
-            "y": total,
-            "line": {"width": 3, "color": "#111827"},
-            "marker": {"size": 6, "color": "#111827"},
-            "hovertemplate": "%{y:,.2f} MEUR<extra>%{fullData.name}</extra>",
-        },
-    ]
-
-    layout = base_layout(title, "MEUR", years, barmode="relative")
     description = (
         "Total annual OPEX is reconstructed as DAC_Opex + Credit_Cost + Financing Interests + Net_Tax_Cost_MEuros. "
         "It provides a yearly operating-cost burden proxy in MEUR."
     )
-    return {"data": traces, "layout": layout}, description
+    return fig_to_dict(fig), description
 
 
 def build_co2_abatement_graph(df_mac: pd.DataFrame) -> Tuple[Dict[str, Any], str]:

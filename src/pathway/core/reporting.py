@@ -17,6 +17,7 @@ from pathway.core.plots.financial import build_transition_cost_figure
 from pathway.core.plots.carbon import build_carbon_price_figure
 from pathway.core.plots.energy_mix import build_energy_mix_figure
 from pathway.core.plots.investment import build_investment_plan_figure
+from pathway.core.plots.opex import build_opex_figure
 
 class PathFinderReporter:
     def __init__(self, optimizer: PathFinderOptimizer, scenario_id: str = "DEFAULT", scenario_name: str = "Default", generate_excel: bool = True, verbose: bool = False, progress_cb=None):
@@ -1940,41 +1941,21 @@ class PathFinderReporter:
         
         # Add Total to the dataframe for Excel export (before plotting)
         df_bars_export = df_bars.copy()
+        df_bars_export['Year'] = years
         df_bars_export['TOTAL ANNUAL OPEX (M€)'] = total_opex
         
-        fig, ax = plt.subplots(figsize=(14, 10))
-        # Use tab20 colors for variety
-        df_bars.plot.area(ax=ax, stacked=True, alpha=0.85, colormap='tab20')
+        # Build Plotly Figure
+        fig = build_opex_figure(
+            df_opex=df_bars_export,
+            years=years,
+            title="RESSOURCES OPEX: ANNUAL OPERATIONAL EXPENDITURE BREAKDOWN",
+            is_dark_bg=False # Standard report is light
+        )
         
-        # Plot Total Line
-        ax.plot(years, total_opex, color='#2C3E50', linestyle='--', linewidth=3, 
-                marker='o', markersize=7, markerfacecolor='white', label='Total Annual OPEX (M€)')
+        # Save Figure (PNG + JSON)
+        self._save_plotly_figure(fig, "Resources_Opex")
         
-        # Annotations
-        for t in [years[0], years[-1]]:
-            val = total_opex.loc[t]
-            ax.annotate(f"{val:.1f} M€", xy=(t, val), xytext=(0, 15), 
-                        textcoords="offset points", ha='center', va='bottom', fontsize=11,
-                        weight='bold', color='#2C3E50',
-                        bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#2C3E50', alpha=0.9))
-        
-        ax.set_title("TOTAL OPEX: ANNUAL OPERATIONAL EXPENDITURE BREAKDOWN", 
-                     fontsize=18, weight='bold', pad=30)
-        ax.set_ylabel("Annual OPEX (M€)", fontsize=13, weight='semibold')
-        ax.set_xlabel("Year", fontsize=13, weight='semibold')
-        ax.set_xticks(years)
-        ax.set_xticklabels([str(y) for y in years], rotation=0)
-        
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), fontsize=10, ncol=3, frameon=True)
-        self._apply_premium_style(ax)
-        
-        plt.tight_layout()
-        self._add_watermark(fig)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, f'{self.scenario_name}_Total_OPEX.png'), dpi=300, bbox_inches='tight')
-        plt.close()
-        
+        # Store data for Excel
         self.charts_data.append(("Generalized Operational Expenditure Breakdown", df_bars_export))
 
     def _plot_carbon_tax_and_avoided(self, df: pd.DataFrame):
