@@ -111,6 +111,7 @@ class Resource:
     type: str  # Consommation/Émission/Production
     unit: str
     name: str = ""  # Human-readable display name (e.g. "Fuel Gas" vs id "EN_FUEL")
+    resource_type: str = "GENERIC"
     category: str = "Other"
 
 @dataclass

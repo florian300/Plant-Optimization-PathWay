@@ -281,7 +281,9 @@ class PathFinderReporter:
             paid_q = self.opt.paid_quota_vars[t].varValue or 0.0
             penal_q = self.opt.penalty_quota_vars[t].varValue or 0.0
             
-            standard_tax_cost = (paid_q + penal_q) * tax_price / 1_000_000.0
+            # The penalty list should contain the actual financial impact computed on penalty variables.
+            # Tax cost covers the base tax rate for all quotas (both paid and penal portions).
+            standard_tax_cost = (paid_q * tax_price + penal_q * tax_price) / 1_000_000.0
             quota_penalty_cost = (penal_q * tax_price * penalty_factor) / 1_000_000.0
             
             # --- AGGREGATE OBJECTIVE PENALTIES (Realistic only) ---

@@ -74,17 +74,13 @@ class PathFinderOptimizer:
         tech = self.data.technologies.get(t_id)
         return self._norm(tech.name if tech is not None else t_id)
 
-    def _token_has_hydrogen(self, token: str) -> bool:
-        txt = self._norm(token)
-        return 'HYDROGEN' in txt or 'H2' in txt
-
     def _is_primary_emission_candidate(self, res_id: str) -> bool:
-        r_type = self._resource_type_upper(res_id)
-        r_name = self._resource_name_upper(res_id)
-        return ('EMISS' in r_type) and ('CO2' in r_name or 'CARBON' in r_name)
+        res = self.data.resources.get(res_id)
+        return res is not None and res.resource_type == 'CO2' and 'EMISS' in self._norm(res.type)
 
     def _is_hydrogen_resource(self, res_id: str) -> bool:
-        return self._token_has_hydrogen(self._resource_name_upper(res_id))
+        res = self.data.resources.get(res_id)
+        return res is not None and res.resource_type == 'HYDROGEN'
 
     def _is_continuous_improvement_tech(self, t_id: str) -> bool:
         tech_name = self._tech_name_upper(t_id)
@@ -98,12 +94,12 @@ class PathFinderOptimizer:
         return 'CCS' in tech_name or 'CCU' in tech_name or 'CAPTURE' in tech_name
 
     def _is_electric_resource(self, res_id: str) -> bool:
-        name = self._resource_name_upper(res_id)
-        return 'ELEC' in name or 'ELECTRIC' in name
+        res = self.data.resources.get(res_id)
+        return res is not None and res.resource_type == 'ELECTRICITY'
 
     def _is_fuel_resource(self, res_id: str) -> bool:
-        name = self._resource_name_upper(res_id)
-        return 'FUEL' in name
+        res = self.data.resources.get(res_id)
+        return res is not None and res.resource_type == 'FOSSIL FUEL'
 
     def _pick_largest_base_resource(self, resource_ids: List[str]) -> Optional[str]:
         if not resource_ids:
@@ -163,7 +159,7 @@ class PathFinderOptimizer:
         self.hydrogen_associated_tech_ids = set()
         for t_id, tech in self.data.technologies.items():
             for impact_resource_id in tech.impacts:
-                if impact_resource_id in self.hydrogen_resource_ids or self._token_has_hydrogen(impact_resource_id):
+                if impact_resource_id in self.hydrogen_resource_ids or self._is_hydrogen_resource(impact_resource_id):
                     self.hydrogen_associated_tech_ids.add(t_id)
                     break
 
@@ -174,7 +170,7 @@ class PathFinderOptimizer:
         ])
         self.electricity_resource_id = self._pick_largest_base_resource([
             r_id for r_id in self.data.resources
-            if self._is_electric_resource(r_id) and not self._token_has_hydrogen(self._resource_name_upper(r_id))
+            if self._is_electric_resource(r_id) and not self._is_hydrogen_resource(r_id)
         ])
         self.co2_storage_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['STORAGE'])
         self.co2_transport_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['TRANSPORT'])
@@ -675,7 +671,7 @@ class PathFinderOptimizer:
                     fuel_drop = 0.0
                     if self.fuel_resource_id is not None:
                         fuel_drop = tech.impacts.get(self.fuel_resource_id, {}).get('value', 0)
-                    has_h2_impact = any(self._token_has_hydrogen(r_id) for r_id in tech.impacts.keys())
+                    has_h2_impact = any(self._is_hydrogen_resource(r_id) for r_id in tech.impacts.keys())
                     is_h2_burner = fuel_drop < 0 and has_h2_impact
 
                     var = None
@@ -745,9 +741,15 @@ class PathFinderOptimizer:
                 fq_pct = self.data.time_series.carbon_quotas_norm.get(t, 0.0)
 
             if fq_pct <= 1.0:
+                target_limit = net_emis_for_tax * fq_pct
                 self.model += self.taxed_emis_vars[t] >= net_emis_for_tax * (1.0 - fq_pct), f"Taxed_Emis_Limit_{t}"
             else:
+                target_limit = fq_pct
                 self.model += self.taxed_emis_vars[t] >= net_emis_for_tax - fq_pct, f"Taxed_Emis_Limit_{t}"
+
+            # Fix: Enforce an upper bound on paid quotas equal to the defined emission limit (target).
+            # This ensures any excess emission is funneled into the penalty tracking variable.
+            self.model += self.paid_quota_vars[t] <= target_limit, f"Paid_Quota_Upper_Bound_{t}"
 
             # Split taxed emissions into paid vs penalty portions
             self.model += self.taxed_emis_vars[t] == self.paid_quota_vars[t] + self.penalty_quota_vars[t], f"Split_Taxed_Emis_{t}"

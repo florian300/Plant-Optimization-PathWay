@@ -340,13 +340,19 @@ class PathFinderParser:
                         category = str(row.get('CATEGORY', 'Other')).strip()
                         if not category or category.lower() == 'nan':
                             category = 'Other'
+                            
+                        # Extract RESSOURCE TYPE (fallback to 'GENERIC')
+                        resource_type = str(row.get('RESSOURCE TYPE', 'GENERIC')).strip().upper()
+                        if not resource_type or resource_type.lower() == 'NAN':
+                            resource_type = 'GENERIC'
 
                         resources_dict[res_id] = Resource(
                             id=res_id,
                             type=str(row['TYPE']),
                             unit=str(row['UNIT']),
                             name=res_name,
-                            category=category
+                            category=category,
+                            resource_type=resource_type
                         )
 
         # Parse UNIT CONVERSIONS block in OverView
