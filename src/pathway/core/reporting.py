@@ -1393,14 +1393,30 @@ class PathFinderReporter:
                 text.set_fontsize(12)
 
     def _plot_resources_mix(self, df_cons: pd.DataFrame, df_indir: pd.DataFrame, show_png: bool = True):
-        """Generates the Resources Mix visualization (Emissions, Consumption, Production)."""
+        """Generates the Resources Mix visualization with dynamic Type-Category grouping."""
         years = list(self.years)
-        type_data = {
-            'CONSUMPTION': {},
-            'PRODUCTION': {},
-            'EMISSIONS': {}
-        }
+        # We will now use a structure: { (TYPE, CATEGORY): { 'unit': unit, 'series': { name: values } } }
+        # This allows dynamic creation of buttons in the plot builder.
+        group_data = {}
         GJ_TO_MWH = 1.0 / 3.6
+
+        def add_to_group(t_id, cat_name, name, unit, values):
+            # User specific mappings
+            t_label = t_id
+            c_label = cat_name
+            if t_id == 'EMISSIONS' and cat_name.upper() == 'POLLUTION':
+                t_label, c_label = 'EMISSIONS', 'POLLUTION'
+            elif t_id == 'CONSUMPTION' and cat_name.upper() == 'ENERGY':
+                t_label, c_label = 'CONSUMPTION', 'ENERGY'
+            elif t_id == 'CONSUMPTION' and cat_name.upper() == 'WATER':
+                t_label, c_label = 'CONSUMPTION', 'WATER'
+            elif t_id == 'PRODUCTION' and cat_name.upper() == 'ENERGY':
+                t_label, c_label = 'PRODUCTION', 'ENERGY'
+            
+            key = (t_label, c_label)
+            if key not in group_data:
+                group_data[key] = {'unit': unit, 'series': {}}
+            group_data[key]['series'][name] = values
 
         # 1. Process Consumption & Production
         df_c = df_cons.set_index('Year') if 'Year' in df_cons.columns else df_cons
@@ -1409,10 +1425,7 @@ class PathFinderReporter:
             
             # Explicit Production Capture
             if col == 'EN_H2_ON_SITE':
-                t_id, cat_id = 'PRODUCTION', '[Hydrogen]'
-                name, unit = 'H2 Produced on Site', 'MWh'
-                if cat_id not in type_data[t_id]: type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
-                type_data[t_id][cat_id]['series'][name] = df_c[col].tolist()
+                add_to_group('PRODUCTION', 'Hydrogen', 'H2 Produced on Site', 'MWh', df_c[col].tolist())
                 continue
 
             if col not in self.data.resources: continue
@@ -1439,21 +1452,16 @@ class PathFinderReporter:
                 vals = [v * GJ_TO_MWH for v in vals]
                 unit = 'MWh'
 
-            cat_id = f"[{res.category}]"
-            if cat_id not in type_data[t_id]:
-                type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
-            type_data[t_id][cat_id]['series'][name] = vals
+            add_to_group(t_id, res.category, name, unit, vals)
 
         # 2. Process Indirect Emissions
         df_i = df_indir.set_index('Year') if 'Year' in df_indir.columns else df_indir
-        t_id = 'EMISSIONS'
         for col in df_i.columns:
             if col == 'Year' or df_i[col].sum() < 1e-6: continue
             
             # Use resource info if column is a resource ID
             res_id = col
             if '_' in col and col not in self.data.resources:
-                # Handle special columns like EN_ELEC_BASE
                 res_id = col.split('_')[0] + '_' + col.split('_')[1]
             
             res = self.data.resources.get(res_id)
@@ -1462,21 +1470,18 @@ class PathFinderReporter:
             unit = 'tCO2'
             vals = df_i[col].tolist()
             
-            cat_id = f"[{cat_name}]"
-            if cat_id not in type_data[t_id]:
-                type_data[t_id][cat_id] = {'unit': unit, 'series': {}}
-            type_data[t_id][cat_id]['series'][name] = vals
+            add_to_group('EMISSIONS', cat_name, name, unit, vals)
 
         # 3. Build figure
         fig = build_resources_mix_figure(
             years=years,
-            type_data=type_data,
+            group_data=group_data,
             theme="report",
-            title="RESOURCES MIX BREAKDOWN"
+            title="RESOURCES MIX: TYPE & CATEGORY"
         )
         
         self._save_plotly_figure(fig, "Energy_Mix", show_png=show_png)
-        self.charts_data.append(("Resources Mix Breakdown (Consumption, Production, Emissions)", df_cons))
+        self.charts_data.append(("Resources Mix Breakdown (Type & Category Support)", df_cons))
 
     def _plot_co2_trajectory(self, df: pd.DataFrame, show_png: bool = True):
         """Generates the CO2 Trajectory visualization using the centralized module."""

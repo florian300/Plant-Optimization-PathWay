@@ -1,31 +1,28 @@
 import plotly.graph_objects as go
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 def build_resources_mix_figure(
     years: List[int],
-    type_data: Dict[str, Dict[str, Dict[str, Any]]],
-    title: str = "RESOURCES MIX",
+    group_data: Dict[Tuple[str, str], Dict[str, Any]],
+    title: str = "RESOURCES MIX: TYPE & CATEGORY",
     theme: str = "report"
 ) -> go.Figure:
     """
-    Builds a Plotly figure for Resources Mix with a dropdown to select Type (Emissions, Consumption, Production).
+    Builds a Plotly figure for Resources Mix with a dropdown to select both Type and Category.
     
-    type_data structure: {
-        'CONSUMPTION': { 'Electricity': { 'unit': 'MWh', 'series': { 'Grid': [...] } } },
-        'PRODUCTION': { ... },
-        'EMISSIONS': { ... }
+    group_data structure: {
+        ('CONSUMPTION', 'ENERGY'): { 'unit': 'MWh', 'series': { 'Grid': [...] } },
+        ('PRODUCTION', 'ENERGY'): { ... },
+        ('EMISSIONS', 'POLLUTION'): { ... }
     }
     """
     fig = go.Figure()
     
-    # Sort types: CONSUMPTION, PRODUCTION, EMISSIONS
-    available_types = []
-    for t in ['CONSUMPTION', 'PRODUCTION', 'EMISSIONS']:
-        if t in type_data and type_data[t]:
-            available_types.append(t)
+    # Sort groups by Type then Category
+    available_groups = sorted(group_data.keys(), key=lambda x: (x[0], x[1]))
     
-    if not available_types:
+    if not available_groups:
         fig.add_annotation(text="No data available for Resources Mix", showarrow=False)
         return fig
 
@@ -37,58 +34,58 @@ def build_resources_mix_figure(
     grid_color = "#f1f5f9"
     template = "plotly_white"
 
-    # Create traces for all Types and Categories
-    trace_indices_per_type = {}
+    # Create traces for each group
+    trace_indices_per_group = {}
     current_idx = 0
     
-    # We want to identify the "initial" type to show
-    initial_type = available_types[0]
+    # Identify the initial group to show (prefer CONSUMPTION ENERGY if available)
+    initial_group = next((g for g in available_groups if g == ('CONSUMPTION', 'ENERGY')), available_groups[0])
 
-    for t_id in available_types:
-        trace_indices_per_type[t_id] = []
-        categories = sorted(list(type_data[t_id].keys()))
+    for group_key in available_groups:
+        trace_indices_per_group[group_key] = []
+        data = group_data[group_key]
+        unit = data['unit']
+        series_dict = data['series']
         
-        for cat in categories:
-            data = type_data[t_id][cat]
-            unit = data['unit']
-            series_dict = data['series']
-            
-            # Sort series by average value
-            sorted_series = sorted(series_dict.items(), key=lambda x: sum(abs(v) for v in x[1]), reverse=True)
-            
-            for name, values in sorted_series:
-                fig.add_trace(go.Scatter(
-                    x=years,
-                    y=values,
-                    name=name,
-                    mode='lines',
-                    line=dict(width=0.5),
-                    stackgroup=f"{t_id}_{cat}", # Stack within Type-Category
-                    visible=(t_id == initial_type),
-                    hovertemplate=f"%{{y:,.1f}} {unit}<extra>{name} [{cat}]</extra>"
-                ))
-                trace_indices_per_type[t_id].append(current_idx)
-                current_idx += 1
+        # Sort series by average value
+        sorted_series = sorted(series_dict.items(), key=lambda x: sum(abs(v) for v in x[1]), reverse=True)
+        
+        for name, values in sorted_series:
+            fig.add_trace(go.Scatter(
+                x=years,
+                y=values,
+                name=name,
+                mode='lines',
+                line=dict(width=0.5),
+                stackgroup=f"{group_key[0]}_{group_key[1]}", # Stack within the specific Type-Category group
+                visible=(group_key == initial_group),
+                hovertemplate=f"%{{y:,.1f}} {unit}<extra>{name} [{group_key[1]}]</extra>"
+            ))
+            trace_indices_per_group[group_key].append(current_idx)
+            current_idx += 1
 
-    # Create dropdown buttons for Types
+    # Create dropdown buttons for the combined Type-Category groups
     buttons = []
-    for t_id in available_types:
-        # Visibility list: True for traces in this Type, False otherwise
+    for group_key in available_groups:
+        t_id, cat_id = group_key
+        # Visibility list: True for traces in this group, False otherwise
         visibility = [False] * current_idx
-        for idx in trace_indices_per_type[t_id]:
+        for idx in trace_indices_per_group[group_key]:
             visibility[idx] = True
             
-        # Get the first unit found in this Type
-        first_cat = next(iter(type_data[t_id]))
-        unit = type_data[t_id][first_cat]['unit']
+        unit = group_data[group_key]['unit']
         
+        # Determine Y-axis title based on Type
         y_title = "Resources Volume"
         if t_id == 'EMISSIONS': y_title = "Indirect CO2 Emissions"
         elif t_id == 'PRODUCTION': y_title = "Local Production"
         else: y_title = "Gross Consumption"
 
+        # Label: "TYPE CATEGORY"
+        btn_label = f"{t_id} {cat_id}"
+
         buttons.append(dict(
-            label=t_id,
+            label=btn_label,
             method="update",
             args=[
                 {"visible": visibility},
@@ -100,11 +97,13 @@ def build_resources_mix_figure(
             ]
         ))
 
+    # Initial Y-axis title and unit
+    init_type, init_cat = initial_group
     initial_y_title = "Resources Volume"
-    if initial_type == 'EMISSIONS': initial_y_title = "Indirect CO2 Emissions"
-    elif initial_type == 'PRODUCTION': initial_y_title = "Local Production"
+    if init_type == 'EMISSIONS': initial_y_title = "Indirect CO2 Emissions"
+    elif init_type == 'PRODUCTION': initial_y_title = "Local Production"
     else: initial_y_title = "Gross Consumption"
-    initial_unit = type_data[initial_type][next(iter(type_data[initial_type]))]['unit']
+    initial_unit = group_data[initial_group]['unit']
 
     fig.update_layout(
         updatemenus=[

@@ -835,6 +835,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     // Initialise the OAT target selector and render charts for the default target
     populateTargetSelector();
     filterSensitivityData();
+    buildGlobalSensitivityCharts(sensitivityData);
 
     // ═══════════════════════════════════════════════════════════════════════
     // SENSITIVITY CHARTS — OAT (One-At-a-Time)
@@ -880,7 +881,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
       const filtered = (sensitivityData || []).filter(r => r.target === selectedTarget);
       buildDetailedSensitivityCharts(filtered, selectedTarget);
-      buildGlobalSensitivityCharts(sensitivityData);
     }
 
     /**
@@ -912,34 +912,57 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
       // ── 1. Packed Bubble ───────────────────────────────────────────────
       (function buildBubble() {
-        const bubbleTraces = Object.entries(targets).map(([target, records]) => {
+        // Calculate data points first
+        const dataPoints = Object.entries(targets).map(([target, records]) => {
           const costs = records.map(r => r.transition_cost / 1_000_000.0);
           const maxVariance = Math.max(...costs) - Math.min(...costs);
-          
+          return { target, maxVariance };
+        });
+
+        // Layer Sorting: Large background, small foreground
+        dataPoints.sort((a, b) => b.maxVariance - a.maxVariance);
+
+        // Calculate sizeref for Area mode
+        // Formula: input_value / sizeref = rendered_area_in_pixels
+        // We want max_diameter = 120px => max_area = PI * (60)^2 ~= 11310
+        const maxVal = Math.max(...dataPoints.map(d => d.maxVariance), 1);
+        const sizeref = maxVal / 11000;
+
+        const bubbleTraces = dataPoints.map(({target, maxVariance}, i) => {
+          // Circular Jittering (Polar Distribution)
+          // Spread them out in a spiral/circular pattern instead of a square
+          const angle = (i / dataPoints.length) * 2 * Math.PI + (Math.random() * 0.5);
+          const radius = 0.5 + Math.sqrt(Math.random()) * 2.0; // Radius between 0.5 and 2.5
+          const x = radius * Math.cos(angle);
+          const y = radius * Math.sin(angle);
+
           return {
             type: 'scatter',
             mode: 'markers+text',
             name: target,
-            x: [Math.random() * 2 - 1], // Jitter to avoid direct overlap if centered
-            y: [Math.random() * 2 - 1],
+            x: [x],
+            y: [y],
             text: [target],
             textposition: 'middle center',
-            textfont: { size: 11, color: '#fff', weight: 'bold' },
+            textfont: { size: 9, color: '#fff', weight: 'bold' },
             marker: {
-              size: [Math.max(70, Math.min(200, maxVariance * 6))],
-              sizemode: 'diameter',
+              size: [maxVariance],
+              sizemode: 'area',
+              sizeref: sizeref,
+              sizemin: 15,
               color: ['#0ea5e9'],
-              opacity: 0.8,
-              line: { width: 1.5, color: '#fff' },
+              opacity: 0.4, // More transparency for high density
+              line: { width: 1, color: '#fff' },
             },
             hovertemplate: `<b>${target}</b><br>Variance max : %{customdata:,.1f} M€<extra></extra>`,
             customdata: [maxVariance],
           };
         });
+
         const layout = plotLayout({
           title: { text: 'Variance Maximale du Bilan (M€)', font: { size: 13, weight: 'bold' } },
-          xaxis: { visible: false, range: [-2, 2] },
-          yaxis: { visible: false, range: [-2, 2] },
+          xaxis: { visible: false, range: [-3.5, 3.5] },
+          yaxis: { visible: false, range: [-3.5, 3.5] },
           showlegend: false,
         });
         Plotly.newPlot('sens-bubble-chart', bubbleTraces, layout, plotConfig);

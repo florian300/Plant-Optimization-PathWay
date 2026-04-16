@@ -118,6 +118,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <option value="investment">Investment Plan (CAPEX)</option>
                             </optgroup>
                             <optgroup label="Resource Flows">
+                                <option value="energy_mix">Resources Mix: Type & Category</option>
                                 <option value="hydrogen">Hydrogen Mass Balance</option>
                                 <option value="power">Power & Market Pricing</option>
                             </optgroup>
@@ -166,7 +167,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             'transition': "Cumulative cost of the ecological transition. Areas break down annual deltas (Sunk CAPEX, interests, credits) against the cumulative net total line.",
             'investment': "Detailed annual CAPEX allocation. Highlights technological application to specific industrial processes, monitored against self-funding and loan limits.",
             'hydrogen': "Mass balance for the H2 ecosystem, integrating production units, user processes, and storage buffering capacity.",
-            'power': "Grid interaction profile. Compares power consumption units against the volatile spot market prices."
+            'power': "Grid interaction profile. Compares power consumption units against the volatile spot market prices.",
+            'energy_mix': "Aggregated view of resource flows grouped by Type (Consumption, Production, Emissions) and Category (Energy, Water, Pollution). Allows granular breakdown of the resource mix over time."
         };
 
         // Layout Constants from Reporting.py
@@ -364,6 +366,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     yaxis: { title: 'MW' },
                     yaxis2: { overlaying: 'y', side: 'right', title: 'Price (€/MWh)', showgrid: false }
                 }, {responsive: true});
+
+            } else if (type === 'energy_mix') {
+                if (!data.energy_mix_fig) return showNoData();
+                const fig = data.energy_mix_fig;
+                Plotly.newPlot('plotlyChart', fig.data, {
+                    ...layout,
+                    ...fig.layout,
+                    margin: { t: 60, b: 80, l: 60, r: 60 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    xaxis: { ...layout.xaxis, ...fig.layout.xaxis },
+                    yaxis: { ...layout.yaxis, ...fig.layout.yaxis },
+                    legend: { ...fig.layout.legend, orientation: "h", yanchor: "top", y: -0.2, xanchor: "center", x: 0.5 }
+                }, {responsive: true});
             }
         }
 
@@ -501,11 +517,24 @@ def parse_excel_scenarios(data_dir: str) -> dict:
                             years=years,
                             pos_cols=pos_cols,
                             neg_cols=neg_cols,
-                            is_dark_bg=True,
+                            theme="dashboard",
                             title="ECOLOGICAL TRANSITION COSTS"
                         )
                         s_data["transition_fig"] = json.loads(fig.to_json())
                 except Exception as e: print(f"  [DEBUG] Failed to parse transition_fig for {scenario_name}: {e}")
+
+            # --- Load Plotly JSONs from reports folder ---
+            # Standard path: artifacts/reports/<scenario_name>/charts/Energy_Mix.json
+            # Relative to Master_Plan.xlsx: ./charts/Energy_Mix.json
+            json_dir = os.path.join(os.path.dirname(file_path), "charts")
+            if os.path.exists(json_dir):
+                em_path = os.path.join(json_dir, "Energy_Mix.json")
+                if os.path.exists(em_path):
+                    try:
+                        with open(em_path, 'r') as f:
+                            s_data["energy_mix_fig"] = json.load(f)
+                    except Exception as e:
+                        print(f"  [DEBUG] Could not load Energy_Mix.json for {scenario_name}: {e}")
 
             master_data["data"][scenario_name] = s_data
         except Exception as e: print(f"Error reading {file_path}: {e}")
