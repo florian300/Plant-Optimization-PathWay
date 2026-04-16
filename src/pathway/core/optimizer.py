@@ -237,11 +237,12 @@ class PathFinderOptimizer:
             self.paid_quota_vars[t] = pulp.LpVariable(f"PaidQuota_{t}", lowBound=0)
             self.penalty_quota_vars[t] = pulp.LpVariable(f"PenaltyQuota_{t}", lowBound=0)
             
-        self.h2_supply_vars = {t: {} for t in self.years}
+        self.market_buy_vars = {t: {} for t in self.years}
         for t in self.years:
-            self.h2_supply_vars[t]['PRODUCED_ON_SITE'] = pulp.LpVariable(f"H2_Produce_{t}", lowBound=0)
-            for res in self.h2_buy_resources:
-                self.h2_supply_vars[t][res] = pulp.LpVariable(f"H2_Buy_{res}_{t}", lowBound=0)
+            for res_id in self.data.resources:
+                if res_id in self.data.time_series.resource_prices:
+                    self.market_buy_vars[t][res_id] = pulp.LpVariable(f"Market_Buy_{res_id}_{t}", lowBound=0)
+                    
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
                     if self._is_continuous_improvement_tech_id(t_id):
@@ -641,62 +642,8 @@ class PathFinderOptimizer:
                 if self.data.dac_params.active and self.electricity_resource_id is not None and res_id == self.electricity_resource_id:
                     dac_cons = self.dac_captured_vars[t] * self.data.dac_params.elec_by_year.get(t, 0.0)
                 
-                h2_additional = 0.0
-                # NOTE: We NO LONGER add h2_additional to self.cons_vars for H2 resources
-                # because it causes an identity cancellation in the Balancer equation.
-                # Cons_vars should represent the PHYSICAL consumption of the refinery processes.
-                if self.h2_electricity_resource_id is not None and res_id == self.h2_electricity_resource_id:
-                    h2_additional = self.h2_supply_vars[t]['PRODUCED_ON_SITE'] * 2.0
-                    
-                self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + h2_additional, f"Cons_Balance_{t}_{res_id}"
+                self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + self.market_buy_vars[t].get(res_id, 0.0), f"Cons_Balance_{t}_{res_id}"
                 
-            # Granular Reporting: Link specific H2 buy variables to their cons_vars
-                if res_id in self.h2_buy_resources:
-                    self.model += self.cons_vars[(t, res_id)] == self.h2_supply_vars[t][res_id], f"H2_Market_Link_{t}_{res_id}"
-            # H2 Balancer equation
-            # Identify tech-based H2 demand vs supply
-            h2_cons = 0.0
-            if self.h2_consumption_resource_id is not None:
-                h2_cons = self.cons_vars.get((t, self.h2_consumption_resource_id), 0.0)
-
-            h2_supply_from_techs = []
-            h2_demand_from_techs = []
-            
-            for p_id in self.entity.processes:
-                for t_id in self.entity.processes[p_id].valid_technologies:
-                    if self._is_continuous_improvement_tech_id(t_id):
-                        continue
-                    tech = self.data.technologies[t_id]
-
-                    fuel_drop = 0.0
-                    if self.fuel_resource_id is not None:
-                        fuel_drop = tech.impacts.get(self.fuel_resource_id, {}).get('value', 0)
-                    has_h2_impact = any(self._is_hydrogen_resource(r_id) for r_id in tech.impacts.keys())
-                    is_h2_burner = fuel_drop < 0 and has_h2_impact
-
-                    var = None
-                    if self.h2_production_resource_id is not None:
-                        var = self.process_state_vars.get((t, p_id, self.h2_production_resource_id))
-                    if var is not None:
-                        if is_h2_burner:
-                            h2_demand_from_techs.append(var)
-                        else:
-                            h2_supply_from_techs.append(var)
-                    
-                    var_c = None
-                    if self.h2_consumption_resource_id is not None:
-                        var_c = self.process_state_vars.get((t, p_id, self.h2_consumption_resource_id))
-                    if var_c is not None:
-                        h2_demand_from_techs.append(var_c)
-            
-            h2_prod_tech = pulp.lpSum(h2_supply_from_techs)
-            h2_cons_tech = pulp.lpSum(h2_demand_from_techs)
-            
-            # Additional supply from market (Green, Blue, Grey H2 buying)
-            h2_market = pulp.lpSum([v for res, v in self.h2_supply_vars[t].items()])
-            
-            # Eq: (Base Refinery Demand + New Tech Demand) == MarketSupply + TechProduction
-            self.model += h2_cons + h2_cons_tech == h2_market + h2_prod_tech, f"H2_Demand_Fulfillment_{t}"
             # Emissions computation
             direct_process_emis = pulp.lpSum([
                 self.process_state_vars[(t, p_id, self.primary_emission_id)]
@@ -1172,10 +1119,6 @@ class PathFinderOptimizer:
                     price = self.data.time_series.resource_prices[r_id].get(t, 0.0)
                 
                 if price > 0:
-                    # On-site hydrogen output is handled through the H2 balancer logic.
-                    if self.h2_production_resource_id is not None and r_id == self.h2_production_resource_id:
-                        continue
-                        
                     res_obj = self.data.resources.get(r_id)
                     if res_obj and res_obj.type.strip().upper() == 'PRODUCTION':
                         # PRODUCTION resources: revenue depends on the sign of cons_var.
@@ -1186,8 +1129,9 @@ class PathFinderOptimizer:
                             total_cost.append(price * self.cons_vars[(t, r_id)])
                         else: # Tech style: positive is production
                             total_cost.append(-price * self.cons_vars[(t, r_id)])
-                    else:
-                        total_cost.append(price * self.cons_vars[(t, r_id)])
+                    elif r_id in self.market_buy_vars[t]:
+                        # Purchase from the market
+                        total_cost.append(price * self.market_buy_vars[t][r_id])
                         
                         # NET CCfD PENALTY: Scope 3 emissions reduce the 'Avoided Tons' benefit
                         if r_id in self.hydrogen_resource_ids and r_id in self.data.time_series.other_emissions_factors:
@@ -1200,7 +1144,7 @@ class PathFinderOptimizer:
                                 if ccfd_p.contract_type == 1: subsidy_per_ton = max(0, subsidy_per_ton)
                                 
                                 # Penalty reduces the negative cost (subsidy)
-                                total_cost.append(self.cons_vars[(t, r_id)] * factor * subsidy_per_ton)
+                                total_cost.append(self.market_buy_vars[t][r_id] * factor * subsidy_per_ton)
                     
             # Carbon Taxes
             c_price = self.data.time_series.carbon_prices.get(t, 0.0)
