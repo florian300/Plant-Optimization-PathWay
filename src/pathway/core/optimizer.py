@@ -237,11 +237,20 @@ class PathFinderOptimizer:
             self.paid_quota_vars[t] = pulp.LpVariable(f"PaidQuota_{t}", lowBound=0)
             self.penalty_quota_vars[t] = pulp.LpVariable(f"PenaltyQuota_{t}", lowBound=0)
             
-        self.market_buy_vars = {t: {} for t in self.years}
+        self.market_trade_vars = {t: {} for t in self.years}
         for t in self.years:
             for res_id in self.data.resources:
                 if res_id in self.data.time_series.resource_prices:
-                    self.market_buy_vars[t][res_id] = pulp.LpVariable(f"Market_Buy_{res_id}_{t}", lowBound=0)
+                    res_obj = self.data.resources.get(res_id)
+                    can_buy = res_obj.can_buy if res_obj else False
+                    can_sell = res_obj.can_sell if res_obj else False
+                    
+                    if can_buy and can_sell:
+                        self.market_trade_vars[t][res_id] = pulp.LpVariable(f"Market_Trade_{res_id}_{t}", lowBound=None, upBound=None)
+                    elif can_buy and not can_sell:
+                        self.market_trade_vars[t][res_id] = pulp.LpVariable(f"Market_Trade_{res_id}_{t}", lowBound=0.0, upBound=None)
+                    elif not can_buy and can_sell:
+                        self.market_trade_vars[t][res_id] = pulp.LpVariable(f"Market_Trade_{res_id}_{t}", lowBound=None, upBound=0.0)
                     
             for p_id, process in self.entity.processes.items():
                 for t_id in process.valid_technologies:
@@ -642,7 +651,7 @@ class PathFinderOptimizer:
                 if self.data.dac_params.active and self.electricity_resource_id is not None and res_id == self.electricity_resource_id:
                     dac_cons = self.dac_captured_vars[t] * self.data.dac_params.elec_by_year.get(t, 0.0)
                 
-                self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + self.market_buy_vars[t].get(res_id, 0.0), f"Cons_Balance_{t}_{res_id}"
+                self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + self.market_trade_vars[t].get(res_id, 0.0), f"Cons_Balance_{t}_{res_id}"
                 
             # Emissions computation
             direct_process_emis = pulp.lpSum([
@@ -939,9 +948,11 @@ class PathFinderOptimizer:
         if self.verbose:
             print("  [magenta][Optimizer][/magenta] [OBJ] Building Objective...")
         for t in self.years:
+            df = (1.0 + self.data.parameters.discount_rate) ** (t - self.years[0])
+            
             # 1. Financial Flows (Capex Out-of-pocket + Loan Annuities)
             if self.entity.ca_percentage_limit > 0 and self.entity.sold_resources:
-                total_cost.append(out_of_pocket_capex_vars[t])
+                total_cost.append(out_of_pocket_capex_vars[t] / df)
             else:
                 # If no budget constraint, we still need to account for CAPEX in objective
                 # But wait, without budget limit, the user might still want to take loans?
@@ -970,11 +981,11 @@ class PathFinderOptimizer:
                                                        for p_id, p in self.entity.processes.items()
                                                        for t_id in p.valid_technologies
                                                        if not self._is_continuous_improvement_tech_id(t_id))
-                        total_cost.append(total_loan_amount * annuity_factor)
+                        total_cost.append((total_loan_amount * annuity_factor) / df)
                         
                         # Add a tiny penalty to loan selection to strictly prioritize out-of-pocket usage
                         # Even if rate is 0%, loans shouldn't be taken if budget is available.
-                        total_cost.append(total_loan_amount * 1e-4)
+                        total_cost.append((total_loan_amount * 1e-4) / df)
 
             # CAPEX and OPEX
             for p_id, process in self.entity.processes.items():
@@ -1006,11 +1017,11 @@ class PathFinderOptimizer:
                     # If budget constraint ACTIVE, CAPEX is already in out_of_pocket_capex_vars[t].
                     if not (self.entity.ca_percentage_limit > 0 and self.entity.sold_resources):
                         if self.data.grant_params.active and self.data.grant_params.rate > 0 and t_id not in self.data.grant_params.excluded_technologies:
-                            total_cost.append((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)] - self.grant_amt_vars[(t, p_id, t_id)])
+                            total_cost.append(((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)] - self.grant_amt_vars[(t, p_id, t_id)]) / df)
                         else:
-                            total_cost.append((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)])
+                            total_cost.append(((true_capex / process.nb_units) * self.invest_vars[(t, p_id, t_id)]) / df)
 
-                    total_cost.append((true_opex / process.nb_units) * self.active_vars[(t, p_id, t_id)])
+                    total_cost.append(((true_opex / process.nb_units) * self.active_vars[(t, p_id, t_id)]) / df)
                     
                     # CCfD Calculation
                     if self.data.ccfd_params.active and self.data.ccfd_params.duration > 0 and t_id not in self.data.grant_params.excluded_technologies:
@@ -1083,7 +1094,7 @@ class PathFinderOptimizer:
                                     self.model += ccfd_amt_var <= M_subsidy * self.ccfd_used_vars[(t, p_id, t_id)], f"CCfDAmt_Cap_{t}_{p_id}_{t_id}"
                                     self.model += ccfd_amt_var >= total_subsidy - M_subsidy * (1 - self.ccfd_used_vars[(t, p_id, t_id)]), f"CCfDAmt_LB_{t}_{p_id}_{t_id}"
                                     
-                        total_cost.append(-ccfd_amt_var)
+                        total_cost.append(-ccfd_amt_var / df)
                         
                     # CCS-related transport and storage variable costs
                     if t_id in self.ccs_tech_ids:
@@ -1104,11 +1115,11 @@ class PathFinderOptimizer:
                                     tr_price = self.data.time_series.resource_prices.get(self.co2_transport_resource_id, {}).get(t, 0.0)
 
                                 if s_price > 0 or tr_price > 0:
-                                    total_cost.append((s_price + tr_price) * captured_tons_per_unit * self.active_vars[(t, p_id, t_id)])
+                                    total_cost.append(((s_price + tr_price) * captured_tons_per_unit * self.active_vars[(t, p_id, t_id)]) / df)
 
-                total_cost.append(self.dac_total_capacity_vars[t] * self.data.dac_params.opex_by_year.get(t, 0.0))
+                total_cost.append((self.dac_total_capacity_vars[t] * self.data.dac_params.opex_by_year.get(t, 0.0)) / df)
             if self.data.credit_params.active:
-                total_cost.append(self.credit_purchased_vars[t] * self.data.credit_params.cost_by_year.get(t, 0.0))
+                total_cost.append((self.credit_purchased_vars[t] * self.data.credit_params.cost_by_year.get(t, 0.0)) / df)
                 
             # Resource Costs / Revenues
             for r_id in self.data.resources:
@@ -1126,12 +1137,12 @@ class PathFinderOptimizer:
                         # Quantity is +cons_var if impacts are positive, -cons_var if negative.
                         r_base = self.entity.base_consumptions.get(r_id, 0.0)
                         if r_base < 0: # Refinery style: negative is production
-                            total_cost.append(price * self.cons_vars[(t, r_id)])
+                            total_cost.append((price * self.cons_vars[(t, r_id)]) / df)
                         else: # Tech style: positive is production
-                            total_cost.append(-price * self.cons_vars[(t, r_id)])
-                    elif r_id in self.market_buy_vars[t]:
-                        # Purchase from the market
-                        total_cost.append(price * self.market_buy_vars[t][r_id])
+                            total_cost.append((-price * self.cons_vars[(t, r_id)]) / df)
+                    elif r_id in self.market_trade_vars[t]:
+                        # Purchase/Sell from the market
+                        total_cost.append((price * self.market_trade_vars[t][r_id]) / df)
                         
                         # NET CCfD PENALTY: Scope 3 emissions reduce the 'Avoided Tons' benefit
                         if r_id in self.hydrogen_resource_ids and r_id in self.data.time_series.other_emissions_factors:
@@ -1144,16 +1155,16 @@ class PathFinderOptimizer:
                                 if ccfd_p.contract_type == 1: subsidy_per_ton = max(0, subsidy_per_ton)
                                 
                                 # Penalty reduces the negative cost (subsidy)
-                                total_cost.append(self.market_buy_vars[t][r_id] * factor * subsidy_per_ton)
+                                total_cost.append((self.market_trade_vars[t][r_id] * factor * subsidy_per_ton) / df)
                     
             # Carbon Taxes
             c_price = self.data.time_series.carbon_prices.get(t, 0.0)
             penalty_factor = self.data.time_series.carbon_penalties.get(t, 0.0)
             if c_price > 0:
                 # Paid quotas are at market price
-                total_cost.append(c_price * self.paid_quota_vars[t])
+                total_cost.append((c_price * self.paid_quota_vars[t]) / df)
                 # Unpaid/Penalty emissions are at penalized price (1 + x)
-                total_cost.append(c_price * (1.0 + penalty_factor) * self.penalty_quota_vars[t])
+                total_cost.append((c_price * (1.0 + penalty_factor) * self.penalty_quota_vars[t]) / df)
                 
         # Calculate dynamic massive penalty cost: 
         # Needs to be significantly higher than any real cost (Capex, Opex, Carbon Tax, Subsidies)
@@ -1186,28 +1197,31 @@ class PathFinderOptimizer:
             if idx in self.penalty_vars:
                 # Use target year price if realistic, else massive penalty
                 p_cost = self.massive_penalty_cost
+                t_target = obj.target_year
+                # Clamp target year to simulation range
+                if t_target not in self.years:
+                    t_target = min(self.years[-1], max(self.years[0], t_target))
+                
+                df_target = (1.0 + self.data.parameters.discount_rate) ** (t_target - self.years[0])
+                
                 if is_realistic:
-                    t_target = obj.target_year
-                    # Clamp target year to simulation range
-                    if t_target not in self.years:
-                        t_target = min(self.years[-1], max(self.years[0], t_target))
-                    
                     c_price = self.data.time_series.carbon_prices.get(t_target, 0.0)
                     p_fact = self.data.time_series.carbon_penalties.get(t_target, 0.0)
                     p_cost = c_price * (1.0 + p_fact)
                 
-                total_cost.append(self.penalty_vars[idx] * p_cost)
+                total_cost.append((self.penalty_vars[idx] * p_cost) / df_target)
             
             # Check for (idx, t) keys (usually for LINEAR objectives)
             for t in self.years:
                 if (idx, t) in self.penalty_vars:
                     p_cost = self.massive_penalty_cost
+                    df = (1.0 + self.data.parameters.discount_rate) ** (t - self.years[0])
                     if is_realistic:
                         c_price = self.data.time_series.carbon_prices.get(t, 0.0)
                         p_fact = self.data.time_series.carbon_penalties.get(t, 0.0)
                         p_cost = c_price * (1.0 + p_fact)
                     
-                    total_cost.append(self.penalty_vars[(idx, t)] * p_cost)
+                    total_cost.append((self.penalty_vars[(idx, t)] * p_cost) / df)
             
         self.model += pulp.lpSum(total_cost), "Total_Cost_Objective"
 

@@ -232,6 +232,7 @@ class PathFinderParser:
         time_limit = 60.0
         mip_gap = 0.90
         relax_integrality = False
+        discount_rate = 0.0
         for i, row in df_overview.iterrows():
             row_vals = [str(x).strip().upper() if pd.notna(x) else "" for x in row]
             if "YEAR START" in row_vals:
@@ -261,6 +262,16 @@ class PathFinderParser:
                         val = float(raw_val.replace('%', ''))
                         if '%' in raw_val or val > 1.0: val /= 100.0
                         mip_gap = val
+                    except ValueError: pass
+            if "DISCOUNT RATE (%)" in row_vals or "DISCOUNT RATE" in row_vals:
+                keyword = "DISCOUNT RATE (%)" if "DISCOUNT RATE (%)" in row_vals else "DISCOUNT RATE"
+                idx = row_vals.index(keyword)
+                if len(row) > idx + 1:
+                    raw_val = str(row.iloc[idx + 1]).strip()
+                    try:
+                        val = float(raw_val.replace('%', ''))
+                        if '%' in raw_val or val > 1.0: val /= 100.0
+                        discount_rate = val
                     except ValueError: pass
                     
         # Define years list for interpolation
@@ -354,6 +365,34 @@ class PathFinderParser:
                             category=category,
                             resource_type=resource_type
                         )
+
+        # Parse PURCHASES block in OverView to conditionally allow market buying/selling
+        purchases_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and 'PURCHASES' in normalize_token(b['prefix'])), None)
+        purchases_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and 'PURCHASES' in normalize_token(b['prefix'])), None)
+        
+        if purchases_start is not None and purchases_end is not None:
+            df_purchases = self._extract_block_data(df_overview, purchases_start, purchases_end)
+            if not df_purchases.empty:
+                col_map = {normalize_token(c): c for c in df_purchases.columns}
+                id_col = col_map.get('RESSOURCE ID') or col_map.get('RESOURCE ID') or col_map.get('ID')
+                buy_sell_col = col_map.get('BUY/SELL') or col_map.get('TYPE')
+                
+                if id_col is not None and buy_sell_col is not None:
+                    for _, row in df_purchases.iterrows():
+                        res_id = str(row.get(id_col, '')).strip()
+                        bs_val = str(row.get(buy_sell_col, '')).strip().upper()
+                        
+                        if res_id and res_id in resources_dict:
+                            if 'BUY' in bs_val and 'SELL' in bs_val:
+                                resources_dict[res_id].can_buy = True
+                                resources_dict[res_id].can_sell = True
+                            elif 'BOTH' in bs_val:
+                                resources_dict[res_id].can_buy = True
+                                resources_dict[res_id].can_sell = True
+                            elif 'BUY' in bs_val:
+                                resources_dict[res_id].can_buy = True
+                            elif 'SELL' in bs_val:
+                                resources_dict[res_id].can_sell = True
 
         # Parse UNIT CONVERSIONS block in OverView
         unit_conv_start = next((
@@ -486,7 +525,8 @@ class PathFinderParser:
             resources=list(resources_dict.keys()),
             time_limit=time_limit,
             mip_gap=mip_gap,
-            relax_integrality=relax_integrality
+            relax_integrality=relax_integrality,
+            discount_rate=discount_rate
         )
         
         # 2. Parse NEW TECH

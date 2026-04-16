@@ -103,7 +103,7 @@ class Parameters:
     time_limit: float = 60.0
     mip_gap: float = 0.90
     relax_integrality: bool = False
-    # potentially other overview parameters like discount rate if available
+    discount_rate: float = 0.0
 
 @dataclass
 class Resource:
@@ -113,6 +113,8 @@ class Resource:
     name: str = ""  # Human-readable display name (e.g. "Fuel Gas" vs id "EN_FUEL")
     resource_type: str = "GENERIC"
     category: str = "Other"
+    can_buy: bool = False
+    can_sell: bool = False
 
 @dataclass
 class Technology:
