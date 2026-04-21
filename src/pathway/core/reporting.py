@@ -35,7 +35,13 @@ class PathFinderReporter:
         self.verbose = verbose
         self.progress_cb = progress_cb
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-        self.results_dir = os.path.join(repo_root, 'artifacts', 'reports', self.scenario_name)
+        self.entity_id = getattr(self.opt.entity, 'id', 'Base Company') if hasattr(self, 'opt') and hasattr(self.opt, 'entity') else 'Base Company'
+        self.entity_name = getattr(self.opt.entity, 'name', self.entity_id) if hasattr(self, 'opt') and hasattr(self.opt, 'entity') else 'Base Company'
+        
+        safe_name = "".join([c for c in self.entity_name if c.isalpha() or c.isdigit() or c in ' -_']).strip()
+        if not safe_name: safe_name = self.entity_id
+        
+        self.results_dir = os.path.join(repo_root, 'artifacts', 'reports', safe_name, self.scenario_name)
         self.charts_data = [] # List of (title, dataframe) tuples
 
     def _save_plotly_figure(self, fig, base_filename, show_png: bool = True):

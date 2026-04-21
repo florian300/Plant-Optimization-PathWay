@@ -187,6 +187,7 @@ class Process:
 @dataclass
 class EntityState:
     id: str
+    name: str = ""
     # Initial consumptions/emissions
     base_consumptions: Dict[str, float] = field(default_factory=dict)
     base_emissions: float = 0.0

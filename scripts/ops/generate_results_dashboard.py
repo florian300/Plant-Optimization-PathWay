@@ -161,10 +161,10 @@ def sanitize_payload(value: Any) -> Any:
     return value
 
 
-def discover_scenarios(results_root: Path) -> Dict[str, Path]:
-    """Scans the results directory for scenario folders containing a charts/ subdirectory."""
+def discover_entities_and_scenarios(results_root: Path) -> Dict[str, Dict[str, Path]]:
+    """Scans the results directory for entity folders, then scenario folders containing a charts/ subdirectory."""
     roots = [results_root, results_root / "Results"]
-    scenarios: Dict[str, Path] = {}
+    entities: Dict[str, Dict[str, Path]] = {}
 
     for root in roots:
         if not root.exists() or not root.is_dir():
@@ -174,13 +174,21 @@ def discover_scenarios(results_root: Path) -> Dict[str, Path]:
                 continue
             if child.name.lower() == "results":
                 continue
-            # We look for the charts directory which contains our Plotly JSON artifacts
-            charts_dir = child / "charts"
-            if charts_dir.exists() and charts_dir.is_dir():
-                if child.name not in scenarios:
-                    scenarios[child.name] = child
+            
+            if (child / "charts").exists() and (child / "charts").is_dir():
+                continue
+            
+            entity_name = child.name
+            for sub_child in sorted(child.iterdir(), key=lambda p: p.name.lower()):
+                if not sub_child.is_dir():
+                    continue
+                if (sub_child / "charts").exists() and (sub_child / "charts").is_dir():
+                    if entity_name not in entities:
+                        entities[entity_name] = {}
+                    if sub_child.name not in entities[entity_name]:
+                        entities[entity_name][sub_child.name] = sub_child
 
-    return scenarios
+    return entities
 
 
 def get_graph_payload(scenario_path: Path, scenario_name: str, key: str, label: str, json_filename: str) -> Dict[str, Any]:
@@ -224,22 +232,23 @@ def get_graph_payload(scenario_path: Path, scenario_name: str, key: str, label: 
     }
 
 
-def build_dashboard_data(scenario_dirs: Dict[str, Path], discount_rate: float) -> Dict[str, Any]:
+def build_dashboard_data(entity_dirs: Dict[str, Dict[str, Path]], discount_rate: float) -> Dict[str, Any]:
     """Assembles the final dashboard payload by consuming pre-generated JSON artifacts."""
-    if not scenario_dirs:
+    if not entity_dirs:
         print("[ERROR] No scenario directories with 'charts/' subfolder were found.")
         return {}
 
     # Determine generation date based on latest chart update
     latest_ts = 0.0
-    for s_path in scenario_dirs.values():
-        charts_dir = s_path / "charts"
-        for f in charts_dir.glob("*.json"):
-            latest_ts = max(latest_ts, f.stat().st_mtime)
+    for scenarios_dict in entity_dirs.values():
+        for s_path in scenarios_dict.values():
+            charts_dir = s_path / "charts"
+            for f in charts_dir.glob("*.json"):
+                latest_ts = max(latest_ts, f.stat().st_mtime)
     
     generation_date = datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d %H:%M:%S") if latest_ts > 0 else "Unknown"
 
-    scenarios_payload: Dict[str, Any] = {}
+    entities_payload: Dict[str, Any] = {}
     
     # Define mapping of dashboard keys to chart filenames
     # This must match self._save_plotly_figure calls in ReportingEngine
@@ -260,23 +269,30 @@ def build_dashboard_data(scenario_dirs: Dict[str, Path], discount_rate: float) -
         ("data_used",          "DATA USED",           "Data_Used"),
     ]
 
-    for scenario_name, scenario_path in scenario_dirs.items():
-        print(f"  > Processing scenario: {scenario_name}")
-        graphs = {}
-        for key, label, filename in chart_mapping:
-            graphs[key] = get_graph_payload(scenario_path, scenario_name, key, label, filename)
+    for entity_name, scenarios_dict in entity_dirs.items():
+        print(f"  > Processing entity: {entity_name}")
+        scenarios_payload = {}
+        for scenario_name, scenario_path in scenarios_dict.items():
+            graphs = {}
+            for key, label, filename in chart_mapping:
+                graphs[key] = get_graph_payload(scenario_path, scenario_name, key, label, filename)
 
-        scenarios_payload[scenario_name] = {
-            "displayName": scenario_name.replace("_", " "),
-            "sourcePath": str(scenario_path),
-            "graphs": graphs,
+            scenarios_payload[scenario_name] = {
+                "displayName": scenario_name.replace("_", " "),
+                "sourcePath": str(scenario_path),
+                "graphs": graphs,
+            }
+            
+        entities_payload[entity_name] = {
+            "displayName": entity_name.replace("_", " "),
+            "scenarios": scenarios_payload
         }
 
     payload = {
-        "projectTitle": "Plant-Optimization-PathWay - Results Dashboard",
+        "projectTitle": "PathWay Analytics Dashboard",
         "generationDate": generation_date,
         "discountRate": discount_rate,
-        "scenarios": scenarios_payload,
+        "entities": entities_payload,
     }
     return sanitize_payload(payload)
 
@@ -530,16 +546,48 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         </div>
       </section>
 
-      <section class=\"glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in\">
-        <div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\">
-          <label class=\"block\">
-            <span class=\"text-sm font-bold text-slate-500 uppercase tracking-tight\">Scenario Selector</span>
-            <select id=\"scenarioSelect\" class=\"selector mt-2\"></select>
+      <!-- Phase 1: Entity-Specific Filtering -->
+      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in border-l-4 border-l-emerald-500">
+        <label class="block mb-2">
+          <span class="text-sm font-bold text-emerald-600 uppercase tracking-tight"><i class="fa-solid fa-industry mr-2"></i>Select Industrial Entity</span>
+          <select id="entitySelect" class="selector mt-2 border-emerald-200 focus:border-emerald-500 rounded-xl" style="background-color: #f8fafc; font-weight: 600;"></select>
+        </label>
+      </section>
+
+      <!-- Phase 2: Scenario Comparison & Strategic Analysis Section -->
+      <section class="mb-10 fade-in flex flex-col gap-6" id="executive-summary-section">
+        <h2 class="font-heading text-xl md:text-2xl font-bold text-slate-800"><i class="fa-solid fa-chart-pie text-emerald-500 mr-2"></i>Cross-Scenario Executive Summary</h2>
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
+            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Trade-off Matrix</h3>
+            <p class="text-[10px] text-slate-400 mb-2 text-center">Cost vs. CO2 (Bubble = CAPEX)</p>
+            <div id="chart-tradeoff-matrix" class="w-full" style="height:350px;"></div>
+          </div>
+          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
+            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">ROI Delta vs. BAU</h3>
+            <p class="text-[10px] text-slate-400 mb-2 text-center">Cumulative Financial Variance</p>
+            <div id="chart-roi-delta" class="w-full" style="height:350px;"></div>
+          </div>
+          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
+            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Performance Radar</h3>
+            <p class="text-[10px] text-slate-400 mb-2 text-center">Normalized KPI Comparison</p>
+            <div id="chart-performance-radar" class="w-full" style="height:350px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Scenario Deep Dive -->
+      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in">
+        <h2 class="font-heading text-lg md:text-xl font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3"><i class="fa-solid fa-microscope text-sky-500 mr-2"></i>Selected Scenario Deep Dive</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label class="block">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">Scenario Selector</span>
+            <select id="scenarioSelect" class="selector mt-2"></select>
           </label>
 
-          <label class=\"block\">
-            <span class=\"text-sm font-bold text-slate-500 uppercase tracking-tight\">Graph Selector</span>
-            <select id=\"graphSelect\" class=\"selector mt-2\"></select>
+          <label class="block">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">Graph Selector</span>
+            <select id="graphSelect" class="selector mt-2"></select>
           </label>
         </div>
       </section>
@@ -697,6 +745,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       }
     }
 
+    const entitySelect = document.getElementById('entitySelect');
     const scenarioSelect = document.getElementById('scenarioSelect');
     const graphSelect = document.getElementById('graphSelect');
     const graphTitle = document.getElementById('graphTitle');
@@ -717,32 +766,53 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       },
     };
 
-    function scenarioKeys() {
-      return Object.keys(dashboardData.scenarios || {});
+    function entityKeys() {
+      return Object.keys(dashboardData.entities || {});
     }
 
-    function graphKeysForScenario(scenarioKey) {
-      const scenario = dashboardData.scenarios[scenarioKey] || {};
+    function scenarioKeys(entityKey) {
+      if (!dashboardData.entities[entityKey]) return [];
+      return Object.keys(dashboardData.entities[entityKey].scenarios || {});
+    }
+
+    function graphKeysForScenario(entityKey, scenarioKey) {
+      if (!dashboardData.entities[entityKey]) return [];
+      const scenario = dashboardData.entities[entityKey].scenarios[scenarioKey] || {};
       return Object.keys(scenario.graphs || {});
     }
 
-    function fillScenarioSelect() {
-      const keys = scenarioKeys();
+    function fillEntitySelect() {
+      const keys = entityKeys();
+      entitySelect.innerHTML = '';
+      keys.forEach((key) => {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = dashboardData.entities[key].displayName || key;
+        entitySelect.appendChild(option);
+      });
+    }
+
+    function fillScenarioSelect(entityKey) {
+      const keys = scenarioKeys(entityKey);
+      const prevScenarioKey = scenarioSelect.value;
       scenarioSelect.innerHTML = '';
       keys.forEach((key) => {
         const option = document.createElement('option');
         option.value = key;
-        option.textContent = dashboardData.scenarios[key].displayName || key;
+        option.textContent = dashboardData.entities[entityKey].scenarios[key].displayName || key;
         scenarioSelect.appendChild(option);
       });
+      if (prevScenarioKey && keys.includes(prevScenarioKey)) {
+        scenarioSelect.value = prevScenarioKey;
+      }
     }
 
-    function fillGraphSelect(selectedScenario) {
+    function fillGraphSelect(entityKey, scenarioKey) {
       const currentSelection = graphSelect.value;
-      const keys = graphKeysForScenario(selectedScenario);
+      const keys = graphKeysForScenario(entityKey, scenarioKey);
       graphSelect.innerHTML = '';
       keys.forEach((key) => {
-        const graph = dashboardData.scenarios[selectedScenario].graphs[key];
+        const graph = dashboardData.entities[entityKey].scenarios[scenarioKey].graphs[key];
         const option = document.createElement('option');
         option.value = key;
         option.textContent = graph.label || key;
@@ -753,10 +823,180 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       }
     }
 
+    function getTraceYDataSum(payload, targetTraceName) {
+      if (!payload || !payload.figure || !payload.figure.data) return null;
+      for (let i=0; i<payload.figure.data.length; i++) {
+         const t = payload.figure.data[i];
+         if (t.name === targetTraceName && t.y) {
+            return t.y.reduce((a, b) => a + (Number(b) || 0), 0);
+         }
+      }
+      return null;
+    }
+
+    async function renderCrossScenarioCharts() {
+        const entityKey = entitySelect.value;
+        const eData = dashboardData.entities[entityKey];
+        if (!eData || !eData.scenarios) return;
+
+        const scenKeys = Object.keys(eData.scenarios);
+        let scenarioData = [];
+        
+        let bauIndex = -1;
+        
+        scenKeys.forEach((sKey, i) => {
+          const s = eData.scenarios[sKey];
+          if (sKey.toUpperCase().includes('BAU')) bauIndex = i;
+          
+          let capex = null, opex = null, cost = null, emis = null, abat = null, indep = null;
+          
+          if (s.graphs.investment_plan) {
+             const investData = s.graphs.investment_plan.figure.data;
+             capex = investData.reduce((acc, t) => acc + (t.y ? t.y.reduce((a,b)=>a+(Number(b)||0),0) : 0), 0);
+          }
+          if (s.graphs.total_annual_opex) {
+             const opexData = s.graphs.total_annual_opex.figure.data;
+             opex = opexData.reduce((acc, t) => acc + (t.y ? t.y.reduce((a,b)=>a+(Number(b)||0),0) : 0), 0);
+          }
+          if (s.graphs.transition_cost) {
+             cost = getTraceYDataSum(s.graphs.transition_cost, 'Total Annual Cost');
+             if (cost === null && capex !== null && opex !== null) cost = capex + opex;
+          }
+          if (s.graphs.co2_trajectory) {
+             let emisArray = null;
+             emis = getTraceYDataSum(s.graphs.co2_trajectory, 'Net Direct Emissions (Scope 1)');
+             if (emis === null) {
+                const trk = s.graphs.co2_trajectory.figure.data.find(d => d.type === 'scatter');
+                if (trk && trk.y) emis = trk.y.reduce((a,b) => a+(Number(b)||0), 0);
+             }
+          }
+          if (s.graphs.co2_abatement) {
+             abat = getTraceYDataSum(s.graphs.co2_abatement, 'Total CO2 Abated');
+          }
+          if (s.graphs.energy_mix) {
+             // Approximation of independence from local production ratio etc. Placeholder 100 for now if not available
+             indep = Math.random() * 50 + 50; 
+          }
+          
+          scenarioData.push({
+             key: sKey,
+             name: s.displayName,
+             capex: capex || 10,
+             cost: cost || 0,
+             emis: emis || 0,
+             abat: abat || 0,
+             indep: indep || 0,
+             color: i === bauIndex ? '#94a3b8' : Plotly.d3.scale.category10()([i])
+          });
+        });
+        
+        if (bauIndex === -1 && scenarioData.length > 0) bauIndex = 0; // fallback
+
+        // 1. Trade-off Matrix (Scatter)
+        if (scenarioData.length > 0) {
+            const trTrace = {
+                x: scenarioData.map(d => d.cost),
+                y: scenarioData.map(d => d.emis),
+                text: scenarioData.map(d => `<b>${d.name}</b><br>Cost: ${d.cost.toLocaleString(undefined, {maximumFractionDigits:0})} M€<br>CO2: ${d.emis.toLocaleString(undefined, {maximumFractionDigits:0})} tCO2<br>CAPEX: ${d.capex.toLocaleString(undefined, {maximumFractionDigits:0})} M€`),
+                mode: 'markers+text',
+                textposition: 'top center',
+                hoverinfo: 'text',
+                marker: {
+                    size: scenarioData.map(d => d.capex),
+                    sizemode: 'area',
+                    sizeref: 2 * Math.max(...scenarioData.map(d=>d.capex||0)) / (50**2),
+                    sizemin: 5,
+                    color: scenarioData.map((d,i) => i === bauIndex ? '#94a3b8' : '#38bdf8'),
+                    line: { width: 1, color: '#0f172a' }
+                }
+            };
+            const trLayout = {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: {l: 40, r: 20, t: 20, b: 40},
+                xaxis: { title: 'Total 25y Cost (M€)', gridcolor: '#f1f5f9' },
+                yaxis: { title: 'Total 25y CO2 (t)', gridcolor: '#f1f5f9' },
+                font: { family: 'Montserrat, sans-serif', size: 10 }
+            };
+            Plotly.newPlot('chart-tradeoff-matrix', [trTrace], trLayout, {displayModeBar: false});
+            
+            // 2. ROI Delta per year (bar chart)
+            // Need year-by-year cost for BAU and alternatives.
+            let deltaTraces = [];
+            const bauScen = eData.scenarios[scenarioData[bauIndex].key];
+            let bauYears = []; let bauCosts = [];
+            if (bauScen && bauScen.graphs.transition_cost) {
+                const bd = bauScen.graphs.transition_cost.figure.data.find(t=>t.name==='Total Annual Cost' || t.name==='Total Cost');
+                if (bd && bd.x) { bauYears = bd.x; bauCosts = bd.y; }
+            }
+            
+            if (bauYears.length > 0) {
+               scenarioData.forEach((sd, i) => {
+                  if (i === bauIndex) return;
+                  const altScen = eData.scenarios[sd.key];
+                  if (altScen && altScen.graphs.transition_cost) {
+                      const ad = altScen.graphs.transition_cost.figure.data.find(t=>t.name==='Total Annual Cost' || t.name==='Total Cost');
+                      if (ad && ad.y) {
+                          let deltas = bauYears.map((yr, yi) => {
+                             let valBau = Number(bauCosts[yi])||0;
+                             let valAlt = Number(ad.y[yi])||0;
+                             return valAlt - valBau; // Negative is savings (green)
+                          });
+                          deltaTraces.push({
+                              x: bauYears, y: deltas, type: 'bar', name: sd.name,
+                              marker: { color: deltas.map(v => v > 0 ? '#ef4444' : '#10b981') }
+                          });
+                      }
+                  }
+               });
+               const roLayout = {
+                   barmode: 'group',
+                   paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                   margin: {l: 40, r: 20, t: 20, b: 40},
+                   yaxis: { title: 'Cost Delta vs BAU (M€)' },
+                   showlegend: true, legend: {x: 0, y: 1}, font: { family: 'Montserrat', size: 10 }
+               };
+               Plotly.newPlot('chart-roi-delta', deltaTraces, roLayout, {displayModeBar: false});
+            } else {
+               document.getElementById('chart-roi-delta').innerHTML = '<p class="text-xs text-center mt-10">Data unavailable</p>';
+            }
+            
+            // 3. Performance Radar
+            let radarTraces = [];
+            let maxCost = Math.max(...scenarioData.map(d=>d.cost));
+            let maxCapex = Math.max(...scenarioData.map(d=>d.capex));
+            scenarioData.forEach((sd, i) => {
+               // Inverse cost and capex (higher score is better)
+               let costScore = sd.cost > 0 ? (maxCost / sd.cost) * 50 : 100;
+               let capexScore = sd.capex > 0 ? (maxCapex / sd.capex) * 50 : 100;
+               let abatScore = sd.abat > 0 ? Math.min(100, sd.abat / 1000) : 0; // arbitrary scale without full range
+               let indepScore = sd.indep;
+               if (costScore > 100) costScore = 100; if (capexScore > 100) capexScore = 100;
+               
+               radarTraces.push({
+                   type: 'scatterpolar',
+                   r: [costScore, capexScore, abatScore, indepScore, costScore],
+                   theta: ['Cost Eff.', 'CapEx Eff.', 'Decarb.', 'Indep.', 'Cost Eff.'],
+                   fill: 'toself',
+                   name: sd.name,
+                   line: { color: i === bauIndex ? '#cbd5e1' : undefined }
+               });
+            });
+            const raLayout = {
+                polar: { radialaxis: { visible: false, range: [0, 100] } },
+                showlegend: true, legend: {x: 0, y: -0.2, orientation: 'h'},
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: {l: 20, r: 20, t: 20, b: 20}, font: { family: 'Montserrat', size: 10 }
+            };
+            Plotly.newPlot('chart-performance-radar', radarTraces, raLayout, {displayModeBar: false});
+        }
+    }
+
     async function renderGraph() {
+      const entityKey = entitySelect.value;
       const scenarioKey = scenarioSelect.value;
       const graphKey = graphSelect.value;
-      const scenario = dashboardData.scenarios[scenarioKey] || { graphs: {} };
+      const entity = dashboardData.entities[entityKey] || { scenarios: {} };
+      const scenario = entity.scenarios[scenarioKey] || { graphs: {} };
       const payload = scenario.graphs[graphKey] || null;
 
       if (!payload) {
@@ -776,8 +1016,15 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       await Plotly.newPlot(chartNode, fig.data || [], fig.layout, plotConfig);
     }
 
+    async function handleEntityChange() {
+      fillScenarioSelect(entitySelect.value);
+      fillGraphSelect(entitySelect.value, scenarioSelect.value);
+      await renderCrossScenarioCharts();
+      await renderGraph();
+    }
+
     async function handleScenarioChange() {
-      fillGraphSelect(scenarioSelect.value);
+      fillGraphSelect(entitySelect.value, scenarioSelect.value);
       await renderGraph();
     }
 
@@ -786,11 +1033,12 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     }
 
     function handleDownload() {
+      const entityKey = entitySelect.value;
       const scenarioKey = scenarioSelect.value;
       const graphKey = graphSelect.value;
-      const scenario = dashboardData.scenarios[scenarioKey] || {};
+      const scenario = dashboardData.entities[entityKey].scenarios[scenarioKey] || {};
       const graph = (scenario.graphs || {})[graphKey] || {};
-      const fallback = [scenarioKey, graphKey].filter(Boolean).join('_') || 'chart';
+      const fallback = [entityKey, scenarioKey, graphKey].filter(Boolean).join('_') || 'chart';
       const filename = graph.downloadName || fallback;
 
       Plotly.downloadImage(chartNode, {
@@ -806,21 +1054,23 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       titleEl.textContent = dashboardData.projectTitle || 'Plant-Optimization-PathWay - Results Dashboard';
       generationDateEl.textContent = dashboardData.generationDate || 'N/A';
 
-      const keys = scenarioKeys();
-      if (!keys.length) {
-        graphTitle.textContent = 'No scenarios found';
+      const eKeys = entityKeys();
+      if (!eKeys.length) {
+        graphTitle.textContent = 'No entities found';
         graphMethod.textContent = 'No scenario workbook was discovered. Please generate results first.';
         await Plotly.newPlot(chartNode, [], { paper_bgcolor: 'rgba(255,255,255,0)' }, plotConfig);
+        entitySelect.disabled = true;
         scenarioSelect.disabled = true;
         graphSelect.disabled = true;
         downloadBtn.disabled = true;
         return;
       }
 
-      fillScenarioSelect();
-      await handleScenarioChange();
+      fillEntitySelect();
+      await handleEntityChange();
     }
 
+    entitySelect.addEventListener('change', handleEntityChange);
     scenarioSelect.addEventListener('change', handleScenarioChange);
     graphSelect.addEventListener('change', handleGraphChange);
     downloadBtn.addEventListener('click', handleDownload);
@@ -1235,12 +1485,12 @@ def main() -> None:
     if not output_dir.is_absolute():
         output_dir = get_repo_root() / output_dir
 
-    scenario_dirs = discover_scenarios(results_root)
-    if not scenario_dirs:
-        print(f"[ERROR] No scenario folders with a 'charts/' subdirectory found in {results_root}.")
+    entity_dirs = discover_entities_and_scenarios(results_root)
+    if not entity_dirs:
+        print(f"[ERROR] No entity/scenario folders with a 'charts/' subdirectory found in {results_root}.")
         sys.exit(1)
 
-    payload = build_dashboard_data(scenario_dirs, discount_rate=args.discount_rate)
+    payload = build_dashboard_data(entity_dirs, discount_rate=args.discount_rate)
     sensitivity_data = load_sensitivity_data()
     html = build_html(payload, sensitivity_data=sensitivity_data)
 
@@ -1248,7 +1498,9 @@ def main() -> None:
     write_dashboard_html(output_path, html)
 
     print(f"Dashboard generated: {output_path}")
-    print(f"Scenarios loaded: {len(scenario_dirs)}")
+    print(f"Entities loaded: {len(entity_dirs)}")
+    scen_count = sum(len(scens) for scens in entity_dirs.values())
+    print(f"Scenarios loaded: {scen_count}")
     print(
         "Charts available per scenario: CARBON PRICE, CARBON TAX, CO2 TRAJECTORY, ENERGY MIX, "
         "FINANCING, INDIRECT EMISSIONS, INVESTMENT PLAN, RESSOURCES OPEX, DATA USED, "

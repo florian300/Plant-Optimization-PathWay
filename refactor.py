@@ -1,173 +1,23 @@
-import pandas as pd
-import numpy as np
-import warnings
-from rich import print
-from tqdm import tqdm
-from typing import Dict, Any, Tuple, List
-from .model import Parameters, Resource, Technology, TimeSeriesData, EntityState, PathFinderData, Objective, Process, GrantParams, CCfDParams, BankLoan, DACParams, CreditParams, ReportingToggles, SensitivityParams
+import re
 
-warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
-pd.set_option('future.no_silent_downcasting', True)
-
-class PathFinderParser:
-    def __init__(self, file_path: str, verbose: bool = False):
-        self.file_path = file_path
-        self.xl = pd.ExcelFile(file_path)
-        self.verbose = verbose
-        self.sim_row_found = False        # Track if SIM row exists in OverView
-        self.all_scenarios_meta = []      # Store all scenarios found before filtering
-
-    def _parse_scenarios(self) -> list:
-        """Parse the MODELING START/END block from OverView and return list of {id, name} dicts.
-
-        SIM row behaviour:
-            - SIM row absent          → simulate all SC-DES scenarios (backward-compatible default)
-            - SIM row present + IDs   → simulate only the listed scenario IDs
-            - SIM row present + empty → simulate nothing (user explicitly left it blank)
-        """
-        df_overview = self.xl.parse('OverView', header=None)
-        all_scenarios = []
-        to_simulate = []
-        self.sim_row_found = False
-        in_modeling = False
-        for _, row in df_overview.iterrows():
-            vals_upper = [str(x).strip().upper() for x in row.values if pd.notna(x) and str(x).strip()]
-            if 'MODELING' in vals_upper and 'START' in vals_upper:
-                in_modeling = True
-                continue
-            if 'MODELING' in vals_upper and 'END' in vals_upper:
-                break
-            if in_modeling:
-                raw = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
-                if not raw or raw[0].startswith('**'):
-                    continue
-
-                if 'SC-DES' in vals_upper:
-                    # raw[0] is 'SC-DES', raw[1] is name, raw[2] is ID
-                    if len(raw) >= 3:
-                        sc_name = raw[1]
-                        sc_id   = raw[2]
-                        all_scenarios.append({'id': sc_id, 'name': sc_name})
-
-                elif 'SIM' in vals_upper:
-                    self.sim_row_found = True   # Mark that a SIM row was explicitly defined
-                    # Collect all tokens after SIM as scenario IDs to simulate
-                    if len(raw) > 1:
-                        for token in raw[1:]:
-                            # Skip common header placeholders if present
-                            if token.upper() not in ['SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…']:
-                                to_simulate.append(token.upper())
-
-        self.all_scenarios_meta = [s.copy() for s in all_scenarios]
-
-        # SIM row was present but left empty → user wants no simulations
-        if self.sim_row_found and not to_simulate:
-            return []
-
-        # SIM row had IDs → only run those
-        if to_simulate:
-            filtered = [s for s in all_scenarios if s['id'].upper() in to_simulate]
-            return filtered if filtered else all_scenarios
-
-        # SIM row was absent entirely → backward-compatible: run all SC-DES scenarios
-        return all_scenarios
-
-    def _find_blocks(self, df: pd.DataFrame) -> list:
-        """Find START and END blocks in a dataframe to isolate tables."""
-        blocks = []
-        for i, row in df.iterrows(): # tqdm removed as it is too noisy in sensitivity runs
-            for j, val in enumerate(row):
-                if isinstance(val, str):
-                    clean_val = val.strip().upper()
-                    if clean_val in ['START', 'END']:
-                        prefix = [str(x).strip() for x in row[:j] if pd.notna(x) and str(x).strip() != '']
-                        prefix_str = " ".join(prefix).strip()
-                        blocks.append({
-                            'row': i,
-                            'col': j,
-                            'type': clean_val,
-                            'prefix': prefix_str
-                        })
-        return blocks
-
-    def _extract_block_data(self, df: pd.DataFrame, start_row: int, end_row: int) -> pd.DataFrame:
-        """Extracts data between START and END markers, assuming the first row after START is the header."""
-        if end_row <= start_row + 1:
-            return pd.DataFrame()
-        
-        # Row immediately after START is usually the header, but might be empty. Let's find the first non-completely-empty row.
-        block_df = df.iloc[start_row+1:end_row].dropna(how='all')
-        if block_df.empty:
-            return block_df
-            
-        block_df.columns = block_df.iloc[0]
-        block_df = block_df.iloc[1:].reset_index(drop=True)
-        # remove columns that are entirely NaN
-        block_df = block_df.dropna(axis=1, how='all')
-        return block_df
-
-    def _interpolate_linear(self, series: pd.Series) -> pd.Series:
-        """Replace 'LINEAR INTER' or keywords containing 'BROWNIEN' with NaN and interpolate linearly.
-        If 'BROWNIEN' was detected, add a Brownian Bridge with high amplitude (~25%)."""
-        
-        # Robust detection: case-insensitive, check if 'BROWNIEN' is in the string
-        str_series = series.astype(str).str.strip().str.upper()
-        is_brownian = str_series.str.contains('BROWNIEN').any()
-        
-        # Identify keywords to replace
-        # We replace known markers and anything containing BROWNIEN
-        to_replace = ['LINEAR INTER', 'LINEAR INTER ']
-        # Add actual values that contain BROWNIEN
-        to_replace.extend(series[str_series.str.contains('BROWNIEN')].unique())
-        
-        res = series.replace(to_replace, np.nan)
-        res = pd.to_numeric(res, errors='coerce')
-        
-        # Identify blocks of NaNs to interpolate
-        mask = res.isna()
-        if not mask.any():
-            return res
-            
-        res = res.interpolate(method='linear')
-        res = res.bfill().ffill().fillna(0.0)
-
-        if is_brownian:
-            vals = res.values
-            n = len(vals)
-            noise = np.zeros(n)
-            
-            # Identify contiguous NaN segments using positional indexing
-            diff = np.diff(mask.values.astype(int), prepend=0)
-            starts = np.where(diff == 1)[0]
-            ends = np.where(diff == -1)[0]
-            
-            if len(starts) > len(ends):
-                ends = np.append(ends, n)
-            
-            for s_idx, e_idx in zip(starts, ends):
-                start_pos = s_idx - 1
-                end_pos = e_idx
-                
-                if start_pos >= 0 and end_pos < n:
-                    segment_len = end_pos - start_pos
-                    t_axis = np.arange(segment_len + 1)
-                    avg_val = (vals[start_pos] + vals[end_pos]) / 2.0
-                    
-                    # Amplitude set to 12.5% of the average value
-                    # Symmetrical distribution (mean 0) ensures up and down variations
-                    sigma = 0.125 * abs(avg_val) if avg_val != 0 else 1.0 
-                    
-                    steps = np.random.normal(0, sigma, segment_len)
-                    w = np.cumsum(np.insert(steps, 0, 0))
-                    bridge = w - (t_axis / segment_len) * w[-1]
-                    
-                    noise[start_pos : end_pos + 1] += bridge
-            
-            res = pd.Series(vals + noise, index=res.index)
-            
-        return res
-
-    def _normalize_token(self, raw_val) -> str:
+def main():
+    target_path = r'c:\Users\flori\Documents\TFM\PathWay_Python_Tool - v2\src\pathway\core\ingestion.py'
+    with open(target_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # We will split the content at `def parse(self, scenario_id: str = None) -> PathFinderData:` and at the end of the `parse` method.
+    part1, rest = content.split('    def parse(self, scenario_id: str = None) -> PathFinderData:\n', 1)
+    
+    # The end of parse is `        )\n\n    # ─────────────────────────────────────────────────────────────────────────`
+    # Let's use a regex to find the end of the method.
+    match = re.search(r'reporting_toggles=reporting_toggles\n        \)\n', rest)
+    if not match:
+        print("Could not find the end of the parse method.")
+        return
+    part2 = rest[match.end():]
+    
+    # Now we insert the new methods
+    new_code = """    def _normalize_token(self, raw_val) -> str:
         import pandas as pd
         return str(raw_val).strip().upper() if pd.notna(raw_val) else ""
 
@@ -270,7 +120,6 @@ class PathFinderParser:
             df_cluster = self._extract_block_data(df_overview, cluster_start, cluster_end)
             cluster_col_map = {self._normalize_token(c): c for c in df_cluster.columns}
             id_col = cluster_col_map.get('ID')
-            name_col = cluster_col_map.get('NAME')
             prod_col = cluster_col_map.get('PRODUCTION')
             sheet_col = cluster_col_map.get('SHEET')
             if id_col is not None:
@@ -281,9 +130,7 @@ class PathFinderParser:
                         try: prod = float(prod)
                         except Exception: prod = 0.0
                         sheet_name = str(row.get(sheet_col, '')).strip() if sheet_col is not None else ''
-                        entity_name = str(row.get(name_col, '')).strip() if name_col is not None else str(e_id)
-                        if not entity_name or entity_name.lower() == 'nan': entity_name = e_id
-                        entities_info[e_id] = {'production': prod, 'sheet': sheet_name, 'name': entity_name}
+                        entities_info[e_id] = {'production': prod, 'sheet': sheet_name}
                 entities = list(entities_info.keys())
         return entities_info, entities
 
@@ -576,12 +423,11 @@ class PathFinderParser:
                         row_data = df_tech.iloc[k]
                         t_id_row = str(row_data.iloc[headers_start_col - 1]).strip()
                         if t_id_row in technologies_dict:
-                            compat_dict = {}
+                            compat_list = []
                             for m, h_id in enumerate(headers):
-                                cell_val = str(row_data.iloc[headers_start_col + m]).strip().upper()
-                                if cell_val in ('X', 'FREE'):
-                                    compat_dict[h_id] = cell_val
-                            tech_compatibilities[t_id_row] = compat_dict
+                                cell_val = str(row_data.iloc[headers_start_col + m]).strip().lower()
+                                if cell_val == 'x': compat_list.append(h_id)
+                            tech_compatibilities[t_id_row] = compat_list
                 break
 
         return technologies_dict, raw_tech_capex_links, raw_tech_opex_links, tech_compatibilities
@@ -794,7 +640,7 @@ class PathFinderParser:
                             base_cons[r_id] = total_val
                             
             entities_dict[entity_id] = EntityState(
-                id=entity_id, name=entity_meta.get('name', str(entity_id)), base_consumptions=base_cons, base_emissions=base_emis,
+                id=entity_id, base_consumptions=base_cons, base_emissions=base_emis,
                 production_level=annual_production, annual_operating_hours=annual_operating_hours,
                 sv_act_mode=sv_act_mode, processes=processes_dict, ref_baselines=ref_baselines,
                 ca_percentage_limit=ca_percent, sold_resources=sold_resources
@@ -962,6 +808,9 @@ class PathFinderParser:
                         r_id = str(row.values[i]).strip()
                         if r_id and r_id != 'nan' and pd.notna(row.values[i+1]):
                             em_val = row.values[i+1]
+                            if 'H2' in r_id.upper():
+                                try: em_val = float(em_val) / 120.0
+                                except: pass
                             if r_id not in raw_ems: raw_ems[r_id] = {}
                             raw_ems[r_id][year] = em_val
             for r_id, e_dict in raw_ems.items():
@@ -1283,155 +1132,11 @@ class PathFinderParser:
             grant_params=grant_params, ccfd_params=ccfd_params, bank_loans=bank_loans,
             dac_params=dac_params, credit_params=credit_params, reporting_toggles=reporting_toggles
         )
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # ANALYSE DE SENSIBILITÉ
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _parse_sensitivity_block(self, df_overview: pd.DataFrame) -> SensitivityParams:
-        """
-        Analyse le bloc SENSITIVITY START / SENSITIVITY END de la feuille OverView
-        et retourne un objet SensitivityParams complet.
-
-        Structure attendue (tags en colonne A) :
-            VAR     → amplitudes de variation (%, ex: 5% 10% 25% 50% 100%)
-            P/N     → direction (P, N ou ALL)
-            SIM     → scénarios cibles (ex: BS)
-            TIME    → temps limite (s) par simulation
-            DATA?   → EUA YES/NO, RESSOURCES PRICE YES/NO, …
-            INDI    → nom d'un indicateur à surveiller
-        """
-        variations: List[float] = []
-        run: bool = False
-        direction: str = "ALL"
-        scenarios: List[str] = []
-        time_limit: int = 10
-        targets: Dict[str, bool] = {}
-        indicators: List[str] = []
-
-        in_block = False
-
-        for _, row in df_overview.iterrows():
-            # Valeurs brutes et normalisées
-            raw_vals = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
-            vals_upper = [v.upper() for v in raw_vals]
-
-            # Détection des marqueurs START / END du bloc SENSITIVITY
-            if 'SENSITIVITY' in vals_upper and 'START' in vals_upper:
-                in_block = True
-                continue
-            if 'SENSITIVITY' in vals_upper and 'END' in vals_upper:
-                break
-
-            if not in_block:
-                continue
-
-            # Ignorer les lignes de commentaire ou vides
-            if not raw_vals or raw_vals[0].startswith('**'):
-                continue
-
-            tag = vals_upper[0]
-
-            # ── Commande de lancement (RUN YES/NO) ──────────────────────────
-            if tag == 'RUN':
-                for token in raw_vals[1:]:
-                    val = token.strip().upper()
-                    if val in ('YES', 'NO'):
-                        run = (val == 'YES')
-                        break
-
-            # ── Amplitudes de variation ────────────────────────────────────
-            elif tag == 'VAR':
-                for token in raw_vals[1:]:
-                    token_clean = token.replace('%', '').strip()
-                    try:
-                        val = float(token_clean)
-                        # Convertir les pourcentages entiers en décimaux
-                        if val > 1.0:
-                            val /= 100.0
-                        if val > 0:
-                            variations.append(round(val, 6))
-                    except ValueError:
-                        pass
-
-            # ── Direction P / N / ALL ──────────────────────────────────────
-            elif tag == 'P/N':
-                for token in raw_vals[1:]:
-                    t_up = token.strip().upper()
-                    if t_up in ('P', 'N', 'ALL'):
-                        direction = t_up
-                        break
-
-            # ── Scénarios à simuler ────────────────────────────────────────
-            elif tag == 'SIM':
-                placeholder_skip = ('SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…')
-                for token in raw_vals[1:]:
-                    if token.upper() not in placeholder_skip:
-                        scenarios.append(token.upper())
-
-            # ── Temps limite par simulation ────────────────────────────────
-            elif 'TIME' in tag and 'SIMULATION' in ' '.join(vals_upper):
-                for token in raw_vals[1:]:
-                    try:
-                        time_limit = int(float(token))
-                        break
-                    except ValueError:
-                        pass
-
-            # ── Données à perturber (DATA?) ────────────────────────────────
-            elif tag == 'DATA?':
-                # Format attendu : DATA? | <NOM_PARAMETRE> | YES/NO
-                if len(raw_vals) >= 3:
-                    param_name = raw_vals[1].strip()
-                    yn_token = raw_vals[2].strip().upper()
-                    targets[param_name] = (yn_token == 'YES')
-                elif len(raw_vals) == 2:
-                    # Valeur YES/NO absente, supposée FALSE
-                    targets[raw_vals[1].strip()] = False
-
-            # ── Indicateurs KPI ────────────────────────────────────────────
-            elif tag == 'INDI':
-                # Format attendu : INDI | <NOM_INDICATEUR>
-                if len(raw_vals) >= 2:
-                    indi_name = raw_vals[1].strip()
-                    if indi_name and indi_name.upper() not in ('NOM', 'NAME', 'INDICATOR'):
-                        indicators.append(indi_name)
-
-        return SensitivityParams(
-            run=run,
-            variations=variations,
-            direction=direction,
-            scenarios=scenarios,
-            time_limit=time_limit,
-            targets=targets,
-            indicators=indicators,
-        )
-
-    def _interpolate_dict(self, data_dict: Dict[int, Any], years_list: List[int]) -> Dict[int, float]:
-        """Utility to interpolate a dictionary of {year: value} over a full years_list."""
-        if not data_dict: return {}
-        s = pd.Series(data_dict).sort_index()
-        s = s.reindex(years_list)
-        return self._interpolate_linear(s).to_dict()
-
-    def parse_sensitivity(self) -> SensitivityParams:
-        """
-        Point d'entrée public pour lire les paramètres d'analyse de sensibilité
-        depuis le fichier Excel sans déclencher le parseur complet des scénarios.
-
-        Utilisation :
-            parser = PathFinderParser('PathFinder input.xlsx')
-            sens_params = parser.parse_sensitivity()
-        """
-        df_overview = self.xl.parse('OverView', header=None)
-        params = self._parse_sensitivity_block(df_overview)
-
-        if self.verbose:
-            pass # Sensitivity parameter logs removed for cleaner terminal
-
-        return params
-
+"""
+    final_content = part1 + new_code + part2
+    with open(target_path, 'w', encoding='utf-8') as f:
+        f.write(final_content)
+    print("Refactoring applied successfully.")
 
 if __name__ == '__main__':
-    parser = PathFinderParser('data/raw/excel/PathFinder input.xlsx')
-    data = parser.parse()
+    main()

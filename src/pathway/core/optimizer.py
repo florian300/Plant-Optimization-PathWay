@@ -5,13 +5,15 @@ from typing import Dict, Any, List, Optional, Set
 from rich import print
 from tqdm import tqdm
 from .model import PathFinderData
+from .solver_factory import get_solver
 
 MASSIVE_PENALTY_COST = 1e7
 
 class PathFinderOptimizer:
-    def __init__(self, data: PathFinderData, verbose: bool = False):
+    def __init__(self, data: PathFinderData, verbose: bool = False, solver_name: str = 'HIGHS'):
         self.data = data
         self.verbose = verbose
+        self.solver_name = solver_name
         self.model = pulp.LpProblem("PathFinder_Decarbonization", pulp.LpMinimize)
         
         # We will assume a single entity for now or aggregate
@@ -44,14 +46,7 @@ class PathFinderOptimizer:
         # Semantic caches resolved from resource/technology names and metadata.
         self.primary_emission_id: Optional[str] = None
         self.continuous_improvement_tech_ids: Set[str] = set()
-        self.hydrogen_resource_ids: List[str] = []
-        self.hydrogen_production_resource_ids: List[str] = []
-        self.hydrogen_consumption_resource_ids: List[str] = []
-        self.hydrogen_associated_tech_ids: Set[str] = set()
-        self.h2_buy_resources: List[str] = []
-        self.h2_production_resource_id: Optional[str] = None
-        self.h2_consumption_resource_id: Optional[str] = None
-        self.h2_electricity_resource_id: Optional[str] = None
+
         self.fuel_resource_id: Optional[str] = None
         self.electricity_resource_id: Optional[str] = None
         self.ccs_tech_ids: Set[str] = set()
@@ -77,10 +72,6 @@ class PathFinderOptimizer:
     def _is_primary_emission_candidate(self, res_id: str) -> bool:
         res = self.data.resources.get(res_id)
         return res is not None and res.resource_type == 'CO2' and 'EMISS' in self._norm(res.type)
-
-    def _is_hydrogen_resource(self, res_id: str) -> bool:
-        res = self.data.resources.get(res_id)
-        return res is not None and res.resource_type == 'HYDROGEN'
 
     def _is_continuous_improvement_tech(self, t_id: str) -> bool:
         tech_name = self._tech_name_upper(t_id)
@@ -130,39 +121,6 @@ class PathFinderOptimizer:
             t_id for t_id in self.data.technologies if self._is_continuous_improvement_tech(t_id)
         }
 
-        self.hydrogen_resource_ids = [r_id for r_id in self.data.resources if self._is_hydrogen_resource(r_id)]
-        self.hydrogen_production_resource_ids = [
-            r_id for r_id in self.hydrogen_resource_ids
-            if self._resource_type_upper(r_id) == 'PRODUCTION'
-        ]
-        self.hydrogen_consumption_resource_ids = [
-            r_id for r_id in self.hydrogen_resource_ids
-            if r_id not in self.hydrogen_production_resource_ids
-        ]
-        self.h2_production_resource_id = self._pick_largest_base_resource(self.hydrogen_production_resource_ids)
-        self.h2_consumption_resource_id = self._pick_largest_base_resource(self.hydrogen_consumption_resource_ids)
-
-        self.h2_electricity_resource_id = next(
-            (r_id for r_id in self.hydrogen_resource_ids if self._is_electric_resource(r_id)),
-            None
-        )
-
-        h2_internal_resources = set(self.hydrogen_production_resource_ids + self.hydrogen_consumption_resource_ids)
-        if self.h2_electricity_resource_id:
-            h2_internal_resources.add(self.h2_electricity_resource_id)
-
-        self.h2_buy_resources = [
-            r_id for r_id in self.hydrogen_resource_ids
-            if r_id in self.data.time_series.resource_prices and r_id not in h2_internal_resources
-        ]
-
-        self.hydrogen_associated_tech_ids = set()
-        for t_id, tech in self.data.technologies.items():
-            for impact_resource_id in tech.impacts:
-                if impact_resource_id in self.hydrogen_resource_ids or self._is_hydrogen_resource(impact_resource_id):
-                    self.hydrogen_associated_tech_ids.add(t_id)
-                    break
-
         self.ccs_tech_ids = {t_id for t_id in self.data.technologies if self._is_ccs_tech(t_id)}
         self.fuel_resource_id = self._pick_largest_base_resource([
             r_id for r_id in self.data.resources
@@ -170,7 +128,7 @@ class PathFinderOptimizer:
         ])
         self.electricity_resource_id = self._pick_largest_base_resource([
             r_id for r_id in self.data.resources
-            if self._is_electric_resource(r_id) and not self._is_hydrogen_resource(r_id)
+            if self._is_electric_resource(r_id)
         ])
         self.co2_storage_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['STORAGE'])
         self.co2_transport_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['TRANSPORT'])
@@ -259,7 +217,7 @@ class PathFinderOptimizer:
                     # PERFORMANCE: Relax technologies if nb_units > 1 to speed up solver
                     # Integer decision to invest in a number of units of technology t_id at year t for process p_id
                     # Relax if it's an H2 tech OR if nb_units > 1 (MIP complexity reduction)
-                    should_relax = (t_id in self.hydrogen_associated_tech_ids) or (process.nb_units > 1)
+                    should_relax = (process.nb_units > 1)
                     
                     # Also check for global override from parameters if added
                     if hasattr(self.data.parameters, 'relax_integrality') and self.data.parameters.relax_integrality:
@@ -362,31 +320,48 @@ class PathFinderOptimizer:
                 if not self._is_continuous_improvement_tech_id(t_id)
             ]
             
+            free_groups = []
+            tech_to_free_group = {}
+            for t1 in major_techs:
+                comp_dict = self.data.tech_compatibilities.get(t1, {})
+                for t2 in major_techs:
+                    if t1 == t2: continue
+                    if comp_dict.get(t2) == 'FREE':
+                        if t1 not in tech_to_free_group and t2 not in tech_to_free_group:
+                            new_group_id = len(free_groups)
+                            free_groups.append([t1, t2])
+                            tech_to_free_group[t1] = new_group_id
+                            tech_to_free_group[t2] = new_group_id
+                        elif t1 in tech_to_free_group and t2 not in tech_to_free_group:
+                            free_groups[tech_to_free_group[t1]].append(t2)
+                            tech_to_free_group[t2] = tech_to_free_group[t1]
+                        elif t2 in tech_to_free_group and t1 not in tech_to_free_group:
+                            free_groups[tech_to_free_group[t2]].append(t1)
+                            tech_to_free_group[t1] = tech_to_free_group[t2]
+                        elif tech_to_free_group[t1] != tech_to_free_group[t2]:
+                            g1 = tech_to_free_group[t1]
+                            g2 = tech_to_free_group[t2]
+                            free_groups[g1].extend(free_groups[g2])
+                            for t3 in free_groups[g2]:
+                                tech_to_free_group[t3] = g1
+                            free_groups[g2] = []
+                            
+            free_groups = [set(g) for g in free_groups if g]
+            
             # --- Directed Technology Precedence Logic ---
             for t1 in major_techs:
                 # Max units for a single technology over the horizon cannot exceed process units
                 self.model += pulp.lpSum(self.invest_vars[(t, p_id, t1)] for t in self.years) <= process.nb_units, f"Max_{process.nb_units}_Invest_{p_id}_{t1}"
                 
-                comp_list = self.data.tech_compatibilities.get(t1, [])
+                comp_dict = self.data.tech_compatibilities.get(t1, {})
                 for t2 in major_techs:
                     if t1 == t2: continue
+                    val = comp_dict.get(t2, '')
                     
-                    if t2 not in comp_list:
-                        # T2 cannot follow T1: The sum of active units of T1 and T2 cannot exceed total process units
+                    if val == 'X':
+                        # Mutual Exclusion: The sum of active units of T1 and T2 cannot exceed total process units
                         for t in self.years:
                             self.model += self.active_vars[(t, p_id, t1)] + self.active_vars[(t, p_id, t2)] <= process.nb_units, f"Mutual_Capacity_Exclusion_{p_id}_{t1}_{t2}_at_{t}"
-                    else:
-                        # T2 follows T1: We can only have T2 units if T1 was already deployed there (T2 upgrades T1).
-                        # Meaning, active T2 units at year t cannot exceed the number of previously invested T1 units.
-                        for t in self.years:
-                            prev_years_t2 = [tau for tau in self.years if tau <= t - self.data.technologies[t2].implementation_time]
-                            
-                            if prev_years_t2:
-                                # For T2, it can only reach the level of T1 installed previously. 
-                                # Assuming T1 also has lead time, active T1 at t must be >= active T2 at t.
-                                self.model += self.active_vars[(t, p_id, t2)] <= self.active_vars[(t, p_id, t1)], f"Precedence_Capacity_{p_id}_{t1}_{t2}_at_{t}"
-                            else:
-                                self.model += self.active_vars[(t, p_id, t2)] == 0, f"No_T2_Precedence_{p_id}_{t1}_{t2}_at_{t}"
 
             for t_id in process.valid_technologies:
                 if self._is_continuous_improvement_tech_id(t_id):
@@ -394,16 +369,34 @@ class PathFinderOptimizer:
                 
                 tech = self.data.technologies[t_id]
                 delay = tech.implementation_time
+                
+                is_free = False
+                for g in free_groups:
+                    if t_id in g:
+                        is_free = True
+                        break
+                        
                 for t in self.years:
                     valid_invest_years = [tau for tau in self.years if tau <= t - delay]
-                    if valid_invest_years:
-                        self.model += self.active_vars[(t, p_id, t_id)] == pulp.lpSum(self.invest_vars[(tau, p_id, t_id)] for tau in valid_invest_years), f"Active_Logic_{t}_{p_id}_{t_id}"
-                    else:
-                        self.model += self.active_vars[(t, p_id, t_id)] == 0, f"Active_Logic_{t}_{p_id}_{t_id}"
+                    if not is_free:
+                        if valid_invest_years:
+                            self.model += self.active_vars[(t, p_id, t_id)] == pulp.lpSum(self.invest_vars[(tau, p_id, t_id)] for tau in valid_invest_years), f"Active_Logic_{t}_{p_id}_{t_id}"
+                        else:
+                            self.model += self.active_vars[(t, p_id, t_id)] == 0, f"Active_Logic_{t}_{p_id}_{t_id}"
                         
                     # Project variable link (1 if Invest >= 1, else 0)
                     self.model += self.invest_vars[(t, p_id, t_id)] <= process.nb_units * self.project_vars[(t, p_id, t_id)], f"Project_Link_UB_{t}_{p_id}_{t_id}"
                     self.model += self.project_vars[(t, p_id, t_id)] <= self.invest_vars[(t, p_id, t_id)], f"Project_Link_LB_{t}_{p_id}_{t_id}"
+
+            for g_idx, group in enumerate(free_groups):
+                for t in self.years:
+                    sum_usage = pulp.lpSum(self.active_vars[(t, p_id, t_id)] for t_id in group)
+                    sum_invest = []
+                    for t_id in group:
+                        delay = self.data.technologies[t_id].implementation_time
+                        sum_invest.extend(self.invest_vars[(tau, p_id, t_id)] for tau in self.years if tau <= t - delay)
+                    
+                    self.model += sum_usage <= pulp.lpSum(sum_invest), f"FREE_Capacity_Group_{p_id}_{g_idx}_{t}"
 
         # Public Aids Exclusivity and Limits
         for t in self.years:
@@ -1145,7 +1138,7 @@ class PathFinderOptimizer:
                         total_cost.append((price * self.market_trade_vars[t][r_id]) / df)
                         
                         # NET CCfD PENALTY: Scope 3 emissions reduce the 'Avoided Tons' benefit
-                        if r_id in self.hydrogen_resource_ids and r_id in self.data.time_series.other_emissions_factors:
+                        if r_id in self.data.time_series.other_emissions_factors:
                             factor = self.data.time_series.other_emissions_factors[r_id].get(t, 0.0)
                             if factor > 0 and self.data.ccfd_params.active:
                                 ccfd_p = self.data.ccfd_params
@@ -1242,16 +1235,15 @@ class PathFinderOptimizer:
 
     def solve(self, warm_start: bool = False):
         if self.verbose:
-            print("  [magenta][Optimizer][/magenta] [SOLVE] Solving model (this may take a moment)...")
+            print(f"  [magenta][Optimizer][/magenta] [SOLVE] Solving model with [bold cyan]{self.solver_name}[/bold cyan]...")
         
-        solver = pulp.PULP_CBC_CMD(
-            msg=False,  # Always silence raw CBC output to prevent console deadlocks
-            timeLimit=self.data.parameters.time_limit,
-            gapRel=self.data.parameters.mip_gap,
+        solver = get_solver(
+            solver_name=self.solver_name,
+            time_limit=self.data.parameters.time_limit,
+            gap_rel=self.data.parameters.mip_gap,
+            msg=False,  # Silence raw solver output to prevent console deadlocks
             threads=4,
-            presolve=True,
-            warmStart=warm_start,
-            keepFiles=warm_start  # Required for warmStart to work on Windows
+            warm_start=warm_start,
         )
         self.model.solve(solver)
         status = pulp.LpStatus[self.model.status]
