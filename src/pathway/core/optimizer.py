@@ -370,19 +370,12 @@ class PathFinderOptimizer:
                 tech = self.data.technologies[t_id]
                 delay = tech.implementation_time
                 
-                is_free = False
-                for g in free_groups:
-                    if t_id in g:
-                        is_free = True
-                        break
-                        
                 for t in self.years:
                     valid_invest_years = [tau for tau in self.years if tau <= t - delay]
-                    if not is_free:
-                        if valid_invest_years:
-                            self.model += self.active_vars[(t, p_id, t_id)] == pulp.lpSum(self.invest_vars[(tau, p_id, t_id)] for tau in valid_invest_years), f"Active_Logic_{t}_{p_id}_{t_id}"
-                        else:
-                            self.model += self.active_vars[(t, p_id, t_id)] == 0, f"Active_Logic_{t}_{p_id}_{t_id}"
+                    if valid_invest_years:
+                        self.model += self.active_vars[(t, p_id, t_id)] == pulp.lpSum(self.invest_vars[(tau, p_id, t_id)] for tau in valid_invest_years), f"Active_Logic_{t}_{p_id}_{t_id}"
+                    else:
+                        self.model += self.active_vars[(t, p_id, t_id)] == 0, f"Active_Logic_{t}_{p_id}_{t_id}"
                         
                     # Project variable link (1 if Invest >= 1, else 0)
                     self.model += self.invest_vars[(t, p_id, t_id)] <= process.nb_units * self.project_vars[(t, p_id, t_id)], f"Project_Link_UB_{t}_{p_id}_{t_id}"
@@ -589,8 +582,7 @@ class PathFinderOptimizer:
                                 # Lock bounds directly to the active modifier
                                 # If act_var_current is 0 -> impact_var = 0 (bounded tightly between -0 and 0)
                                 # If act_var_current is > 0 -> target_reduction is enforced (scaled by N units)
-                                self.model += impact_var <= M * act_var_current, f"ImpUB1_{t}_{p_id}_{t_id}_{res_id}"
-                                self.model += impact_var >= -M * act_var_current, f"ImpLB1_{t}_{p_id}_{t_id}_{res_id}"
+
                                 
                                 # We scale the target explicitly per unit active
                                 exact_reduction_expr = target_reduction * act_var_current
@@ -618,13 +610,13 @@ class PathFinderOptimizer:
                     # Formula: State(t) = (Initial + Sum of Tech Impacts) * (1 - up_rate)^t
                     up_factor = (1.0 - up_rate) ** i
                     
-                    net_base_val = initial_val + pulp.lpSum(impacts_t)
+                    net_base_val = (initial_val * up_factor) + pulp.lpSum(impacts_t)
                     res_obj = self.data.resources.get(res_id)
                     is_prod = res_obj.type.strip().upper() == 'PRODUCTION' if res_obj else False
                     
                     # We NO LONGER need the State_NonNeg_Slack here as we added lowBound=0 to cons_vars
                     # which propagates back through the mass balance.
-                    self.model += self.process_state_vars[(t, p_id, res_id)] == net_base_val * up_factor, f"State_Evol_{t}_{p_id}_{res_id}"
+                    self.model += self.process_state_vars[(t, p_id, res_id)] == net_base_val, f"State_Evol_{t}_{p_id}_{res_id}"
 
         # Resource Mass Balance via mapped dynamic states
         for t in self.years:
@@ -907,12 +899,8 @@ class PathFinderOptimizer:
                         # If cons_vars is positive (New tech production), we multiply by +1.
                         # The heuristic: if base_consumption is 0, it's a new tech (positive impact).
                         # If not, we follow the resource type.
-                        r_base = self.entity.base_consumptions.get(res_id, 0.0)
                         if res_obj and res_obj.type.strip().upper() == 'PRODUCTION':
-                            if r_base < 0: # Already negative baseline
-                                ca_expr.append(-price * self.cons_vars[(t, res_id)])
-                            else: # Likely positive impact production
-                                ca_expr.append(price * self.cons_vars[(t, res_id)])
+                            ca_expr.append(-price * self.cons_vars[(t, res_id)])
                         else:
                             # Consumption resources sold (should be negative in net, but rare)
                             ca_expr.append(-price * self.cons_vars[(t, res_id)])
@@ -1128,11 +1116,7 @@ class PathFinderOptimizer:
                         # PRODUCTION resources: revenue depends on the sign of cons_var.
                         # We use simple price * Quantity. 
                         # Quantity is +cons_var if impacts are positive, -cons_var if negative.
-                        r_base = self.entity.base_consumptions.get(r_id, 0.0)
-                        if r_base < 0: # Refinery style: negative is production
-                            total_cost.append((price * self.cons_vars[(t, r_id)]) / df)
-                        else: # Tech style: positive is production
-                            total_cost.append((-price * self.cons_vars[(t, r_id)]) / df)
+                        total_cost.append((price * self.cons_vars[(t, r_id)]) / df)
                     elif r_id in self.market_trade_vars[t]:
                         # Purchase/Sell from the market
                         total_cost.append((price * self.market_trade_vars[t][r_id]) / df)

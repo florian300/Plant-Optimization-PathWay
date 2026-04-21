@@ -217,7 +217,7 @@ class PathFinderParser:
                             except ValueError:
                                 continue
         
-        start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate = 2025, 25, 60.0, 0.90, False, 0.0
+        start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate, run_project = 2025, 25, 60.0, 0.90, False, 0.0, True
         for i, row in df_overview.iterrows():
             row_vals = [str(x).strip().upper() if pd.notna(x) else "" for x in row]
             if "YEAR START" in row_vals:
@@ -258,7 +258,13 @@ class PathFinderParser:
                         if '%' in raw_val or val > 1.0: val /= 100.0
                         discount_rate = val
                     except ValueError: pass
-        return reporting_toggles, start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate
+            if "RUN PROJECT ?" in row_vals or "RUN PROJECT ? (YES/NO)" in row_vals:
+                keyword = "RUN PROJECT ?" if "RUN PROJECT ?" in row_vals else "RUN PROJECT ? (YES/NO)"
+                idx = row_vals.index(keyword)
+                if len(row) > idx + 1:
+                    val = str(row.iloc[idx + 1]).strip().upper()
+                    run_project = (val == 'YES')
+        return reporting_toggles, start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate, run_project
 
     def _parse_entities_cluster(self, df_overview, blocks_overview):
         import pandas as pd
@@ -1234,7 +1240,7 @@ class PathFinderParser:
         df_overview = self.xl.parse('OverView', header=None)
         blocks_overview = self._find_blocks(df_overview)
         
-        reporting_toggles, start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate = self._parse_overview_settings(df_overview, blocks_overview)
+        reporting_toggles, start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate, run_project = self._parse_overview_settings(df_overview, blocks_overview)
         years_list = list(range(start_year, start_year + duration + 1))
         
         entities_info, entities = self._parse_entities_cluster(df_overview, blocks_overview)
@@ -1244,7 +1250,8 @@ class PathFinderParser:
 
         params = Parameters(
             start_year=start_year, duration=duration, entities=entities, resources=list(resources_dict.keys()),
-            time_limit=time_limit, mip_gap=mip_gap, relax_integrality=relax_integrality, discount_rate=discount_rate
+            time_limit=time_limit, mip_gap=mip_gap, relax_integrality=relax_integrality, discount_rate=discount_rate,
+            run_project=run_project
         )
 
         df_tech = self.xl.parse('NEW TECH', header=None)
@@ -1370,7 +1377,7 @@ class PathFinderParser:
                         scenarios.append(token.upper())
 
             # ── Temps limite par simulation ────────────────────────────────
-            elif 'TIME' in tag and 'SIMULATION' in ' '.join(vals_upper):
+            elif tag == 'TIME' or 'TIME' in tag:
                 for token in raw_vals[1:]:
                     try:
                         time_limit = int(float(token))

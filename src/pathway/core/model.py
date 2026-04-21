@@ -104,6 +104,7 @@ class Parameters:
     mip_gap: float = 0.90
     relax_integrality: bool = False
     discount_rate: float = 0.0
+    run_project: bool = True
 
 @dataclass
 class Resource:

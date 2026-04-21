@@ -1476,11 +1476,11 @@ class PathFinderReporter:
                     res_id = f"{parts[0]}_{parts[1]}"
 
             res = self.data.resources.get(res_id)
-            cat_name = res.category if res and getattr(res, 'category', None) else 'Indirect'
+            group_name = res.name if res and res.name else (res.id if res else col.replace('_', ' '))
 
-            if cat_name not in cat_df.columns:
-                cat_df[cat_name] = 0.0
-            cat_df[cat_name] = cat_df[cat_name] + df_plot[col]
+            if group_name not in cat_df.columns:
+                cat_df[group_name] = 0.0
+            cat_df[group_name] = cat_df[group_name] + df_plot[col]
             
         fig = build_indirect_emissions_figure(
             df_cat=cat_df,
@@ -1490,7 +1490,7 @@ class PathFinderReporter:
         )
         
         self._save_plotly_figure(fig, "Indirect_Emissions", show_png=show_png)
-        self.charts_data.append(("Indirect Emissions Breakdown by Category (Scope 2 & 3)", cat_df))
+        self.charts_data.append(("Indirect Emissions Breakdown by Resource (Scope 2 & 3)", cat_df))
         
     def _plot_investment_costs(self, df: pd.DataFrame, df_finance: pd.DataFrame = None, show_png: bool = True):
         """Plot the Investment Plan, focusing on Implementation Costs (M€) and budget limits using Plotly."""

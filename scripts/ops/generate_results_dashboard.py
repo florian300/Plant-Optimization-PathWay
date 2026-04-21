@@ -683,7 +683,30 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           </div>
           <div class="relative group">
             <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Performance Radar: Normalized KPI Comparison</h3>
-            <div id="chart-performance-radar" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
+            <div class="flex flex-col md:flex-row gap-6 bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+              <div id="chart-performance-radar" class="flex-1" style="height:450px;"></div>
+              <div class="md:w-80 flex flex-col justify-center border-l border-slate-100 pl-6 space-y-4">
+                <div>
+                  <h4 class="text-xs font-bold text-emerald-600 uppercase tracking-tight mb-1">Cost Eff.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Efficacité Économique</b> : Score normalisé basé sur le coût total de transition (NPV). Un score élevé indique un coût global réduit (Capex + Opex - Gains).</p>
+                </div>
+                <div>
+                  <h4 class="text-xs font-bold text-sky-600 uppercase tracking-tight mb-1">CapEx Eff.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Efficacité Capital</b> : Mesure le besoin en investissement. Plus le score est haut, moins le scénario nécessite de fonds initiaux pour être déployé.</p>
+                </div>
+                <div>
+                  <h4 class="text-xs font-bold text-purple-600 uppercase tracking-tight mb-1">Decarb.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Performance Carbone</b> : Taux de décarbonation atteint. Le score est maximum (100) pour les trajectoires atteignant les objectifs de zéro-émission nette.</p>
+                </div>
+                <div>
+                  <h4 class="text-xs font-bold text-amber-600 uppercase tracking-tight mb-1">Indep.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Indice de Résilience</b> : Autonomie vis-à-vis des ressources externes (électricité, gaz). Analyse la stabilité face aux fluctuations de prix des marchés.</p>
+                </div>
+                <div class="pt-2 border-t border-slate-100">
+                  <p class="text-[10px] text-slate-400 italic">Note : Les scores sont normalisés sur une échelle de 0 à 100 pour permettre une comparaison stratégique directe entre scénarios.</p>
+                </div>
+              </div>
+            </div>
             <button class="chart-btn" onclick="downloadChart('chart-performance-radar')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
         </div>

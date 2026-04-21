@@ -85,11 +85,11 @@ def build_investment_plan_figure(
                 line=dict(color=tech_to_edge_color.get(tid, 'white'), width=1.5)
             ),
             showlegend=False, # Hide individual combinations to prioritize the categorical legend
-            customdata=list(zip([pid]*len(years), [tid]*len(years), labels)),
+            customdata=list(zip([pid]*len(years), [tid]*len(years), labels, [display_name]*len(years))),
             hovertemplate=(
-                "<b>%{name}</b><br>" +
-                "Implementation: %{customdata[2]}<br>" +
-                "Cost: %{y:.2f} M€<extra></extra>"
+                "<b>%{customdata[3]}</b><br>" +
+                "Project Status: %{customdata[2]}<br>" +
+                "Investment: %{y:.2f} M€<extra></extra>"
             )
         ))
 
