@@ -84,6 +84,7 @@ class PathFinderReporter:
 
     def _is_primary_emission_resource(self, resource_id: str) -> bool:
         primary = self._primary_emission_resource()
+        # Case-insensitive check and fallback if primary contains CO2
         return resource_id == primary or (primary == 'CO2_EM' and 'CO2' in str(resource_id).upper())
 
     def _process_emission_baseline(self, process) -> float:
@@ -147,21 +148,23 @@ class PathFinderReporter:
                     if self.opt.invest_vars[(t, p_id, t_id)].varValue is not None and self.opt.invest_vars[(t, p_id, t_id)].varValue > 1e-6:
                         invested_units = self.opt.invest_vars[(t, p_id, t_id)].varValue
                         
-                        # Calculate CAPEX scaled by fractional units
+                        # Calculate CAPEX scaled by fractional units (tCO2 or MW)
                         cap_capex = 1.0
                         if tech.capex_per_unit:
-                            if tech.capex_unit == 'tCO2': cap_capex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if tech.capex_unit == 'tCO2': 
+                                cap_capex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                             elif 'MW' in tech.capex_unit.upper(): 
-                                cap_capex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
+                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                cap_capex = best_val / self.opt.entity.annual_operating_hours
                         current_capex = tech.capex_by_year.get(t, tech.capex)
                         capex_cost = (current_capex * cap_capex / process.nb_units) * invested_units
                         
-                        # Calculate Reductions (negative impacts) and Additions (positive impacts)
                         impact_strings = []
+                        primary_emis = self._primary_emission_resource()
                         for res_id, imp in tech.impacts.items():
                             val = imp['value']
-                            if res_id == 'CO2_EM':
-                                base_c = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if self._is_primary_emission_resource(res_id):
+                                base_c = self.opt.entity.process_emission_baseline(process, primary_emis)
                             else:
                                 base_c = self.opt.entity.base_consumptions.get(res_id, 0.0) * process.consumption_shares.get(res_id, 0.0)
                                 
@@ -170,8 +173,8 @@ class PathFinderReporter:
                                 target_change = val * base_c
                             elif imp['type'] == 'new':
                                 ref_res = imp.get('ref_resource')
-                                if ref_res == 'CO2_EM':
-                                    base_ref_amount = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                if self._is_primary_emission_resource(ref_res):
+                                    base_ref_amount = self.opt.entity.process_emission_baseline(process, primary_emis)
                                 elif ref_res and ref_res in self.opt.entity.base_consumptions:
                                     base_ref_amount = self.opt.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
                                 else:
@@ -179,15 +182,17 @@ class PathFinderReporter:
                                     
                                 if imp.get('reference', '') == 'AVOIDED' and ref_res:
                                     ref_imp = tech.impacts.get(ref_res)
-                                    if not ref_imp and ref_res == 'CO2_EM':
-                                        co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                                        if co2_keys: ref_imp = tech.impacts[co2_keys[0]]
+                                    if not ref_imp and self._is_primary_emission_resource(ref_res):
+                                        imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                        if imp_keys: ref_imp = tech.impacts[imp_keys[0]]
                                     if ref_imp and ref_imp['type'] in ['variation', 'up'] and ref_imp['value'] < 0:
                                         base_ref_amount = abs(ref_imp['value']) * base_ref_amount
 
                                 # Fallback just in case for PEM_H2 original logic if no ref_resource
                                 if res_id == 'EN_ELEC' and t_id == 'PEM_H2' and not ref_res:
-                                    base_ref_amount = self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0) * 0.5
+                                    # Fallback to fuel driver as reference
+                                    ref_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                    base_ref_amount = ref_val * 0.5
                                     
                                 target_change = val * base_ref_amount
                                 
@@ -213,8 +218,9 @@ class PathFinderReporter:
         cons_data = []
         for t in self.years:
             row = {'Year': t}
+            primary_emis = self._primary_emission_resource()
             for res_id in self.data.resources:
-                if res_id != 'CO2_EM':
+                if not self._is_primary_emission_resource(res_id):
                     val = self.opt.cons_vars[(t, res_id)].varValue
                     res = self.data.resources[res_id]
                     if res.unit.upper() == 'GJ':
@@ -318,15 +324,16 @@ class PathFinderReporter:
                     act_var = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                     if act_var > 1e-6:
                         if tech.tech_category == 'Carbon Capture':
-                            imp = tech.impacts.get('CO2_EM')
+                            primary_emis = self._primary_emission_resource()
+                            imp = tech.impacts.get(primary_emis)
                             if not imp:
-                                co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
+                                co2_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
                                 if co2_keys: imp = tech.impacts[co2_keys[0]]
                             
                             if imp:
-                                initial_val = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                initial_val = self.opt.entity.process_emission_baseline(process, primary_emis)
                                 ref_res = imp.get('ref_resource')
-                                if ref_res == 'CO2_EM':
+                                if self._is_primary_emission_resource(ref_res):
                                     base_ref_amount = initial_val
                                 elif ref_res and ref_res in self.opt.entity.base_consumptions:
                                     base_ref_amount = self.opt.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
@@ -335,9 +342,9 @@ class PathFinderReporter:
                                     
                                 if imp.get('reference', '') == 'AVOIDED' and ref_res:
                                     ref_imp = tech.impacts.get(ref_res)
-                                    if not ref_imp and ref_res == 'CO2_EM':
-                                        co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                                        if co2_keys: ref_imp = tech.impacts[co2_keys[0]]
+                                    if not ref_imp and self._is_primary_emission_resource(ref_res):
+                                        imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                        if imp_keys: ref_imp = tech.impacts[imp_keys[0]]
                                     if ref_imp and ref_imp['type'] in ['variation', 'up'] and ref_imp['value'] < 0:
                                         base_ref = abs(ref_imp['value']) * base_ref_amount
                                     else:
@@ -359,7 +366,7 @@ class PathFinderReporter:
                                 up_rate = 0.0
                                 if 'UP' in process.valid_technologies:
                                     up_tech = self.data.technologies['UP']
-                                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get('CO2_EM')
+                                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get(primary_emis)
                                     if up_imp and (up_imp['type'] == 'variation' or up_imp['type'] == 'up'):
                                         up_rate = abs(up_imp['value'])
                                 reduction *= ((1.0 - up_rate) ** yr_idx)
@@ -378,7 +385,7 @@ class PathFinderReporter:
                     # Consistent with optimizer logic
                     ref_yr = self.data.dac_params.ref_year
                     # Prioritize historical/external reference from Entities sheet (nested dict)
-                    yr_map = self.opt.entity.ref_baselines.get('CO2_EM', {})
+                    yr_map = self.opt.entity.ref_baselines.get(self._primary_emission_resource(), {})
                     if ref_yr in yr_map:
                         ref_emis = yr_map[ref_yr]
                     elif yr_map:
@@ -471,12 +478,14 @@ class PathFinderReporter:
                     continue
                 for p_id, process in self.opt.entity.processes.items():
                     if t_id in process.valid_technologies:
-                        # CAPEX calculation
+                        # CAPEX calculation (scaled by tCO2 or MW)
                         cap_capex = 1.0
                         if tech.capex_per_unit:
-                            if tech.capex_unit == 'tCO2': cap_capex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if tech.capex_unit == 'tCO2': 
+                                cap_capex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                             elif 'MW' in tech.capex_unit.upper(): 
-                                cap_capex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
+                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                cap_capex = best_val / self.opt.entity.annual_operating_hours
                         
                         invest_v = getattr(self.opt.invest_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                         if invest_v > 1e-6:
@@ -487,26 +496,27 @@ class PathFinderReporter:
                             tech_capex_spent[(t, p_id, t_id)] += true_capex
                             
                             # Calculate CO2 Abatement added by this investment
-                            imp = tech.impacts.get('CO2_EM')
+                            primary_emis = self._primary_emission_resource()
+                            imp = tech.impacts.get(primary_emis)
                             if not imp:
-                                co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                                if co2_keys: imp = tech.impacts[co2_keys[0]]
+                                imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                if imp_keys: imp = tech.impacts[imp_keys[0]]
                             
                             if imp:
-                                initial_val = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                initial_val = self.opt.entity.process_emission_baseline(process, primary_emis)
                                 yr_idx = list(self.opt.years).index(t)
                                 
                                 # UP compounding for the baseline at time of investment
                                 up_rate = 0.0
                                 if 'UP' in process.valid_technologies:
                                     up_tech = self.data.technologies['UP']
-                                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get('CO2_EM')
+                                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get(primary_emis)
                                     if up_imp and (up_imp['type'] == 'variation' or up_imp['type'] == 'up'):
                                         up_rate = abs(up_imp['value'])
                                 initial_val *= ((1.0 - up_rate) ** yr_idx)
 
                                 ref_res = imp.get('ref_resource')
-                                if ref_res == 'CO2_EM':
+                                if self._is_primary_emission_resource(ref_res):
                                     base_ref = initial_val
                                 elif ref_res and ref_res in self.opt.entity.base_consumptions:
                                     base_ref = self.opt.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
@@ -537,15 +547,14 @@ class PathFinderReporter:
                             if hasattr(self.opt, 'ccfd_used_vars') and self.opt.ccfd_used_vars.get((t, p_id, t_id)):
                                 if getattr(self.opt.ccfd_used_vars[(t, p_id, t_id)], 'varValue', 0) > 0.5:
                                     ccfd_p = self.data.ccfd_params
-                                    imp = tech.impacts.get('CO2_EM')
                                     if not imp:
-                                        co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
-                                        if co2_keys: imp = tech.impacts[co2_keys[0]]
+                                        imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                        if imp_keys: imp = tech.impacts[imp_keys[0]]
                                         
                                     if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
                                         reduction_frac = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
                                         if reduction_frac > 0:
-                                            max_emis = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                            max_emis = self.opt.entity.process_emission_baseline(process, primary_emis)
                                             # Scale avoided tons by units invested
                                             avoided_tons = reduction_frac * max_emis * invest_v
                                             start_yr = t + tech.implementation_time
@@ -1017,9 +1026,8 @@ class PathFinderReporter:
                                 if y_factor == 0.0:
                                     continue
 
-                            if res_id == 'CO2_EM' or 'CO2' in res_id.upper():
-                                base_val = (self.opt.entity.base_emissions
-                                            * process.emission_shares.get('CO2_EM', 0.0))
+                            if self._is_primary_emission_resource(res_id):
+                                base_val = self.opt.entity.process_emission_baseline(process, primary_emis)
                             else:
                                 base_val = (self.opt.entity.base_consumptions.get(res_id, 0.0)
                                             * process.consumption_shares.get(res_id, 0.0))
@@ -1037,10 +1045,13 @@ class PathFinderReporter:
                                 target_red = -imp['value'] * base_val
                             elif imp['type'] == 'new':
                                 ref_res  = imp.get('ref_resource')
-                                base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
-                                            * process.consumption_shares.get(ref_res, 0.0)
-                                            if ref_res and ref_res in self.opt.entity.base_consumptions
-                                            else base_val)
+                                if self._is_primary_emission_resource(ref_res):
+                                    base_ref = self.opt.entity.process_emission_baseline(process, ref_res)
+                                elif ref_res and ref_res in self.opt.entity.base_consumptions:
+                                    base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
+                                                * process.consumption_shares.get(ref_res, 0.0))
+                                else:
+                                    base_ref = base_val
                                 target_red = -imp['value'] * base_ref
                             else:
                                 target_red = 0.0
@@ -1062,9 +1073,8 @@ class PathFinderReporter:
                             ref_res   = imp_op.get('ref_resource') or res_id
                             ref_state = imp_op.get('reference', 'INITIAL')
 
-                            if ref_res == 'CO2_EM':
-                                base_ref = (self.opt.entity.base_emissions
-                                            * process.emission_shares.get('CO2_EM', 0.0))
+                            if self._is_primary_emission_resource(ref_res):
+                                base_ref = self.opt.entity.process_emission_baseline(process, primary_emis)
                             else:
                                 base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
                                             * process.consumption_shares.get(ref_res, 0.0))
@@ -1073,8 +1083,12 @@ class PathFinderReporter:
                                 target_change = imp_op['value'] * base_ref
                             elif imp_op['type'] == 'new':
                                 if ref_state == 'AVOIDED':
-                                    co2_imp = tech.impacts.get('CO2_EM')
-                                    if co2_imp and co2_imp['type'] == 'variation' and (ref_res == 'CO2_EM' or not ref_res):
+                                    co2_imp = tech.impacts.get(primary_emis)
+                                    if not co2_imp:
+                                        imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                        if imp_keys: co2_imp = tech.impacts[imp_keys[0]]
+
+                                    if co2_imp and co2_imp['type'] == 'variation' and (self._is_primary_emission_resource(ref_res) or not ref_res):
                                         target_change = imp_op['value'] * abs(co2_imp['value'] * base_ref)
                                     else:
                                         target_change = imp_op['value'] * base_ref
@@ -1090,10 +1104,9 @@ class PathFinderReporter:
                         cap_opex     = 1.0
                         if tech.opex_per_unit:
                             if tech.opex_unit == 'tCO2':
-                                cap_opex = (self.opt.entity.base_emissions
-                                            * process.emission_shares.get('CO2_EM', 0.0))
-                            elif 'MW' in tech.opex_unit.upper():
-                                primary_conso, _ = _primary_energy_consumption(process)
+                                cap_opex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
+                            else:
+                                primary_conso, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
                                 cap_opex = primary_conso / self.opt.entity.annual_operating_hours
 
                         tech_mac_agg[t_id]['opex'] += (
@@ -1117,8 +1130,7 @@ class PathFinderReporter:
                     cap_capex = 1.0
                     if tech.capex_per_unit:
                         if tech.capex_unit == 'tCO2':
-                            cap_capex = (self.opt.entity.base_emissions
-                                         * process.emission_shares.get('CO2_EM', 0.0))
+                            cap_capex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                         elif 'MW' in tech.capex_unit.upper():
                             primary_conso, _ = _primary_energy_consumption(process)
                             cap_capex = primary_conso / self.opt.entity.annual_operating_hours
@@ -1133,9 +1145,8 @@ class PathFinderReporter:
                             if factor == 0.0:
                                 continue
 
-                        if res_id == 'CO2_EM' or 'CO2' in res_id.upper():
-                            base_val = (self.opt.entity.base_emissions
-                                        * process.emission_shares.get('CO2_EM', 0.0))
+                        if self._is_primary_emission_resource(res_id):
+                            base_val = self.opt.entity.process_emission_baseline(process, primary_emis)
                         else:
                             base_val = (self.opt.entity.base_consumptions.get(res_id, 0.0)
                                         * process.consumption_shares.get(res_id, 0.0))
@@ -1144,10 +1155,13 @@ class PathFinderReporter:
                             target_red = -imp['value'] * base_val
                         elif imp['type'] == 'new':
                             ref_res  = imp.get('ref_resource')
-                            base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
-                                        * process.consumption_shares.get(ref_res, 0.0)
-                                        if ref_res and ref_res in self.opt.entity.base_consumptions
-                                        else base_val)
+                            if self._is_primary_emission_resource(ref_res):
+                                base_ref = self.opt.entity.process_emission_baseline(process, primary_emis)
+                            elif ref_res and ref_res in self.opt.entity.base_consumptions:
+                                base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
+                                            * process.consumption_shares.get(ref_res, 0.0))
+                            else:
+                                base_ref = base_val
                             target_red = -imp['value'] * base_ref
                         else:
                             target_red = 0.0
@@ -1165,9 +1179,8 @@ class PathFinderReporter:
                             ref_res   = imp_op.get('ref_resource') or res_id
                             ref_state = imp_op.get('reference', 'INITIAL')
 
-                            if ref_res == 'CO2_EM':
-                                base_ref = (self.opt.entity.base_emissions
-                                            * process.emission_shares.get('CO2_EM', 0.0))
+                            if self._is_primary_emission_resource(ref_res):
+                                base_ref = self.opt.entity.process_emission_baseline(process, primary_emis)
                             else:
                                 base_ref = (self.opt.entity.base_consumptions.get(ref_res, 0.0)
                                             * process.consumption_shares.get(ref_res, 0.0))
@@ -1176,8 +1189,12 @@ class PathFinderReporter:
                                 target_change = imp_op['value'] * base_ref
                             elif imp_op['type'] == 'new':
                                 if ref_state == 'AVOIDED':
-                                    co2_imp = tech.impacts.get('CO2_EM')
-                                    if co2_imp and co2_imp['type'] == 'variation' and (ref_res == 'CO2_EM' or not ref_res):
+                                    co2_imp = tech.impacts.get(primary_emis)
+                                    if not co2_imp:
+                                        imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                                        if imp_keys: co2_imp = tech.impacts[imp_keys[0]]
+                                    
+                                    if co2_imp and co2_imp['type'] == 'variation' and (self._is_primary_emission_resource(ref_res) or not ref_res):
                                         target_change = imp_op['value'] * abs(co2_imp['value'] * base_ref)
                                     else:
                                         target_change = imp_op['value'] * base_ref
@@ -1192,8 +1209,7 @@ class PathFinderReporter:
                         cap_opex = 1.0
                         if tech.opex_per_unit:
                             if tech.opex_unit == 'tCO2':
-                                cap_opex = (self.opt.entity.base_emissions
-                                            * process.emission_shares.get('CO2_EM', 0.0))
+                                cap_opex = self.opt.entity.process_emission_baseline(process, primary_emis)
                             elif 'MW' in tech.opex_unit.upper():
                                 primary_conso, _ = _primary_energy_consumption(process)
                                 cap_opex = primary_conso / self.opt.entity.annual_operating_hours
@@ -1576,9 +1592,11 @@ class PathFinderReporter:
                             is_active = True
                             cap_opex = 1.0
                             if tech.opex_per_unit:
-                                if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                if tech.opex_unit == 'tCO2': 
+                                    cap_opex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                                 elif 'MW' in str(tech.opex_unit).upper():
-                                    cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
+                                    best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                    cap_opex = best_val / self.opt.entity.annual_operating_hours
                             current_opex = tech.opex_by_year.get(t, tech.opex)
                             yr_val += (current_opex * cap_opex / process.nb_units) * act_v
                 tech_annual_opex.append(yr_val / 1_000_000.0)
@@ -1611,16 +1629,21 @@ class PathFinderReporter:
                 for t_id in process.valid_technologies:
                     tech = self.data.technologies[t_id]
                     if tech.tech_category == 'Carbon Capture':
-                        imp = tech.impacts.get('CO2_EM')
+                        primary_emis = self._primary_emission_resource()
+                        imp = tech.impacts.get(primary_emis)
+                        if not imp:
+                            co2_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
+                            if co2_keys: imp = tech.impacts[co2_keys[0]]
+                            
                         if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
                             act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                             if act_v > 0.01:
                                 reduction_frac_per_unit = (-imp['value'] if imp['value'] < 0 else 0) / process.nb_units
-                                max_emis_for_proc = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                                max_emis_for_proc = self.opt.entity.process_emission_baseline(process, primary_emis)
                                 captured_tons_per_unit = reduction_frac_per_unit * max_emis_for_proc
                                 
-                                s_price = self.data.time_series.resource_prices.get('CO2_STORAGE', {}).get(t, 0.0)
-                                tr_price = self.data.time_series.resource_prices.get('CO2_TRANSPORT', {}).get(t, 0.0)
+                                s_price = self.data.time_series.resource_prices.get(self.opt.co2_storage_resource_id or 'CO2_STORAGE', {}).get(t, 0.0)
+                                tr_price = self.data.time_series.resource_prices.get(self.opt.co2_transport_resource_id or 'CO2_TRANSPORT', {}).get(t, 0.0)
                                 yr_ccs_st += (s_price + tr_price) * captured_tons_per_unit * act_v
             ccs_st_costs.append(yr_ccs_st / 1_000_000.0)
 
@@ -1760,6 +1783,7 @@ class PathFinderReporter:
         # 1. Baseline Calculation
         baseline_data = []
         b_res_costs = {} # (t, res_id) -> cost
+        primary_emis = self._primary_emission_resource()
         for t in self.years:
             yr_idx = list(self.years).index(t)
             b_emissions = 0.0
@@ -1769,22 +1793,22 @@ class PathFinderReporter:
                 up_rate = 0.0
                 if 'UP' in process.valid_technologies:
                     up_tech = self.data.technologies['UP']
-                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get('CO2_EM')
+                    up_imp = up_tech.impacts.get('ALL') or up_tech.impacts.get(primary_emis)
                     if up_imp and (up_imp['type'] == 'variation' or up_imp['type'] == 'up'):
                         up_rate = abs(up_imp['value'])
                 
                 up_factor = (1.0 - up_rate) ** yr_idx
-                p_base_emis = (self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)) * up_factor
+                p_base_emis = (self.opt.entity.process_emission_baseline(process, primary_emis)) * up_factor
                 b_emissions += p_base_emis
                 for res_id in self.data.resources:
-                    if res_id != 'CO2_EM':
+                    if not self._is_primary_emission_resource(res_id):
                         p_base_cons = (self.opt.entity.base_consumptions.get(res_id, 0.0) * process.consumption_shares.get(res_id, 0.0)) * up_factor
                         b_consumptions[res_id] += p_base_cons
             
-            allocated_emis_share = sum(p.emission_shares.get('CO2_EM', 0.0) for p in self.opt.entity.processes.values())
+            allocated_emis_share = sum(p.emission_shares.get(primary_emis, 0.0) for p in self.opt.entity.processes.values())
             b_emissions += self.opt.entity.base_emissions * (1.0 - allocated_emis_share)
             for res_id in self.data.resources:
-                if res_id != 'CO2_EM':
+                if not self._is_primary_emission_resource(res_id):
                     allocated_share = sum(p.consumption_shares.get(res_id, 0.0) for p in self.opt.entity.processes.values())
                     b_consumptions[res_id] += self.opt.entity.base_consumptions.get(res_id, 0.0) * (1.0 - allocated_share)
             
@@ -1826,9 +1850,10 @@ class PathFinderReporter:
                     if act_v > 0.01:
                         cap_opex = 1.0
                         if tech.opex_per_unit:
-                            if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)
+                            if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.process_emission_baseline(process, primary_emis)
                             elif 'MW' in str(tech.opex_unit).upper():
-                                cap_opex = (self.opt.entity.base_consumptions.get('EN_FUEL', 0.0) * process.consumption_shares.get('EN_FUEL', 0.0)) / self.opt.entity.annual_operating_hours
+                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                cap_opex = best_val / self.opt.entity.annual_operating_hours
                         current_opex = tech.opex_by_year.get(t, tech.opex)
                         yr_opex += (current_opex * cap_opex / process.nb_units) * act_v
             if self.data.dac_params.active:
@@ -1863,11 +1888,11 @@ class PathFinderReporter:
         actual_res_costs = {}
         for t in years:
             for res_id in self.data.resources:
-                if res_id == 'CO2_EM': continue
-                cons_val = self.opt.cons_vars[(t, res_id)].varValue or 0.0
-                price = get_robust_price(res_id, t)
-                if price > 0:
-                    actual_res_costs[(t, res_id)] = (cons_val * price) / 1_000_000.0
+                if not self._is_primary_emission_resource(res_id):
+                    cons_val = self.opt.cons_vars[(t, res_id)].varValue or 0.0
+                    price = get_robust_price(res_id, t)
+                    if price > 0:
+                        actual_res_costs[(t, res_id)] = (cons_val * price) / 1_000_000.0
         
         add_res_costs = []
         avoid_res_savings = []
@@ -1875,12 +1900,12 @@ class PathFinderReporter:
             yr_add = 0.0
             yr_avoid = 0.0
             for res_id in self.data.resources:
-                if res_id == 'CO2_EM': continue
-                b_c = b_res_costs.get((t, res_id), 0.0)
-                a_c = actual_res_costs.get((t, res_id), 0.0)
-                delta = a_c - b_c
-                if delta > 1e-4: yr_add += delta
-                elif delta < -1e-4: yr_avoid += delta
+                if not self._is_primary_emission_resource(res_id):
+                    b_c = b_res_costs.get((t, res_id), 0.0)
+                    a_c = actual_res_costs.get((t, res_id), 0.0)
+                    delta = a_c - b_c
+                    if delta > 1e-4: yr_add += delta
+                    elif delta < -1e-4: yr_avoid += delta
             add_res_costs.append(yr_add)
             avoid_res_savings.append(yr_avoid)
 

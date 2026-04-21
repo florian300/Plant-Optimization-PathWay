@@ -171,10 +171,17 @@ class Process:
         for res_id, share in self.consumption_shares.items():
             if res_id in excluded:
                 continue
-            val = base_consumptions.get(res_id, 0.0) * share
+            # We use absolute value for consumption (some may be negative if produced)
+            val = abs(base_consumptions.get(res_id, 0.0)) * share
             if val > best_val:
                 best_val = val
                 best_res = res_id
+        
+        # Fallback: if no dominant consumption, pick the one with highest share
+        if not best_res and self.consumption_shares:
+            best_res = max(self.consumption_shares, key=self.consumption_shares.get)
+            best_val = abs(base_consumptions.get(best_res, 0.0)) * self.consumption_shares[best_res]
+            
         return best_val, best_res
 
 @dataclass
@@ -196,14 +203,28 @@ class EntityState:
     def primary_emission_resource(self) -> Optional[str]:
         """Pick the dominant emission resource from process emission shares."""
         best_res, best_share = None, 0.0
+        
+        # 1. Try to find a resource used in emission shares
         for process in self.processes.values():
             for res_id, share in process.emission_shares.items():
                 if share > best_share:
                     best_share = share
                     best_res = res_id
+        
+        # 2. Fallback to CO2_EM if it exists in ref_baselines
+        if not best_res and 'CO2_EM' in self.ref_baselines:
+            best_res = 'CO2_EM'
+            
+        # 3. Fallback to first ref_baseline
         if best_res is None and self.ref_baselines:
             best_res = next(iter(self.ref_baselines.keys()))
+            
         return best_res
+
+    def primary_energy_resource(self, process: Process) -> Optional[str]:
+        """Convenience wrapper for process energy consumption Identification."""
+        _, res_id = process.primary_energy_consumption(self.base_consumptions)
+        return res_id
 
     def process_emission_baseline(self, process: Process, emission_resource: Optional[str] = None) -> float:
         """Dynamic equivalent of base_emissions * process emission share."""
