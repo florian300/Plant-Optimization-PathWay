@@ -144,8 +144,8 @@ def build_resources_mix_figure(
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=-0.3,
+            yanchor="top",
+            y=-0.15,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255,255,255,0.5)" if is_dashboard else "rgba(255,255,255,0.8)",
@@ -153,7 +153,7 @@ def build_resources_mix_figure(
             borderwidth=1,
             font=dict(family=font_family, color=text_color)
         ),
-        margin=dict(l=60, r=40, t=100, b=100),
+        margin=dict(l=60, r=40, t=100, b=160),
         hovermode="x unified",
         font=dict(family=font_family)
     )

@@ -107,8 +107,8 @@ def build_carbon_price_figure(
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=-0.25,
+            yanchor="top",
+            y=-0.15,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(0,0,0,0)",
@@ -116,7 +116,7 @@ def build_carbon_price_figure(
             borderwidth=1,
             font=dict(family=font_family, color=text_color, size=11)
         ),
-        margin=dict(l=60, r=60, t=80, b=100),
+        margin=dict(l=60, r=60, t=80, b=160),
         hovermode="closest",
         font=dict(family=font_family)
     )
@@ -281,8 +281,8 @@ def build_co2_trajectory_figure(
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=-0.25,
+            yanchor="top",
+            y=-0.15,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(0,0,0,0)",
@@ -290,7 +290,7 @@ def build_co2_trajectory_figure(
             borderwidth=1,
             font=dict(family=font_family, color=text_color, size=11)
         ),
-        margin=dict(l=60, r=60, t=100, b=120),
+        margin=dict(l=60, r=60, t=100, b=160),
         hovermode="x unified",
         font=dict(family=font_family)
     )
@@ -340,8 +340,8 @@ def build_indirect_emissions_figure(
         title=dict(text=title.upper(), font=dict(size=18, weight='bold', color=text_color, family=font_family), x=0.5),
         xaxis=dict(title='Year', gridcolor=grid_color, tickmode='linear', color=text_color, tickfont=dict(family=font_family)),
         yaxis=dict(title='ktCO2', gridcolor=grid_color, color=text_color, tickfont=dict(family=font_family)),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
-        margin=dict(l=60, r=60, t=100, b=120),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
+        margin=dict(l=60, r=60, t=100, b=160),
         hovermode="x unified",
         font=dict(family=font_family)
     )

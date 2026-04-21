@@ -149,13 +149,13 @@ def build_investment_plan_figure(
             orientation="h", 
             yanchor="top", y=-0.15, 
             xanchor="center", x=0.5,
-            groupclick="toggleitem", # Important to allow individual selection in categories
+            groupclick="toggleitem",
             font=dict(color=text_color, size=11, family=font_family),
             bgcolor='rgba(0,0,0,0)',
             bordercolor=grid_color,
             borderwidth=1
         ),
-        margin=dict(l=60, r=60, t=100, b=150),
+        margin=dict(l=60, r=60, t=100, b=200),
         hovermode="x unified",
         font=dict(family=font_family)
     )

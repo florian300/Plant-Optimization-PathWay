@@ -7,6 +7,8 @@ from tqdm import tqdm
 from .optimizer import PathFinderOptimizer
 import plotly.graph_objects as go
 import plotly.io as pio
+import plotly.utils
+import json
 from .plots.carbon_tax import build_carbon_tax_figure
 from pathway.core.plots.financial import (
     build_transition_cost_figure, 
@@ -57,7 +59,6 @@ class PathFinderReporter:
         
         # 2. Export JSON for web dashboard (ALWAYS)
         json_path = os.path.join(charts_dir, f"{base_filename}.json")
-        # Explicitly save as UTF-8 to prevent Windows locale issues (cp1252)
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(fig.to_json())
 

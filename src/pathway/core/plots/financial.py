@@ -93,8 +93,8 @@ def build_transition_cost_figure(
         yaxis=dict(title='Annual Impact (M€)', gridcolor=grid_color, zeroline=True, zerolinecolor=zeroline_color, zerolinewidth=1.5, color=text_color, tickfont=dict(family=font_family)),
         yaxis2=dict(title=dict(text='Cumulative Net Balance (M€)', font=dict(color=glow_color, family=font_family)), 
                     overlaying='y', side='right', showgrid=False, tickfont=dict(color=glow_color, family=font_family)),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=legend_border, borderwidth=1, font=dict(color=text_color, family=font_family)),
-        margin=dict(l=60, r=60, t=100, b=120),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5, bordercolor=legend_border, borderwidth=1, font=dict(color=text_color, family=font_family)),
+        margin=dict(l=60, r=60, t=100, b=160),
         font=dict(family=font_family)
     )
 
@@ -185,8 +185,8 @@ def build_external_financing_figure(
         yaxis=dict(title='Annual Triggered Support (M€)', gridcolor=grid_color, color=text_color, tickfont=dict(family=font_family)),
         yaxis2=dict(title=dict(text='Cumulative Support (M€)', font=dict(color=glow_color, family=font_family)),
                     overlaying='y', side='right', showgrid=False, tickfont=dict(color=glow_color, family=font_family)),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
-        margin=dict(l=60, r=60, t=100, b=120),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
+        margin=dict(l=60, r=60, t=100, b=160),
         hovermode="x unified",
         font=dict(family=font_family)
     )
@@ -255,8 +255,8 @@ def build_interest_paid_figure(
         yaxis=dict(title='Annual Interest Paid (M€)', gridcolor=grid_color, color='#E74C3C', tickfont=dict(family=font_family)),
         yaxis2=dict(title='Cumulative Interest (M€)', overlaying='y', side='right', showgrid=False, color='#2C3E50', tickfont=dict(family=font_family)),
         yaxis3=dict(title='Loan Principal Taken (M€)', overlaying='y', side='left', anchor='free', position=0.08, showgrid=False, color='#27AE60', tickfont=dict(family=font_family)),
-        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
-        margin=dict(l=100, r=80, t=100, b=120),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
+        margin=dict(l=100, r=80, t=100, b=160),
         hovermode="x unified",
         font=dict(family=font_family)
     )
@@ -322,8 +322,8 @@ def build_mac_figure(
         title=dict(text=title, font=dict(size=18, weight='bold', color=text_color, family=font_family)),
         xaxis=dict(title='Implemented Technology per Process', gridcolor=grid_color, color=text_color, tickfont=dict(family=font_family)),
         yaxis=dict(title='Cost of Abatement (€ / tCO2 avoided)', gridcolor=grid_color, color=text_color, tickfont=dict(family=font_family), zeroline=True, zerolinecolor=text_color),
-        legend=dict(orientation="h", yanchor="top", y=-0.3, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
-        margin=dict(l=60, r=60, t=100, b=150),
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, bordercolor=grid_color, borderwidth=1, font=dict(color=text_color, family=font_family)),
+        margin=dict(l=60, r=60, t=100, b=180),
         font=dict(family=font_family)
     )
 

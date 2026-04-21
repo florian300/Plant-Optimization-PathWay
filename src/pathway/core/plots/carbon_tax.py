@@ -104,8 +104,8 @@ def build_carbon_tax_figure(
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=-0.3,
+            yanchor="top",
+            y=-0.15,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255, 255, 255, 0.5)" if is_dashboard else "rgba(255, 255, 255, 0.8)",
@@ -113,7 +113,7 @@ def build_carbon_tax_figure(
             borderwidth=1,
             font=dict(family=font_family, color=text_color, size=11)
         ),
-        margin=dict(t=80, b=100, l=60, r=40),
+        margin=dict(t=80, b=160, l=60, r=40),
         height=600,
         font=dict(family=font_family)
     )

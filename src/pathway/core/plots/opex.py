@@ -103,7 +103,7 @@ def build_opex_figure(
             bgcolor='rgba(255,255,255,0.1)', bordercolor=grid_color, borderwidth=1,
             font=dict(size=11, color=text_color, family=font_family)
         ),
-        margin=dict(l=60, r=40, t=100, b=100),
+        margin=dict(l=60, r=40, t=100, b=180),
         hovermode='x unified',
         font=dict(family=font_family)
     )

@@ -349,9 +349,6 @@ def run_scenario(sc, file_path, use_scenario_filter, generate_excel, progress, t
     # --- 5. Reporting --------------------------------------------------------
     progress.update(task_id, description=f"[cyan]{sc_name}[/cyan] Generating report...", completed=88)
     try:
-        save_dir = os.path.join('artifacts', 'reports', sc_name)
-        os.makedirs(save_dir, exist_ok=True)
-
         reporter = PathFinderReporter(
             optimizer,
             scenario_id=sc_id,

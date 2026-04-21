@@ -80,7 +80,7 @@ def build_simulation_prices_figure(
         paper_bgcolor=bg_color, plot_bgcolor=bg_color,
         title=dict(text=title, font=dict(size=20, weight='bold', color=text_color, family=font_family), x=0.5),
         showlegend=False,
-        margin=dict(l=60, r=60, t=100, b=100),
+        margin=dict(l=60, r=60, t=100, b=120),
         font=dict(family=font_family)
     )
 

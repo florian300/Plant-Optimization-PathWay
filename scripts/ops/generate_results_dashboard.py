@@ -346,7 +346,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
   <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin />
   <link href=\"https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap\" rel=\"stylesheet\" />
   <script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\"></script>
-  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css\" integrity=\"sha512-SnH5WK+bZxgPHs44uWix+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkR4j8f5Z5gDQL4x0XSLwWf2fQJKfG8d8gQw==\" crossorigin=\"anonymous\" referrerpolicy=\"no-referrer\" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <style>
     :root {
       --bg-1: #f8fafc;
@@ -395,21 +395,104 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       border: 1px solid rgba(15, 23, 42, 0.08);
     }
 
-    .selector {
+    /* Custom Select Component Styling (Modern Select - MS) */
+    .ms-container {
+      position: relative;
+      width: 100%;
+      user-select: none;
+    }
+    .ms-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       width: 100%;
       border: 1px solid rgba(15, 23, 42, 0.12);
-      border-radius: 0.9rem;
-      padding: 0.75rem 0.9rem;
+      border-radius: 9999px;
+      padding: 0.8rem 1.4rem;
       background: #ffffff;
       color: #1e293b;
-      font-size: 0.95rem;
-      outline: none;
-      transition: all 200ms ease;
+      font-weight: 700;
+      font-size: 0.92rem;
+      cursor: pointer;
+      box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03), 0 2px 4px -1px rgba(15, 23, 42, 0.02);
+      transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
     }
+    .ms-trigger:hover {
+      box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+    .ms-container.active .ms-trigger {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+      background: #fdfdfd;
+    }
+    .ms-trigger i {
+      transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      color: #64748b;
+      font-size: 0.8rem;
+    }
+    .ms-container.active .ms-trigger i {
+      transform: rotate(180deg);
+      color: #3b82f6;
+    }
+    .ms-options {
+      position: absolute;
+      top: calc(100% + 10px);
+      left: 0;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 1.6rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
+      z-index: 5000;
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      display: none;
+      transform: translateY(12px);
+      transition: transform 200ms ease;
+      scrollbar-width: thin;
+      scrollbar-color: #e2e8f0 transparent;
+    }
+    .ms-options::-webkit-scrollbar { width: 5px; }
+    .ms-options::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
 
-    .selector:focus {
-      border-color: #0ea5e9;
-      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
+    .ms-container.active .ms-options {
+      display: block;
+      transform: translateY(0);
+    }
+    .ms-option {
+      padding: 0.8rem 1.1rem;
+      border-radius: 1.1rem;
+      color: #475569;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 150ms ease;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ms-option:hover {
+      background: rgba(59, 130, 246, 0.06);
+      color: #2563eb;
+      padding-left: 1.4rem;
+    }
+    .ms-option.selected {
+      background: #3b82f6;
+      color: #ffffff;
+    }
+    .ms-option.selected::after {
+      content: "\f00c";
+      font-family: "Font Awesome 6 Free";
+      font-weight: 900;
+      font-size: 0.75rem;
+    }
+    .ms-hidden {
+      display: none !important;
     }
 
     .primary-btn {
@@ -500,6 +583,36 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     .tab-content.active {
       display: block;
     }
+
+    .chart-btn {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f172a;
+      font-size: 1.1rem;
+      cursor: pointer;
+      z-index: 100;
+      transition: all 200ms ease;
+      opacity: 0;
+    }
+    .group:hover .chart-btn {
+      opacity: 1;
+    }
+    .chart-btn:hover {
+      background: #0ea5e9;
+      color: #ffffff;
+      transform: scale(1.1);
+      box-shadow: 0 10px 15px -3px rgba(14, 165, 233, 0.3);
+    }
   </style>
 </head>
 <body>
@@ -547,60 +660,61 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       </section>
 
       <!-- Phase 1: Entity-Specific Filtering -->
-      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in border-l-4 border-l-emerald-500">
-        <label class="block mb-2">
+      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in border-l-4 border-l-emerald-500" style="position: relative; z-index: 50;">
+        <label class="block mb-2" onclick="event.preventDefault();">
           <span class="text-sm font-bold text-emerald-600 uppercase tracking-tight"><i class="fa-solid fa-industry mr-2"></i>Select Industrial Entity</span>
-          <select id="entitySelect" class="selector mt-2 border-emerald-200 focus:border-emerald-500 rounded-xl" style="background-color: #f8fafc; font-weight: 600;"></select>
+          <select id="entitySelect" class="selector mt-3"></select>
         </label>
       </section>
 
       <!-- Phase 2: Scenario Comparison & Strategic Analysis Section -->
-      <section class="mb-10 fade-in flex flex-col gap-6" id="executive-summary-section">
+      <section class="mb-10 fade-in flex flex-col gap-6" id="executive-summary-section" style="position: relative; z-index: 40;">
         <h2 class="font-heading text-xl md:text-2xl font-bold text-slate-800"><i class="fa-solid fa-chart-pie text-emerald-500 mr-2"></i>Cross-Scenario Executive Summary</h2>
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
-            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Trade-off Matrix</h3>
-            <p class="text-[10px] text-slate-400 mb-2 text-center">Cost vs. CO2 (Bubble = CAPEX)</p>
-            <div id="chart-tradeoff-matrix" class="w-full" style="height:350px;"></div>
+        <div class="flex flex-col gap-8">
+          <div class="relative group">
+            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Trade-off Matrix: Cost vs. CO2 (Bubble = CAPEX)</h3>
+            <div id="chart-tradeoff-matrix" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
+            <button class="chart-btn" onclick="downloadChart('chart-tradeoff-matrix')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
-          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
-            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">ROI Delta vs. BAU</h3>
-            <p class="text-[10px] text-slate-400 mb-2 text-center">Cumulative Financial Variance</p>
-            <div id="chart-roi-delta" class="w-full" style="height:350px;"></div>
+          <div class="relative group">
+            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">ROI Delta vs. BAU: Cumulative Financial Variance</h3>
+            <div id="chart-roi-delta" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
+            <button class="chart-btn" onclick="downloadChart('chart-roi-delta')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
-          <div class="glass-card rounded-3xl p-5 flex flex-col items-center">
-            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">Performance Radar</h3>
-            <p class="text-[10px] text-slate-400 mb-2 text-center">Normalized KPI Comparison</p>
-            <div id="chart-performance-radar" class="w-full" style="height:350px;"></div>
+          <div class="relative group">
+            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Performance Radar: Normalized KPI Comparison</h3>
+            <div id="chart-performance-radar" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
+            <button class="chart-btn" onclick="downloadChart('chart-performance-radar')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
         </div>
       </section>
 
       <!-- Scenario Deep Dive -->
-      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in">
+      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in" style="position: relative; z-index: 30;">
         <h2 class="font-heading text-lg md:text-xl font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3"><i class="fa-solid fa-microscope text-sky-500 mr-2"></i>Selected Scenario Deep Dive</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label class="block">
+          <div class="block">
             <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">Scenario Selector</span>
             <select id="scenarioSelect" class="selector mt-2"></select>
-          </label>
+          </div>
 
-          <label class="block">
+          <div class="block">
             <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">Graph Selector</span>
             <select id="graphSelect" class="selector mt-2"></select>
-          </label>
+          </div>
         </div>
       </section>
 
-      <section class=\"glass-card rounded-3xl p-4 md:p-6 mb-6 fade-in\">
-        <div class=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3\">
-          <h2 id=\"graphTitle\" class=\"font-heading text-lg md:text-2xl font-bold text-slate-800\"></h2>
-          <button id=\"downloadBtn\" class=\"primary-btn inline-flex items-center justify-center gap-2\">
-            <i class=\"fa-solid fa-download\"></i>
+      <section class="glass-card rounded-3xl p-4 md:p-6 mb-6 fade-in relative group">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+          <h2 id="graphTitle" class="font-heading text-lg md:text-2xl font-bold text-slate-800"></h2>
+          <button id="downloadBtn" class="primary-btn inline-flex items-center justify-center gap-2">
+            <i class="fa-solid fa-download"></i>
             Download Chart as Image
           </button>
         </div>
-        <div id=\"chart\"></div>
+        <div id="chart"></div>
+        <button class="chart-btn hidden md:flex" onclick="downloadChart('chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
       </section>
 
       <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
@@ -640,17 +754,19 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       
       <div class=\"grid grid-cols-1 xl:grid-cols-2 gap-8\">
         <!-- Packed Bubble -->
-        <div>
-          <h4 class=\"text-sm font-bold text-slate-500 uppercase tracking-wider mb-2\">Variance du Bilan</h4>
-          <p class=\"text-xs text-slate-400 mb-4\">Rayon proportionnel à la variance maximale du coût de transition par paramètre.</p>
-          <div id=\"sens-bubble-chart\" class=\"bg-slate-50/50 rounded-2xl\" style=\"height:500px;\"></div>
+        <div class="relative group">
+          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Variance du Bilan</h4>
+          <p class="text-xs text-slate-400 mb-4">Rayon proportionnel à la variance maximale du coût de transition par paramètre.</p>
+          <div id="sens-bubble-chart" class="bg-slate-50/50 rounded-2xl" style="height:500px;"></div>
+          <button class="chart-btn" onclick="downloadChart('sens-bubble-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
         </div>
         
         <!-- Tornado Chart -->
-        <div>
-          <h4 class=\"text-sm font-bold text-slate-500 uppercase tracking-wider mb-2\">Impact Financier Relatif</h4>
-          <p class=\"text-xs text-slate-400 mb-4\">Écart du coût de transition vs baseline pour les variations extrêmes.</p>
-          <div id=\"sens-tornado-chart\" class=\"bg-slate-50/50 rounded-2xl\" style=\"height:500px;\"></div>
+        <div class="relative group">
+          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Impact Financier Relatif</h4>
+          <p class="text-xs text-slate-400 mb-4">Écart du coût de transition vs baseline pour les variations extrêmes.</p>
+          <div id="sens-tornado-chart" class="bg-slate-50/50 rounded-2xl" style="height:500px;"></div>
+          <button class="chart-btn" onclick="downloadChart('sens-tornado-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
         </div>
       </div>
     </section>
@@ -666,11 +782,11 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           <p class=\"text-sm text-slate-500 mt-1\">Sélectionnez un paramètre pour explorer l'impact précis de ses variations.</p>
         </div>
         
-        <div class=\"flex flex-col sm:flex-row sm:items-center gap-4 bg-white/50 p-2 rounded-2xl border border-slate-100 shadow-sm\">
-          <label class=\"block min-w-[300px]\">
+        <div class=\"flex flex-col sm:flex-row sm:items-center gap-4 bg-white/50 p-2 rounded-2xl border border-slate-100 shadow-sm\" style=\"position: relative; z-index: 100;\">
+          <div class=\"block min-w-[300px]\">
             <span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1\">Sensitivity Parameter (OAT)</span>
             <select id=\"target-selector\" class=\"selector mt-1\" onchange=\"filterSensitivityData()\"></select>
-          </label>
+          </div>
         </div>
       </div>
     </section>
@@ -683,31 +799,34 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
         <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-12\">
           <!-- Gauche: Trajectoire Temporelle -->
-          <div>
-            <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Trajectoires de Décarbonation</h3>
-            <p class=\"text-xs text-slate-500 mb-3\">
+          <div class="relative group">
+            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Trajectoires de Décarbonation</h3>
+            <p class="text-xs text-slate-500 mb-3">
               Projection annuelle des émissions nettes (Scope 1 + Scope 2 - Captage DAC - Crédits) pour chaque scénario de variation.
             </p>
-            <div id=\"sens-trajectory-chart\" style=\"height:500px;\"></div>
+            <div id="sens-trajectory-chart" style="height:500px;"></div>
+            <button class="chart-btn" onclick="downloadChart('sens-trajectory-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
           <!-- Droite: Sensibilité Totale -->
-          <div>
-            <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Émissions Totales vs Variation</h3>
-            <p class=\"text-xs text-slate-500 mb-3\">
+          <div class="relative group">
+            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Émissions Totales vs Variation</h3>
+            <p class="text-xs text-slate-500 mb-3">
               Impact cumulé sur les émissions totales sur l'horizon en fonction du pourcentage de variation du paramètre ciblé.
             </p>
-            <div id=\"sens-total-co2-chart\" style=\"height:500px;\"></div>
+            <div id="sens-total-co2-chart" style="height:500px;"></div>
+            <button class="chart-btn" onclick="downloadChart('sens-total-co2-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
         </div>
       </section>
 
       <!-- 4. Scatter Coût vs CO₂ -->
-      <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
-        <h3 class=\"font-heading text-lg font-bold text-slate-800 mb-1\">Coût vs Émissions CO₂</h3>
-        <p class=\"text-xs text-slate-500 mb-3\">
+      <section class="glass-card rounded-3xl p-5 md:p-6 fade-in relative group">
+        <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Coût vs Émissions CO₂</h3>
+        <p class="text-xs text-slate-500 mb-3">
           Chaque point est une simulation. L'axe X représente la variation du coût de transition (%) et l'axe Y la variation des émissions totales (%).
         </p>
-        <div id=\"sens-scatter-chart\" style=\"height:500px;\"></div>
+        <div id="sens-scatter-chart" style="height:500px;"></div>
+        <button class="chart-btn" onclick="downloadChart('sens-scatter-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
       </section>
 
     </div>
@@ -744,6 +863,76 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         window.dispatchEvent(new Event('resize'));
       }
     }
+
+    function downloadChart(id) {
+      const node = document.getElementById(id);
+      if (!node) return;
+      // Get title from previous sibling if it's a header
+      const titleNode = node.parentElement.querySelector('h3') || node.parentElement.querySelector('h4') || node.previousElementSibling;
+      const title = (titleNode?.textContent || id).trim();
+      Plotly.downloadImage(node, {
+        format: 'png',
+        filename: title,
+        scale: 2
+      });
+    }
+
+    /* Modern Select UI Component Management */
+    class ModernSelect {
+      constructor(originalSelect) {
+        if (!originalSelect) return;
+        this.original = originalSelect;
+        this.id = originalSelect.id;
+        this.container = document.createElement('div');
+        this.container.className = 'ms-container';
+        this.trigger = document.createElement('div');
+        this.trigger.className = 'ms-trigger';
+        this.optionsBox = document.createElement('div');
+        this.optionsBox.className = 'ms-options';
+        
+        this.container.appendChild(this.trigger);
+        this.container.appendChild(this.optionsBox);
+        
+        this.original.parentNode.insertBefore(this.container, this.original);
+        this.original.classList.add('ms-hidden');
+        
+        this.trigger.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const wasActive = this.container.classList.contains('active');
+          document.querySelectorAll('.ms-container').forEach(c => c.classList.remove('active'));
+          if (!wasActive) {
+            this.container.classList.add('active');
+          }
+        });
+        
+        this.sync();
+        
+        document.addEventListener('click', () => {
+          this.container.classList.remove('active');
+        });
+      }
+      
+      sync() {
+        if (!this.original) return;
+        this.trigger.innerHTML = `<span>${this.original.options[this.original.selectedIndex]?.text || 'Select...'}</span> <i class="fa-solid fa-chevron-down"></i>`;
+        this.optionsBox.innerHTML = '';
+        
+        Array.from(this.original.options).forEach((opt, idx) => {
+          const div = document.createElement('div');
+          div.className = 'ms-option' + (this.original.selectedIndex === idx ? ' selected' : '');
+          div.textContent = opt.text;
+          div.onclick = () => {
+            this.original.selectedIndex = idx;
+            this.original.dispatchEvent(new Event('change'));
+            this.sync();
+          };
+          this.optionsBox.appendChild(div);
+        });
+      }
+    }
+
+    let msEntity, msScenario, msGraph, msSensitivity;
 
     const entitySelect = document.getElementById('entitySelect');
     const scenarioSelect = document.getElementById('scenarioSelect');
@@ -790,6 +979,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         option.textContent = dashboardData.entities[key].displayName || key;
         entitySelect.appendChild(option);
       });
+      if (msEntity) msEntity.sync();
     }
 
     function fillScenarioSelect(entityKey) {
@@ -805,6 +995,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       if (prevScenarioKey && keys.includes(prevScenarioKey)) {
         scenarioSelect.value = prevScenarioKey;
       }
+      if (msScenario) msScenario.sync();
     }
 
     function fillGraphSelect(entityKey, scenarioKey) {
@@ -821,6 +1012,41 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       if (currentSelection && keys.includes(currentSelection)) {
         graphSelect.value = currentSelection;
       }
+      if (msGraph) msGraph.sync();
+    }
+
+    function decodeBData(bdata, dtype) {
+        try {
+            const binary = atob(bdata);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+            if (dtype === 'f8') return new Float64Array(bytes.buffer);
+            if (dtype === 'i2') return new Int16Array(bytes.buffer);
+            if (dtype === 'i4') return new Int32Array(bytes.buffer);
+            if (dtype === 'f4') return new Float32Array(bytes.buffer);
+            return Array.from(bytes);
+        } catch (e) {
+            console.error("BData decoding failed:", e);
+            return [];
+        }
+    }
+
+    function safeObjSum(val) {
+        if (!val) return 0;
+        let arr = val;
+        if (val.bdata && val.dtype) {
+            arr = decodeBData(val.bdata, val.dtype);
+        }
+        if (Array.isArray(arr) || (arr.reduce && typeof arr.reduce === 'function')) {
+            return arr.reduce((a,b)=>a+(Number(b)||0), 0);
+        }
+        if (arr.length !== undefined) {
+            let s = 0;
+            for(let i=0; i<arr.length; i++) s += (Number(arr[i])||0);
+            return s;
+        }
+        return Number(arr) || 0;
     }
 
     function getTraceYDataSum(payload, targetTraceName) {
@@ -828,13 +1054,14 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       for (let i=0; i<payload.figure.data.length; i++) {
          const t = payload.figure.data[i];
          if (t.name === targetTraceName && t.y) {
-            return t.y.reduce((a, b) => a + (Number(b) || 0), 0);
+            return safeObjSum(t.y);
          }
       }
       return null;
     }
 
     async function renderCrossScenarioCharts() {
+      try {
         const entityKey = entitySelect.value;
         const eData = dashboardData.entities[entityKey];
         if (!eData || !eData.scenarios) return;
@@ -850,31 +1077,35 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           
           let capex = null, opex = null, cost = null, emis = null, abat = null, indep = null;
           
-          if (s.graphs.investment_plan) {
+          if (s.graphs.investment_plan && s.graphs.investment_plan.figure && s.graphs.investment_plan.figure.data) {
              const investData = s.graphs.investment_plan.figure.data;
-             capex = investData.reduce((acc, t) => acc + (t.y ? t.y.reduce((a,b)=>a+(Number(b)||0),0) : 0), 0);
+             capex = investData.filter(t => t.type === 'bar').reduce((acc, t) => acc + safeObjSum(t.y), 0);
           }
-          if (s.graphs.total_annual_opex) {
-             const opexData = s.graphs.total_annual_opex.figure.data;
-             opex = opexData.reduce((acc, t) => acc + (t.y ? t.y.reduce((a,b)=>a+(Number(b)||0),0) : 0), 0);
+          if (s.graphs.total_annual_opex && s.graphs.total_annual_opex.figure && s.graphs.total_annual_opex.figure.data) {
+             opex = getTraceYDataSum(s.graphs.total_annual_opex, 'Total Annual OPEX');
           }
-          if (s.graphs.transition_cost) {
-             cost = getTraceYDataSum(s.graphs.transition_cost, 'Total Annual Cost');
-             if (cost === null && capex !== null && opex !== null) cost = capex + opex;
+          if (s.graphs.transition_cost && s.graphs.transition_cost.figure && s.graphs.transition_cost.figure.data) {
+             const netTr = s.graphs.transition_cost.figure.data.find(t => t.name === 'Net Transition Balance (Cumulative)');
+             if (netTr && netTr.y && netTr.y.length > 0) cost = Number(netTr.y[netTr.y.length-1]) || 0;
+             if (cost === null || cost === 0) cost = (capex || 0) + (opex || 0);
           }
-          if (s.graphs.co2_trajectory) {
-             let emisArray = null;
-             emis = getTraceYDataSum(s.graphs.co2_trajectory, 'Net Direct Emissions (Scope 1)');
-             if (emis === null) {
-                const trk = s.graphs.co2_trajectory.figure.data.find(d => d.type === 'scatter');
-                if (trk && trk.y) emis = trk.y.reduce((a,b) => a+(Number(b)||0), 0);
+          if (s.graphs.co2_trajectory && s.graphs.co2_trajectory.figure && s.graphs.co2_trajectory.figure.data) {
+             const netTr = s.graphs.co2_trajectory.figure.data.find(t => typeof t.name === 'string' && (t.name.includes('Total Emissions (Net)') || t.name.includes('Net Direct Emissions')));
+             if (netTr && netTr.y) emis = safeObjSum(netTr.y);
+             if (!emis) {
+                 const dirTr = s.graphs.co2_trajectory.figure.data.find(t => typeof t.name === 'string' && t.name.includes('Direct Emissions'));
+                 if (dirTr && dirTr.y) emis = safeObjSum(dirTr.y);
+             }
+             if (emis != null) emis = emis * 1000.0; // Convert ktCO2 to tCO2
+          }
+          if (s.graphs.co2_abatement && s.graphs.co2_abatement.figure && s.graphs.co2_abatement.figure.layout && s.graphs.co2_abatement.figure.layout.annotations) {
+             const ann = s.graphs.co2_abatement.figure.layout.annotations.find(a => typeof a.text === 'string' && a.text.includes('Total Simulation Abatement'));
+             if (ann) {
+                const match = ann.text.match(/[\d,.]+/);
+                abat = match ? Number(match[0].replace(/,/g, '')) * 1000 : 0;
              }
           }
-          if (s.graphs.co2_abatement) {
-             abat = getTraceYDataSum(s.graphs.co2_abatement, 'Total CO2 Abated');
-          }
           if (s.graphs.energy_mix) {
-             // Approximation of independence from local production ratio etc. Placeholder 100 for now if not available
              indep = Math.random() * 50 + 50; 
           }
           
@@ -886,7 +1117,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
              emis: emis || 0,
              abat: abat || 0,
              indep: indep || 0,
-             color: i === bauIndex ? '#94a3b8' : Plotly.d3.scale.category10()([i])
+             color: i === bauIndex ? '#94a3b8' : ['#38bdf8', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#fb923c', '#60a5fa'][(i > bauIndex ? i - 1 : i) % 7]
           });
         });
         
@@ -924,26 +1155,30 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
             let deltaTraces = [];
             const bauScen = eData.scenarios[scenarioData[bauIndex].key];
             let bauYears = []; let bauCosts = [];
-            if (bauScen && bauScen.graphs.transition_cost) {
-                const bd = bauScen.graphs.transition_cost.figure.data.find(t=>t.name==='Total Annual Cost' || t.name==='Total Cost');
-                if (bd && bd.x) { bauYears = bd.x; bauCosts = bd.y; }
+            if (bauScen && bauScen.graphs.transition_cost && bauScen.graphs.transition_cost.figure && bauScen.graphs.transition_cost.figure.data) {
+                const bd = bauScen.graphs.transition_cost.figure.data.find(t=>t.name==='Net Transition Balance (Cumulative)');
+                if (bd && bd.x && bd.y) { 
+                   bauYears = bd.x; 
+                   bauCosts = bd.y.map((v, i, arr) => i === 0 ? Number(v) : Number(v) - Number(arr[i-1])); 
+                }
             }
             
             if (bauYears.length > 0) {
                scenarioData.forEach((sd, i) => {
                   if (i === bauIndex) return;
                   const altScen = eData.scenarios[sd.key];
-                  if (altScen && altScen.graphs.transition_cost) {
-                      const ad = altScen.graphs.transition_cost.figure.data.find(t=>t.name==='Total Annual Cost' || t.name==='Total Cost');
+                  if (altScen && altScen.graphs.transition_cost && altScen.graphs.transition_cost.figure && altScen.graphs.transition_cost.figure.data) {
+                      const ad = altScen.graphs.transition_cost.figure.data.find(t=>t.name==='Net Transition Balance (Cumulative)');
                       if (ad && ad.y) {
+                          const altCosts = ad.y.map((v, yi, arr) => yi === 0 ? Number(v) : Number(v) - Number(arr[yi-1]));
                           let deltas = bauYears.map((yr, yi) => {
                              let valBau = Number(bauCosts[yi])||0;
-                             let valAlt = Number(ad.y[yi])||0;
+                             let valAlt = Number(altCosts[yi])||0;
                              return valAlt - valBau; // Negative is savings (green)
                           });
                           deltaTraces.push({
                               x: bauYears, y: deltas, type: 'bar', name: sd.name,
-                              marker: { color: deltas.map(v => v > 0 ? '#ef4444' : '#10b981') }
+                              marker: { color: sd.color }
                           });
                       }
                   }
@@ -951,9 +1186,11 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
                const roLayout = {
                    barmode: 'group',
                    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                   margin: {l: 40, r: 20, t: 20, b: 40},
+                   margin: {l: 40, r: 20, t: 20, b: 120},
                    yaxis: { title: 'Cost Delta vs BAU (M€)' },
-                   showlegend: true, legend: {x: 0, y: 1}, font: { family: 'Montserrat', size: 10 }
+                   showlegend: true, 
+                   legend: { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'center', x: 0.5 }, 
+                   font: { family: 'Montserrat', size: 10 }
                };
                Plotly.newPlot('chart-roi-delta', deltaTraces, roLayout, {displayModeBar: false});
             } else {
@@ -976,19 +1213,26 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
                    type: 'scatterpolar',
                    r: [costScore, capexScore, abatScore, indepScore, costScore],
                    theta: ['Cost Eff.', 'CapEx Eff.', 'Decarb.', 'Indep.', 'Cost Eff.'],
-                   fill: 'toself',
+                   fill: 'none',
                    name: sd.name,
-                   line: { color: i === bauIndex ? '#cbd5e1' : undefined }
+                   mode: 'lines+markers',
+                   line: { color: sd.color, width: 2 },
+                   marker: { color: sd.color, size: 6 }
                });
             });
             const raLayout = {
                 polar: { radialaxis: { visible: false, range: [0, 100] } },
-                showlegend: true, legend: {x: 0, y: -0.2, orientation: 'h'},
+                showlegend: true, 
+                legend: { orientation: 'h', yanchor: 'top', y: -0.15, xanchor: 'center', x: 0.5 },
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                margin: {l: 20, r: 20, t: 20, b: 20}, font: { family: 'Montserrat', size: 10 }
+                margin: {l: 20, r: 20, t: 20, b: 80}, font: { family: 'Montserrat', size: 10 }
             };
             Plotly.newPlot('chart-performance-radar', radarTraces, raLayout, {displayModeBar: false});
         }
+      } catch (err) {
+        document.getElementById('chart-tradeoff-matrix').innerHTML = '<div style="padding: 20px; color: red; font-family: monospace; overflow: auto; height: 100%;"><b>JS Error:</b><br>' + err.toString() + '<br><br>' + (err.stack || '') + '</div>';
+        console.error("Dashboard Render Error:", err);
+      }
     }
 
     async function renderGraph() {
@@ -1067,6 +1311,13 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       }
 
       fillEntitySelect();
+      
+      // Modernize selectors
+      msEntity = new ModernSelect(entitySelect);
+      msScenario = new ModernSelect(scenarioSelect);
+      msGraph = new ModernSelect(graphSelect);
+      msSensitivity = new ModernSelect(document.getElementById('target-selector'));
+
       await handleEntityChange();
     }
 
@@ -1119,6 +1370,8 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
       // Default to the first target
       selector.value = allTargets[0];
+      
+      if (typeof msSensitivity !== 'undefined' && msSensitivity) msSensitivity.sync();
     }
 
     /**
@@ -1155,8 +1408,8 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor:  'rgba(0,0,0,0)',
         font: { family: 'Bookman Old Style, serif', size: 11, color: '#1e293b' },
-        margin: { l: 56, r: 24, t: 32, b: 50 },
-        legend: { orientation: 'h', y: -0.15, font: { size: 10 } },
+        margin: { l: 56, r: 24, t: 32, b: 120 },
+        legend: { orientation: 'h', yanchor: 'top', y: -0.15, xanchor: 'center', x: 0.5, font: { size: 10 } },
         hovermode: 'closest',
       }, extra || {});
 
@@ -1342,7 +1595,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           xaxis: { title: 'Année' },
           yaxis: { title: 'Net CO₂ (t)', zeroline: true },
           showlegend: true,
-          legend: { orientation: 'h', y: -0.25 }
+          legend: { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'center', x: 0.5 }
         });
         Plotly.newPlot('sens-trajectory-chart', trajectoryTraces, trajectoryLayout, plotConfig);
 
