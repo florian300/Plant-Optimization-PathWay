@@ -1,12 +1,7 @@
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import os
 import shutil
-import matplotlib.ticker as ticker
 from rich import print
 from tqdm import tqdm
 from .optimizer import PathFinderOptimizer
@@ -48,7 +43,7 @@ class PathFinderReporter:
         charts_dir = os.path.join(self.results_dir, "charts")
         os.makedirs(charts_dir, exist_ok=True)
         
-        # 1. Export static PNG (Golden Rule: exactly like Matplotlib)
+        # 1. Export static PNG
         # ONLY if show_png is enabled.
         if show_png:
             png_path = os.path.join(self.results_dir, f"{self.scenario_name}_{base_filename}.png")
@@ -84,31 +79,31 @@ class PathFinderReporter:
         
         self._save_plotly_figure(fig, base_filename, show_png=show_png)
 
-    def _add_scenario_label(self, fig):
-        """Add a colored label box in the top-right corner with the scenario name."""
-        palette = {
-            'BS': '#1A5276', # dark blue
-            'CT': '#1E8449', # dark green
-            'LCB': '#6E2F7C' # purple
-        }
-        color = palette.get(self.scenario_id.upper(), '#333333')
-        
-        # Add text box in figure coordinates (top right)
-        fig.text(0.98, 0.98, f" {self.scenario_name} ", 
-                 color='white', fontsize=10, weight='bold',
-                 ha='right', va='top',
-                 bbox=dict(facecolor=color, alpha=0.9, edgecolor='none', boxstyle='round,pad=0.3'))
+    def _primary_emission_resource(self) -> str:
+        return self.opt.entity.primary_emission_resource() or 'CO2_EM'
 
-    def _save_no_data_chart(self, file_name: str, title: str, message: str):
-        """Creates a placeholder chart when a reporting toggle is enabled but no data is available."""
-        fig, ax = plt.subplots(figsize=(11, 7), facecolor='white')
-        ax.axis('off')
-        ax.text(0.5, 0.62, title, ha='center', va='center', fontsize=18, weight='bold', color='#2C3E50', transform=ax.transAxes)
-        ax.text(0.5, 0.45, message, ha='center', va='center', fontsize=12, color='#555555', transform=ax.transAxes)
-        self._add_scenario_label(fig)
-        os.makedirs(self.results_dir, exist_ok=True)
-        plt.savefig(os.path.join(self.results_dir, file_name), dpi=300, bbox_inches='tight')
-        plt.close()
+    def _is_primary_emission_resource(self, resource_id: str) -> bool:
+        primary = self._primary_emission_resource()
+        return resource_id == primary or (primary == 'CO2_EM' and 'CO2' in str(resource_id).upper())
+
+    def _process_emission_baseline(self, process) -> float:
+        return self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
+
+    def _process_primary_energy_consumption(self, process) -> float:
+        val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+        return val
+
+    def _tech_emission_impact(self, tech):
+        primary = self._primary_emission_resource()
+        imp = tech.impacts.get(primary)
+        if not imp and primary == 'CO2_EM':
+            co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
+            if co2_keys:
+                imp = tech.impacts[co2_keys[0]]
+        return imp
+
+    # Mathematical parity: tCO2-based scaling remains "entity emission baseline x process share"
+    # and MW-based scaling remains "dominant weighted energy driver / operating hours".
         
     def generate_report(self):
         # 0. Calculate total steps for progress tracking
@@ -146,11 +141,11 @@ class PathFinderReporter:
         for t in tqdm(self.years, desc="Processing Years", leave=False, disable=not self.verbose):
             for p_id, process in self.opt.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP':  # UP is free continuous improvement — not an investissement
+                    tech = self.data.technologies[t_id]
+                    if tech.is_continuous_improvement:
                         continue
                     if self.opt.invest_vars[(t, p_id, t_id)].varValue is not None and self.opt.invest_vars[(t, p_id, t_id)].varValue > 1e-6:
                         invested_units = self.opt.invest_vars[(t, p_id, t_id)].varValue
-                        tech = self.data.technologies[t_id]
                         
                         # Calculate CAPEX scaled by fractional units
                         cap_capex = 1.0
@@ -317,11 +312,12 @@ class PathFinderReporter:
             captured_kt = 0.0
             for p_id, process in self.opt.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP': continue
+                    tech = self.data.technologies[t_id]
+                    if tech.is_continuous_improvement:
+                        continue
                     act_var = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                     if act_var > 1e-6:
-                        if "CCS" in t_id.upper() or "CCU" in t_id.upper():
-                            tech = self.data.technologies[t_id]
+                        if tech.tech_category == 'Carbon Capture':
                             imp = tech.impacts.get('CO2_EM')
                             if not imp:
                                 co2_keys = [k for k in tech.impacts.keys() if 'CO2' in k]
@@ -471,7 +467,8 @@ class PathFinderReporter:
 
         for t in self.years:
             for t_id, tech in self.data.technologies.items():
-                if t_id == 'UP': continue
+                if tech.is_continuous_improvement:
+                    continue
                 for p_id, process in self.opt.entity.processes.items():
                     if t_id in process.valid_technologies:
                         # CAPEX calculation
@@ -1301,9 +1298,6 @@ class PathFinderReporter:
         if self.generate_excel:
             self._export_charts_sheet(excel_path)
             _step()
-        
-        # Global cleanup to prevent memory leaks and Tcl threading errors
-        plt.close('all')
 
     def _export_charts_sheet(self, excel_path: str):
         """Append or overwrite the 'Charts' sheet with collected plot data."""
@@ -1330,7 +1324,7 @@ class PathFinderReporter:
                         df_chart.to_excel(writer, sheet_name=sheet_name, startrow=start_row + 1, index=True)
                         start_row += len(df_chart) + 4
             else:
-                 with pd.ExcelWriter(excel_path) as writer:
+                with pd.ExcelWriter(excel_path) as writer:
                     start_row = 0
                     sheet_name = 'Charts'
                     for title, df_chart in self.charts_data:
@@ -1341,58 +1335,6 @@ class PathFinderReporter:
                         start_row += len(df_chart) + 4
         except Exception as e:
             print(f"  [yellow][Reporter][/yellow] [!] Could not export charts data: {e}")
-        
-    def _add_watermark(self, fig, is_dark_bg=False):
-        """Add a transparent centered watermark logo to the figure."""
-        try:
-            logo_path = os.path.join('INPUT', 'logo_light.png' if is_dark_bg else 'logo_dark.png')
-            if os.path.exists(logo_path):
-                img = mpimg.imread(logo_path)
-                # Add a new axes that spans the whole figure, ON TOP of other elements
-                ax_logo = fig.add_axes([0, 0, 1, 1], zorder=100)
-                ax_logo.axis('off')
-                # Center the image with very low alpha (watermark mode)
-                # extent [left, right, bottom, top] in figure coordinates (0-1)
-                ax_logo.imshow(img, alpha=0.08, aspect='equal', 
-                              extent=[0.2, 0.8, 0.2, 0.8], 
-                              interpolation='bilinear')
-        except Exception as e:
-            print(f"  [red][Reporter][/red] [!] Could not add watermark: {e}")
-
-    def _apply_premium_style(self, ax, is_dark=False):
-        """Standardize the look with premium design choices."""
-        # Spines
-        for spine in ['top', 'right']:
-            ax.spines[spine].set_visible(False)
-        
-        spine_color = '#EEEEEE' if is_dark else '#CCCCCC'
-        for spine in ['left', 'bottom']:
-            ax.spines[spine].set_color(spine_color)
-            ax.spines[spine].set_linewidth(0.8)
-            
-        # Grid
-        grid_color = '#2B2B36' if is_dark else '#E0E0E0'
-        ax.grid(True, linestyle='-', alpha=0.15, color=grid_color)
-        
-        # Ticks
-        tick_color = 'white' if is_dark else '#444444'
-        ax.tick_params(colors=tick_color, labelsize=9)
-        
-        # Legend
-        leg = ax.get_legend()
-        if leg:
-            if is_dark:
-                leg.get_frame().set_facecolor('#0D0D14')
-                leg.get_frame().set_edgecolor('#2B2B36')
-                for text in leg.get_texts():
-                    text.set_color('white')
-            else:
-                leg.get_frame().set_facecolor('white')
-                leg.get_frame().set_edgecolor('#E0E0E0')
-                leg.get_frame().set_alpha(0.8)
-            leg.get_frame().set_linewidth(0.5)
-            for text in leg.get_texts():
-                text.set_fontsize(12)
 
     def _plot_resources_mix(self, df_cons: pd.DataFrame, df_indir: pd.DataFrame, show_png: bool = True):
         """Generates the Resources Mix visualization with dynamic Type-Category grouping."""
@@ -1403,19 +1345,7 @@ class PathFinderReporter:
         GJ_TO_MWH = 1.0 / 3.6
 
         def add_to_group(t_id, cat_name, name, unit, values):
-            # User specific mappings
-            t_label = t_id
-            c_label = cat_name
-            if t_id == 'EMISSIONS' and cat_name.upper() == 'POLLUTION':
-                t_label, c_label = 'EMISSIONS', 'POLLUTION'
-            elif t_id == 'CONSUMPTION' and cat_name.upper() == 'ENERGY':
-                t_label, c_label = 'CONSUMPTION', 'ENERGY'
-            elif t_id == 'CONSUMPTION' and cat_name.upper() == 'WATER':
-                t_label, c_label = 'CONSUMPTION', 'WATER'
-            elif t_id == 'PRODUCTION' and cat_name.upper() == 'ENERGY':
-                t_label, c_label = 'PRODUCTION', 'ENERGY'
-            
-            key = (t_label, c_label)
+            key = (t_id, cat_name)
             if key not in group_data:
                 group_data[key] = {'unit': unit, 'series': {}}
             group_data[key]['series'][name] = values
@@ -1424,11 +1354,6 @@ class PathFinderReporter:
         df_c = df_cons.set_index('Year') if 'Year' in df_cons.columns else df_cons
         for col in df_c.columns:
             if col == 'Year': continue
-            
-            # Explicit Production Capture
-            if col == 'EN_H2_ON_SITE':
-                add_to_group('PRODUCTION', 'Hydrogen', 'H2 Produced on Site', 'MWh', df_c[col].tolist())
-                continue
 
             if col not in self.data.resources: continue
             res = self.data.resources[col]
@@ -1517,28 +1442,22 @@ class PathFinderReporter:
 
         # Convert to ktCO2
         df_plot = df_plot / 1000.0
-        
-        # Categorization logic
-        categories = {
-            'Electricity': ['ELEC', 'ELECTRICITE', 'ELECTRICITÉ'],
-            'Hydrogen': ['H2', 'HYDROGEN', 'HYDROGÈNE'],
-            'Natural Gas': ['GAS', 'GAZ', 'FUEL'],
-            'Other': []
-        }
-        
+
+        # Group by dynamic resource categories from metadata.
         cat_df = pd.DataFrame(index=df_plot.index)
-        used_cols = set()
-        
-        for cat_name, keywords in categories.items():
-            if cat_name == 'Other': continue
-            cols = [c for c in df_plot.columns if any(k in c.upper() for k in keywords) and c not in used_cols]
-            if cols:
-                cat_df[cat_name] = df_plot[cols].sum(axis=1)
-                used_cols.update(cols)
-        
-        other_cols = [c for c in df_plot.columns if c not in used_cols]
-        if other_cols:
-            cat_df['Other'] = df_plot[other_cols].sum(axis=1)
+        for col in df_plot.columns:
+            res_id = col
+            if '_' in col and col not in self.data.resources:
+                parts = col.split('_')
+                if len(parts) >= 2:
+                    res_id = f"{parts[0]}_{parts[1]}"
+
+            res = self.data.resources.get(res_id)
+            cat_name = res.category if res and getattr(res, 'category', None) else 'Indirect'
+
+            if cat_name not in cat_df.columns:
+                cat_df[cat_name] = 0.0
+            cat_df[cat_name] = cat_df[cat_name] + df_plot[col]
             
         fig = build_indirect_emissions_figure(
             df_cat=cat_df,
@@ -1644,7 +1563,8 @@ class PathFinderReporter:
         df_res_costs = df_cons_plot / 1_000_000.0
         tech_opex_details = {}
         for t_id, tech in self.data.technologies.items():
-            if t_id == 'UP': continue
+            if tech.is_continuous_improvement:
+                continue
             tech_annual_opex = []
             is_active = False
             for t in years:
@@ -1689,8 +1609,8 @@ class PathFinderReporter:
             yr_ccs_st = 0.0
             for p_id, process in self.opt.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if "CCS" in t_id.upper() or "CCU" in t_id.upper():
-                        tech = self.data.technologies[t_id]
+                    tech = self.data.technologies[t_id]
+                    if tech.tech_category == 'Carbon Capture':
                         imp = tech.impacts.get('CO2_EM')
                         if imp and (imp['type'] == 'variation' or imp['type'] == 'up'):
                             act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
@@ -1899,10 +1819,11 @@ class PathFinderReporter:
             yr_opex = 0.0
             for p_id, process in self.opt.entity.processes.items():
                 for t_id in process.valid_technologies:
-                    if t_id == 'UP': continue
+                    tech = self.data.technologies[t_id]
+                    if tech.is_continuous_improvement:
+                        continue
                     act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
                     if act_v > 0.01:
-                        tech = self.data.technologies[t_id]
                         cap_opex = 1.0
                         if tech.opex_per_unit:
                             if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.base_emissions * process.emission_shares.get('CO2_EM', 0.0)

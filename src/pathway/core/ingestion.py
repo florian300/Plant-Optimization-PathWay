@@ -550,6 +550,35 @@ class PathFinderParser:
 
             if 'NAME' not in df_tecs.columns:
                 raise ValueError("TECS block is missing required NAME column for technologies")
+
+            tecs_col_map = {str(c).strip().upper(): c for c in df_tecs.columns}
+            is_ci_col = next(
+                (
+                    tecs_col_map[k]
+                    for k in tecs_col_map
+                    if k in ["IS CONTINUOUS IMPROVEMENT", "CONTINUOUS IMPROVEMENT", "IS_CI"]
+                ),
+                None,
+            )
+            tech_category_col = next(
+                (
+                    tecs_col_map[k]
+                    for k in tecs_col_map
+                    if k in ["TECH CATEGORY", "TECHNOLOGY CATEGORY", "CATEGORY"]
+                ),
+                None,
+            )
+
+            def _parse_bool(raw_val):
+                v = str(raw_val).strip().upper()
+                if v in ['YES', 'TRUE', '1', 'Y']:
+                    return True
+                if v in ['NO', 'FALSE', '0', 'N', '', 'NAN']:
+                    return False
+                try:
+                    return float(v) != 0.0
+                except Exception:
+                    return False
             
             for _, row in df_tecs.iterrows():
                 t_id = str(row.get('ID', '')).strip()
@@ -559,13 +588,32 @@ class PathFinderParser:
                     t_name = str(row.get('NAME', '')).strip()
                     if not t_name or t_name.lower() == 'nan':
                         raise ValueError(f"Technology '{t_id}' is missing NAME in TECS block")
+
+                    # Attribute-driven metadata with backward-compatible fallback for legacy files.
+                    is_continuous_improvement = False
+                    if is_ci_col is not None:
+                        is_continuous_improvement = _parse_bool(row.get(is_ci_col, False))
+                    if t_id.upper() == 'UP':
+                        is_continuous_improvement = True
+
+                    tech_category = "Standard"
+                    if tech_category_col is not None:
+                        raw_cat = str(row.get(tech_category_col, '')).strip()
+                        if raw_cat and raw_cat.lower() != 'nan':
+                            tech_category = raw_cat
+                    t_id_upper = t_id.upper()
+                    if tech_category == 'Standard' and ('CCS' in t_id_upper or 'CCU' in t_id_upper):
+                        tech_category = 'Carbon Capture'
+
                     technologies_dict[t_id] = Technology(
                         id=t_id,
                         name=t_name,
                         implementation_time=imp_time,
                         capex=0.0,
                         opex=0.0,
-                        impacts={}
+                        impacts={},
+                        is_continuous_improvement=is_continuous_improvement,
+                        tech_category=tech_category
                     )
         
         # parse COMPATIBILITIES (formerly SPECS) for CAPEX / OPEX

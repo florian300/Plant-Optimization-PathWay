@@ -135,6 +135,8 @@ class Technology:
     opex_anchors: Dict[int, float] = field(default_factory=dict)
     # impacts: e.g., {'ELEC': {'type': 'variation', 'value': 0.1}, 'CO2': {'type': 'new', 'value': -50}}
     impacts: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    is_continuous_improvement: bool = False
+    tech_category: str = "Standard"
 
 @dataclass
 class TimeSeriesData:
@@ -158,6 +160,23 @@ class Process:
     emission_shares: Dict[str, float] = field(default_factory=dict)
     valid_technologies: List[str] = field(default_factory=list)
 
+    def primary_energy_consumption(
+        self,
+        base_consumptions: Dict[str, float],
+        excluded_resources: Optional[set] = None,
+    ) -> Tuple[float, Optional[str]]:
+        """Return dominant weighted energy driver as (value, resource_id)."""
+        excluded = excluded_resources or set()
+        best_res, best_val = None, 0.0
+        for res_id, share in self.consumption_shares.items():
+            if res_id in excluded:
+                continue
+            val = base_consumptions.get(res_id, 0.0) * share
+            if val > best_val:
+                best_val = val
+                best_res = res_id
+        return best_val, best_res
+
 @dataclass
 class EntityState:
     id: str
@@ -173,6 +192,25 @@ class EntityState:
     # Financial configs for CA-based budget constraints
     ca_percentage_limit: float = 0.0
     sold_resources: List[str] = field(default_factory=list)
+
+    def primary_emission_resource(self) -> Optional[str]:
+        """Pick the dominant emission resource from process emission shares."""
+        best_res, best_share = None, 0.0
+        for process in self.processes.values():
+            for res_id, share in process.emission_shares.items():
+                if share > best_share:
+                    best_share = share
+                    best_res = res_id
+        if best_res is None and self.ref_baselines:
+            best_res = next(iter(self.ref_baselines.keys()))
+        return best_res
+
+    def process_emission_baseline(self, process: Process, emission_resource: Optional[str] = None) -> float:
+        """Dynamic equivalent of base_emissions * process emission share."""
+        res_id = emission_resource or self.primary_emission_resource()
+        if not res_id:
+            return 0.0
+        return self.base_emissions * process.emission_shares.get(res_id, 0.0)
 
 @dataclass
 class PathFinderData:

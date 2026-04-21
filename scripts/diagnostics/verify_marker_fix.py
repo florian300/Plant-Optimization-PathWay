@@ -1,5 +1,4 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 import sys
 import os
 
@@ -45,9 +44,6 @@ df = pd.DataFrame({
 })
 
 reporter = PathFinderReporter(DummyOpt())
-# Mock _apply_premium_style and _add_watermark to avoid issues with missing fonts/images
-reporter._apply_premium_style = lambda ax: None
-reporter._add_watermark = lambda fig: None
 
 # Call the plot method
 reporter._plot_co2_trajectory(df)
