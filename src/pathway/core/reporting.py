@@ -1367,10 +1367,30 @@ class PathFinderReporter:
         group_data = {}
         GJ_TO_MWH = 1.0 / 3.6
 
-        def add_to_group(t_id, cat_name, name, unit, values):
+        def add_to_group(t_id, cat_name, name, unit, values, original_res_id=None):
             key = (t_id, cat_name)
+            
+            # 1. Determine common unit for this group (favor MWh for Energy categories)
             if key not in group_data:
-                group_data[key] = {'unit': unit, 'series': {}}
+                target_unit = unit
+                # Heuristic: force MWh for any category containing 'ENERGY' if MWh is available
+                if 'ENERGY' in str(cat_name).upper() and unit.upper() == 'GJ':
+                    target_unit = 'MWh'
+                group_data[key] = {'unit': target_unit, 'series': {}}
+            
+            target_unit = group_data[key]['unit']
+            
+            # 2. Normalize values if unit mismatch
+            if unit.upper() != target_unit.upper():
+                factor = self.data.unit_conversions.get((unit.upper(), target_unit.upper()), 1.0)
+                # Fallback for GJ if not in conversions (1 MWh = 3.6 GJ)
+                if factor == 1.0:
+                    if unit.upper() == 'GJ' and target_unit.upper() == 'MWH': factor = 1.0 / 3.6
+                    elif unit.upper() == 'MWH' and target_unit.upper() == 'GJ': factor = 3.6
+                
+                if factor != 1.0:
+                    values = [v * factor for v in values]
+            
             group_data[key]['series'][name] = values
 
         # 1. Process Consumption & Production
@@ -1398,11 +1418,7 @@ class PathFinderReporter:
             unit = res.unit if res.unit else 'unit'
             vals = df_c[col].tolist()
             
-            if unit.upper() == 'GJ':
-                vals = [v * GJ_TO_MWH for v in vals]
-                unit = 'MWh'
-
-            add_to_group(t_id, res.category, name, unit, vals)
+            add_to_group(t_id, res.category, name, unit, vals, original_res_id=col)
 
         # 2. Process Indirect Emissions
         df_i = df_indir.set_index('Year') if 'Year' in df_indir.columns else df_indir

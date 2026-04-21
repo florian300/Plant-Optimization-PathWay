@@ -241,7 +241,10 @@ class PathFinderOptimizer:
             for res_id in self.data.resources:
                 if res_id != self.primary_emission_id:
                     res_obj = self.data.resources.get(res_id)
-                    lb = 0.0 if res_obj and res_obj.type.strip().upper() != 'PRODUCTION' else None
+                    # For PRODUCTION type resources, we allow negative consumption (net production)
+                    # We initialize the bound as None, but will add a demand constraint later.
+                    is_prod = res_obj and res_obj.type.strip().upper() == 'PRODUCTION'
+                    lb = 0.0 if not is_prod else None
                     self.cons_vars[(t, res_id)] = pulp.LpVariable(f"Cons_{t}_{res_id}", lowBound=lb)
                 
             if self.data.dac_params.active:
@@ -638,6 +641,15 @@ class PathFinderOptimizer:
                 
                 self.model += self.cons_vars[(t, res_id)] == total_process_cons + unallocated + dac_cons + self.market_trade_vars[t].get(res_id, 0.0), f"Cons_Balance_{t}_{res_id}"
                 
+                # --- NEW: DEMAND CONSTRAINT FOR PRODUCTION ---
+                # Ensure the model doesn't reduce production to meet CO2 goals unless allowed
+                if res_obj and res_obj.type.strip().upper() == 'PRODUCTION':
+                    target_cons = self.entity.base_consumptions.get(res_id, 0.0)
+                    if target_cons < -1e-6:
+                        # In the consumption variable convention, production is negative.
+                        # So Cons <= Target means Production >= |Target|.
+                        self.model += self.cons_vars[(t, res_id)] <= target_cons, f"Demand_Met_{t}_{res_id}"
+
             # Emissions computation
             direct_process_emis = pulp.lpSum([
                 self.process_state_vars[(t, p_id, self.primary_emission_id)]

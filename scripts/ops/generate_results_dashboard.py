@@ -696,7 +696,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
                 </div>
                 <div>
                   <h4 class="text-xs font-bold text-purple-600 uppercase tracking-tight mb-1">Decarb.</h4>
-                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Performance Carbone</b> : Taux de décarbonation atteint. Le score est maximum (100) pour les trajectoires atteignant les objectifs de zéro-émission nette.</p>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Performance Carbone</b> : Capacité à atteindre le Net Zero. Le score est de 100 si les émissions totales à la fin de la simulation sont nulles ou négatives.</p>
                 </div>
                 <div>
                   <h4 class="text-xs font-bold text-amber-600 uppercase tracking-tight mb-1">Indep.</h4>
@@ -1098,7 +1098,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           const s = eData.scenarios[sKey];
           if (sKey.toUpperCase().includes('BAU')) bauIndex = i;
           
-          let capex = null, opex = null, cost = null, emis = null, abat = null, indep = null;
+          let capex = null, opex = null, cost = null, emis = null, abat = null, indep = null, emis_start = null, emis_end = null;
           
           if (s.graphs.investment_plan && s.graphs.investment_plan.figure && s.graphs.investment_plan.figure.data) {
              const investData = s.graphs.investment_plan.figure.data;
@@ -1114,12 +1114,27 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           }
           if (s.graphs.co2_trajectory && s.graphs.co2_trajectory.figure && s.graphs.co2_trajectory.figure.data) {
              const netTr = s.graphs.co2_trajectory.figure.data.find(t => typeof t.name === 'string' && (t.name.includes('Total Emissions (Net)') || t.name.includes('Net Direct Emissions')));
-             if (netTr && netTr.y) emis = safeObjSum(netTr.y);
+             if (netTr && netTr.y) {
+                 let yArr = netTr.y;
+                 if (yArr.bdata) yArr = decodeBData(yArr.bdata, yArr.dtype);
+                 emis = yArr.reduce((a,b)=>a+(Number(b)||0), 0) * 1000.0;
+                 if (yArr.length > 0) {
+                     emis_start = Number(yArr[0]) * 1000.0;
+                     emis_end = Number(yArr[yArr.length - 1]) * 1000.0;
+                 }
+             }
              if (!emis) {
                  const dirTr = s.graphs.co2_trajectory.figure.data.find(t => typeof t.name === 'string' && t.name.includes('Direct Emissions'));
-                 if (dirTr && dirTr.y) emis = safeObjSum(dirTr.y);
+                 if (dirTr && dirTr.y) {
+                     let yArr = dirTr.y;
+                     if (yArr.bdata) yArr = decodeBData(yArr.bdata, yArr.dtype);
+                     emis = yArr.reduce((a,b)=>a+(Number(b)||0), 0) * 1000.0;
+                     if (yArr.length > 0 && emis_start === null) {
+                         emis_start = Number(yArr[0]) * 1000.0;
+                         emis_end = Number(yArr[yArr.length - 1]) * 1000.0;
+                     }
+                 }
              }
-             if (emis != null) emis = emis * 1000.0; // Convert ktCO2 to tCO2
           }
           if (s.graphs.co2_abatement && s.graphs.co2_abatement.figure && s.graphs.co2_abatement.figure.layout && s.graphs.co2_abatement.figure.layout.annotations) {
              const ann = s.graphs.co2_abatement.figure.layout.annotations.find(a => typeof a.text === 'string' && a.text.includes('Total Simulation Abatement'));
@@ -1139,6 +1154,8 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
              cost: cost || 0,
              emis: emis || 0,
              abat: abat || 0,
+             emis_start: emis_start || 0,
+             emis_end: emis_end || 0,
              indep: indep || 0,
              color: i === bauIndex ? '#94a3b8' : ['#38bdf8', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#fb923c', '#60a5fa'][(i > bauIndex ? i - 1 : i) % 7]
           });
@@ -1224,17 +1241,23 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
             let radarTraces = [];
             let maxCost = Math.max(...scenarioData.map(d=>d.cost));
             let maxCapex = Math.max(...scenarioData.map(d=>d.capex));
+            // Use BAU start emissions as reference for Decarb score
+            let refEmis = scenarioData[bauIndex]?.emis_start || Math.max(...scenarioData.map(d=>d.emis_start));
+
             scenarioData.forEach((sd, i) => {
                // Inverse cost and capex (higher score is better)
                let costScore = sd.cost > 0 ? (maxCost / sd.cost) * 50 : 100;
                let capexScore = sd.capex > 0 ? (maxCapex / sd.capex) * 50 : 100;
-               let abatScore = sd.abat > 0 ? Math.min(100, sd.abat / 1000) : 0; // arbitrary scale without full range
+               
+               // Decarb score: 100 if end emissions <= 0, 0 if no reduction vs start reference
+               let decarbScore = sd.emis_end <= 0 ? 100 : Math.max(0, 100 * (1 - (sd.emis_end / refEmis)));
+               
                let indepScore = sd.indep;
                if (costScore > 100) costScore = 100; if (capexScore > 100) capexScore = 100;
                
                radarTraces.push({
                    type: 'scatterpolar',
-                   r: [costScore, capexScore, abatScore, indepScore, costScore],
+                   r: [costScore, capexScore, decarbScore, indepScore, costScore],
                    theta: ['Cost Eff.', 'CapEx Eff.', 'Decarb.', 'Indep.', 'Cost Eff.'],
                    fill: 'none',
                    name: sd.name,
