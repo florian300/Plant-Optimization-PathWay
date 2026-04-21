@@ -790,14 +790,33 @@ class PathFinderParser:
                         try: val = float(val_str)
                         except: continue
                         multiplier = 1.0
-                        if raw_unit in ('KGCO2', 'KG CO2'): multiplier = 1 / 1000.0
-                        elif raw_unit in ('KWH', 'KW H'): multiplier = 1 / 1000.0
-                        elif raw_unit == 'GJ': multiplier = 1 / 3.6
-                        elif raw_unit in ('BARREL', 'BBL', 'BOE'): multiplier = 1.70  # approx MWh per barrel of crude/products
-                        elif raw_unit in ('MBBL', 'M BBL'): multiplier = 1.70 * 1000.0
-                        elif raw_unit == 'MMBTU': multiplier = 0.293
-                        elif raw_unit == 'THERM': multiplier = 0.0293
+                        new_unit = raw_unit
+                        if raw_unit in ('KGCO2', 'KG CO2'): 
+                            multiplier = 1 / 1000.0
+                            new_unit = 'TCO2'
+                        elif raw_unit in ('KWH', 'KW H'): 
+                            multiplier = 1 / 1000.0
+                            new_unit = 'MWH'
+                        elif raw_unit == 'GJ': 
+                            multiplier = 1 / 3.6
+                            new_unit = 'MWH'
+                        elif raw_unit in ('BARREL', 'BBL', 'BOE'): 
+                            multiplier = 1.70  # approx MWh per barrel of crude/products
+                            new_unit = 'MWH'
+                        elif raw_unit in ('MBBL', 'M BBL'): 
+                            multiplier = 1.70 * 1000.0
+                            new_unit = 'MWH'
+                        elif raw_unit == 'MMBTU': 
+                            multiplier = 0.293
+                            new_unit = 'MWH'
+                        elif raw_unit == 'THERM': 
+                            multiplier = 0.0293
+                            new_unit = 'MWH'
                         
+                        # Update the resource object unit to ensure metadata consistency across the model
+                        if r_id in resources_dict:
+                            resources_dict[r_id].unit = new_unit
+
                         total_val = val * annual_production * multiplier
                         if r_id in resources_dict and self._is_primary_emission_resource(resources_dict[r_id]):
                             base_emis += total_val

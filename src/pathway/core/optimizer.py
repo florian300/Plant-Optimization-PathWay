@@ -133,19 +133,59 @@ class PathFinderOptimizer:
         self.co2_storage_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['STORAGE'])
         self.co2_transport_resource_id = self._find_named_resource(['CO2', 'CARBON'], ['TRANSPORT'])
 
-    def _get_unit_conversion(self, ref_resource_id: Optional[str], target_resource_id: Optional[str]) -> float:
-        if ref_resource_id is None or target_resource_id is None:
+    def _get_unit_conversion(self, ref_resource_id: Optional[str], target: Optional[str]) -> float:
+        """
+        Retrieves the conversion factor from ref_resource unit to target unit.
+        Supports bidirectional lookup (direct and reverse) and raises ValueError if missing.
+        'target' can be a Resource ID or a raw Unit String (e.g. 'MWH').
+        """
+        if ref_resource_id is None or target is None:
             return 1.0
+        
         ref_resource = self.data.resources.get(ref_resource_id)
-        target_resource = self.data.resources.get(target_resource_id)
-        if ref_resource is None or target_resource is None:
+        if ref_resource is None:
             return 1.0
-
+            
         ref_unit = self._norm(ref_resource.unit)
-        tgt_unit = self._norm(target_resource.unit)
+        
+        # Determine target unit: check if 'target' is an existing resource ID, else treat as a raw unit string
+        target_resource = self.data.resources.get(target)
+        tgt_unit = self._norm(target_resource.unit if target_resource else target)
+        
         if not ref_unit or not tgt_unit or ref_unit == tgt_unit:
             return 1.0
-        return self.data.unit_conversions.get((ref_unit, tgt_unit), 1.0)
+            
+        # 1. Direct lookup (ref -> tgt)
+        if (ref_unit, tgt_unit) in self.data.unit_conversions:
+            return self.data.unit_conversions[(ref_unit, tgt_unit)]
+            
+        # 2. Reverse lookup (tgt -> ref) 
+        if (tgt_unit, ref_unit) in self.data.unit_conversions:
+            rev_factor = self.data.unit_conversions[(tgt_unit, ref_unit)]
+            if rev_factor != 0:
+                return 1.0 / rev_factor
+            
+        # 3. Failure: Check if resources are of the same physical domain
+        ref_type = self._norm(ref_resource.resource_type)
+        tgt_type = self._norm(target_resource.resource_type if target_resource else "GENERIC")
+        
+        # If they are from different domains (e.g. CO2 vs ELECTRICITY), 
+        # we assume the user intends a cross-resource linkage coefficient (e.g. MWh/tCO2).
+        # We return 1.0 to let the linkage happen via the technical spec value.
+        if ref_type != tgt_type:
+            return 1.0
+            
+        # If they are in the same domain but no conversion found -> Data Error
+        # Exception: if one is GENERIC, we allow it (backward compatibility)
+        if ref_type == 'GENERIC' or tgt_type == 'GENERIC':
+            return 1.0
+
+        raise ValueError(
+            f"CRITICAL UNIT CONVERSION ERROR: No conversion rule found between '{ref_unit}' and '{tgt_unit}'.\n"
+            f"Note: Both resources are of type '{ref_type}', so a physical conversion is required.\n"
+            f"Processing Resource: '{ref_resource_id}' ({ref_unit}) -> Target: '{target}' ({tgt_unit}).\n"
+            "Action: Add this conversion to the 'UNIT CONVERSIONS' block in your Excel 'OverView' sheet."
+        )
 
     def _find_impact_for_resource(self, tech: Any, resource_id: str) -> Optional[Dict[str, Any]]:
         imp = tech.impacts.get(resource_id)
@@ -448,10 +488,14 @@ class PathFinderOptimizer:
                             elif 'MW' in tech.capex_unit.upper(): 
                                 base_mwh = 0.0
                                 if self.fuel_resource_id is not None:
-                                    base_mwh = (
+                                    raw_qty = (
                                         self.entity.base_consumptions.get(self.fuel_resource_id, 0.0)
                                         * process.consumption_shares.get(self.fuel_resource_id, 0.0)
                                     )
+                                    # Normalize to MWh using conversion engine
+                                    conv_to_mwh = self._get_unit_conversion(self.fuel_resource_id, 'MWH')
+                                    base_mwh = raw_qty * conv_to_mwh
+                                    
                                 cap_capex = base_mwh / self.entity.annual_operating_hours
                         current_capex = tech.capex_by_year.get(t, tech.capex)
                         true_capex_per_unit = (current_capex * cap_capex) / process.nb_units
@@ -544,9 +588,18 @@ class PathFinderOptimizer:
                             ref_res = imp.get('ref_resource')
                             if ref_res == self.primary_emission_id:
                                 base_ref_amount = self.entity.base_emissions * process.emission_shares.get(self.primary_emission_id, 0.0)
-                            elif ref_res and ref_res in self.entity.base_consumptions:
-                                base_ref_amount = self.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
+                            elif ref_res:
+                                # Logic check: if ref_res was provided, it MUST exist in the baseline to avoid silent unit errors.
+                                if ref_res in self.entity.base_consumptions:
+                                    base_ref_amount = self.entity.base_consumptions.get(ref_res, 0.0) * process.consumption_shares.get(ref_res, 0.0)
+                                else:
+                                    raise ValueError(
+                                        f"CRITICAL DATA ERROR: In technology '{t_id}' at process '{p_id}':\n"
+                                        f"The specified reference resource '{ref_res}' is missing from the baseline consumptions.\n"
+                                        "This usually indicates a typo in the 'Reference Resource' column of your TECHNICAL SPECS Excel sheet."
+                                    )
                             else:
+                                # Absolute impact fallback (no reference resource specified)
                                 base_ref_amount = 1.0
                                 
                             if imp.get('reference', '') == 'AVOIDED' and ref_res:
@@ -995,10 +1048,14 @@ class PathFinderOptimizer:
                         elif 'MW' in str(tech.capex_unit).upper() or 'MW' in str(tech.opex_unit).upper(): 
                             base_mwh = 0.0
                             if self.fuel_resource_id is not None:
-                                base_mwh = (
+                                raw_qty = (
                                     self.entity.base_consumptions.get(self.fuel_resource_id, 0.0)
                                     * process.consumption_shares.get(self.fuel_resource_id, 0.0)
                                 )
+                                # Normalize to MWh using conversion engine
+                                conv_to_mwh = self._get_unit_conversion(self.fuel_resource_id, 'MWH')
+                                base_mwh = raw_qty * conv_to_mwh
+                                
                             cap_calc = base_mwh / self.entity.annual_operating_hours
                     
                     current_capex = tech.capex_by_year.get(t, tech.capex)
