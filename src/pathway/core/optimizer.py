@@ -871,7 +871,8 @@ class PathFinderOptimizer:
                     else:
                         var_expr = self.cons_vars[(t, obj.resource)]
                         
-                    penalty_t = self.penalty_vars[(i, t)]
+                    penalty_t = self.penalty_vars.get((i, t))
+                    if penalty_t is None: continue # Safety
                     
                     if obj.limit_type == 'CAP' or obj.limit_type == 'MAX':
                         self.model += var_expr - penalty_t <= limit_t, f"Objective_{i}_CAP_{obj.resource}_{t}"
@@ -897,7 +898,8 @@ class PathFinderOptimizer:
                 else:
                     var_expr = self.cons_vars[(t_target, obj.resource)]
                     
-                penalty = self.penalty_vars[i]
+                penalty = self.penalty_vars.get(i)
+                if penalty is None: continue # Safety
                 
                 if obj.limit_type == 'CAP' or obj.limit_type == 'MAX':
                     self.model += var_expr - penalty <= limit_val, f"Objective_{i}_CAP_{obj.resource}_{t_target}"
@@ -1215,7 +1217,15 @@ class PathFinderOptimizer:
                     
             # Carbon Taxes
             c_price = self.data.time_series.carbon_prices.get(t, 0.0)
+            
+            # Identify if regulatory penalties should be disabled via objectives table
+            # If an objective for CO2_EM is set to NONE penalty, we assume the user wants no regulatory penalty for this resource
+            disable_p_factor = any(obj.resource == 'CO2_EM' and obj.penalty_type == 'NONE' for obj in self.data.objectives)
+            
             penalty_factor = self.data.time_series.carbon_penalties.get(t, 0.0)
+            if disable_p_factor:
+                penalty_factor = 0.0
+                
             if c_price > 0:
                 # Paid quotas are at market price
                 total_cost.append((c_price * self.paid_quota_vars[t]) / df)

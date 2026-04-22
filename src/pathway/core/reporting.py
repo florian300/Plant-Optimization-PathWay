@@ -312,7 +312,11 @@ class PathFinderReporter:
                 
             taxed_co2 = self.opt.taxed_emis_vars[t].varValue
             tax_price = self.data.time_series.carbon_prices.get(t, 0.0)
-            penalty_factor = self.data.time_series.carbon_penalties.get(t, 0.0)
+            
+            # Differentiate standard tax from additional penalty
+            # If an objective for CO2_EM is set to NONE, we disable the penalty factor in the report too
+            disable_p_factor = any(obj.resource == 'CO2_EM' and obj.penalty_type == 'NONE' for obj in self.data.objectives)
+            penalty_factor = 0.0 if disable_p_factor else self.data.time_series.carbon_penalties.get(t, 0.0)
             
             # --- INDIRECT CARBON TAX (User Request) ---
             indirect_tax_cost = 0.0
@@ -471,8 +475,8 @@ class PathFinderReporter:
                 'Really_Avoided_CO2_kt': really_avoided_kt,
                 'DAC_Captured_kt': dac_cap,
                 'Credits_Purchased_kt': credit_vol,
-                'Penalty_Factor': self.data.time_series.carbon_penalties.get(t, 0.0),
-                'Effective_Price': tax_price * (1.0 + self.data.time_series.carbon_penalties.get(t, 0.0)),
+                'Penalty_Factor': penalty_factor,
+                'Effective_Price': tax_price * (1.0 + penalty_factor),
                 'Strike_Price': excel_strikes.get(t, 0.0)
             })
             
