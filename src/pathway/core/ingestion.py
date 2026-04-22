@@ -17,6 +17,42 @@ class PathFinderParser:
         self.sim_row_found = False        # Track if SIM row exists in OverView
         self.all_scenarios_meta = []      # Store all scenarios found before filtering
 
+    def _parse_numeric(self, val, default=0.0) -> float:
+        """Nettoie et convertit une valeur en float, gérant les devises, les séparateurs et les pourcentages."""
+        if pd.isna(val) or val == '' or str(val).strip().lower() == 'nan':
+            return default
+        
+        val_str = str(val).strip()
+        # Nettoyage des symboles monétaires et d'échelle
+        for char in ['€', '$', 'M', ' ']:
+            val_str = val_str.replace(char, '')
+        
+        # Gestion du séparateur décimal (remplacement de la virgule par un point)
+        val_str = val_str.replace(',', '.')
+        
+        try:
+            has_pct = '%' in val_str
+            num_val = float(val_str.replace('%', ''))
+            if has_pct:
+                num_val /= 100.0
+            return num_val
+        except (ValueError, TypeError):
+            return default
+
+    def _parse_bool(self, raw_val) -> bool:
+        """Convertit une valeur brute en booléen (gère YES/NO, TRUE/FALSE, 1/0)."""
+        if pd.isna(raw_val):
+            return False
+        v = str(raw_val).strip().upper()
+        if v in ['YES', 'TRUE', '1', 'Y']:
+            return True
+        if v in ['NO', 'FALSE', '0', 'N', '', 'NAN']:
+            return False
+        try:
+            return float(v) != 0.0
+        except (ValueError, TypeError):
+            return False
+
     def _parse_scenarios(self) -> list:
         """Parse the MODELING START/END block from OverView and return list of {id, name} dicts.
 
@@ -179,8 +215,6 @@ class PathFinderParser:
         return self._is_emission_type(resource_obj.type) and ('CO2' in name_upper or 'CARBON' in name_upper)
 
     def _parse_overview_settings(self, df_overview, blocks_overview):
-        import pandas as pd
-        from .model import ReportingToggles
         reporting_toggles = ReportingToggles()
         charts_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'CHARTS'), None)
         charts_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and b['prefix'] == 'CHARTS'), None)
@@ -194,7 +228,7 @@ class PathFinderParser:
                         continue
                     name = row_vals[0]
                     if 'YES' in row_vals or 'NO' in row_vals:
-                        is_yes = 'YES' in row_vals
+                        is_yes = self._parse_bool(next((v for v in row_vals if v in ('YES', 'NO')), 'NO'))
                         if "EXCEL DATA" in name: reporting_toggles.results_excel = is_yes
                         elif "ENERGY MIX" in name: reporting_toggles.chart_energy_mix = is_yes
                         elif "CO2 TRAJECTORY" in name: reporting_toggles.chart_co2_trajectory = is_yes
@@ -210,12 +244,10 @@ class PathFinderParser:
                         elif "ABATEMENT" in name or "MAC CURVE" in name: reporting_toggles.chart_co2_abatement_cost = is_yes
                     elif "CAP" in name:
                         for val in row_vals[1:]:
-                            try:
-                                clean_val = val.replace('M€', '').replace('M', '').replace(' ', '').replace(',', '.')
-                                reporting_toggles.investment_cap = float(clean_val)
+                            num = self._parse_numeric(val, None)
+                            if num is not None:
+                                reporting_toggles.investment_cap = num
                                 break
-                            except ValueError:
-                                continue
         
         start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate, run_project = 2025, 25, 60.0, 0.90, False, 0.0, True
         for i, row in df_overview.iterrows():
@@ -223,51 +255,37 @@ class PathFinderParser:
             if "YEAR START" in row_vals:
                 idx = row_vals.index("YEAR START")
                 if len(row) > idx + 1:
-                    start_year = int(row.iloc[idx + 1])
+                    start_year = int(self._parse_numeric(row.iloc[idx + 1], 2025))
             if "SIMULATION TIME (IN YEAR)" in row_vals:
                 idx = row_vals.index("SIMULATION TIME (IN YEAR)")
                 if len(row) > idx + 1:
-                    duration = int(row.iloc[idx + 1])
+                    duration = int(self._parse_numeric(row.iloc[idx + 1], 25))
             if "DURURATION SIMULATION (S)" in row_vals or "DURATION SIMULATION (S)" in row_vals:
                 keyword = "DURURATION SIMULATION (S)" if "DURURATION SIMULATION (S)" in row_vals else "DURATION SIMULATION (S)"
                 idx = row_vals.index(keyword)
                 if len(row) > idx + 1:
-                    try: time_limit = float(row.iloc[idx + 1])
-                    except ValueError: pass
+                    time_limit = self._parse_numeric(row.iloc[idx + 1], 60.0)
             if "RELAX INTEGRAL" in row_vals:
                 idx = row_vals.index("RELAX INTEGRAL")
                 if len(row) > idx + 1:
-                    val = str(row.iloc[idx + 1]).strip().upper()
-                    relax_integrality = (val == 'YES')
+                    relax_integrality = self._parse_bool(row.iloc[idx + 1])
             if "ERROR SIMULATION (%)" in row_vals:
                 idx = row_vals.index("ERROR SIMULATION (%)")
                 if len(row) > idx + 1:
-                    raw_val = str(row.iloc[idx + 1]).strip()
-                    try:
-                        val = float(raw_val.replace('%', ''))
-                        if '%' in raw_val or val > 1.0: val /= 100.0
-                        mip_gap = val
-                    except ValueError: pass
+                    mip_gap = self._parse_numeric(row.iloc[idx + 1], 0.90)
             if "DISCOUNT RATE (%)" in row_vals or "DISCOUNT RATE" in row_vals:
                 keyword = "DISCOUNT RATE (%)" if "DISCOUNT RATE (%)" in row_vals else "DISCOUNT RATE"
                 idx = row_vals.index(keyword)
                 if len(row) > idx + 1:
-                    raw_val = str(row.iloc[idx + 1]).strip()
-                    try:
-                        val = float(raw_val.replace('%', ''))
-                        if '%' in raw_val or val > 1.0: val /= 100.0
-                        discount_rate = val
-                    except ValueError: pass
+                    discount_rate = self._parse_numeric(row.iloc[idx + 1], 0.0)
             if "RUN PROJECT ?" in row_vals or "RUN PROJECT ? (YES/NO)" in row_vals:
                 keyword = "RUN PROJECT ?" if "RUN PROJECT ?" in row_vals else "RUN PROJECT ? (YES/NO)"
                 idx = row_vals.index(keyword)
                 if len(row) > idx + 1:
-                    val = str(row.iloc[idx + 1]).strip().upper()
-                    run_project = (val == 'YES')
+                    run_project = self._parse_bool(row.iloc[idx + 1])
         return reporting_toggles, start_year, duration, time_limit, mip_gap, relax_integrality, discount_rate, run_project
 
     def _parse_entities_cluster(self, df_overview, blocks_overview):
-        import pandas as pd
         cluster_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'CLUSTER'), None)
         cluster_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and b['prefix'] == 'CLUSTER'), None)
         entities_info = {}
@@ -283,9 +301,7 @@ class PathFinderParser:
                 for _, row in df_cluster.iterrows():
                     e_id = str(row.get(id_col, '')).strip()
                     if e_id and e_id.lower() != 'nan':
-                        prod = row.get(prod_col, 0.0) if prod_col is not None else 0.0
-                        try: prod = float(prod)
-                        except Exception: prod = 0.0
+                        prod = self._parse_numeric(row.get(prod_col, 0.0), 0.0)
                         sheet_name = str(row.get(sheet_col, '')).strip() if sheet_col is not None else ''
                         entity_name = str(row.get(name_col, '')).strip() if name_col is not None else str(e_id)
                         if not entity_name or entity_name.lower() == 'nan': entity_name = e_id
@@ -294,8 +310,6 @@ class PathFinderParser:
         return entities_info, entities
 
     def _parse_resources(self, df_overview, blocks_overview):
-        import pandas as pd
-        from .model import Resource
         data_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'DATA'), None)
         data_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and b['prefix'] == 'DATA'), None)
         resources_dict = {}
@@ -320,8 +334,19 @@ class PathFinderParser:
                         if not category or category.lower() == 'nan': category = 'Other'
                         resource_type = str(row.get('RESSOURCE TYPE', 'GENERIC')).strip().upper()
                         if not resource_type or resource_type.lower() == 'NAN': resource_type = 'GENERIC'
-                        resources_dict[res_id] = Resource(id=res_id, type=str(row['TYPE']), unit=str(row['UNIT']), name=res_name, category=category, resource_type=resource_type)
-
+                        
+                        # New column for indirect carbon tax
+                        tax_indir = self._parse_bool(row.get('CARBON TAX ON INDIRECT EMISSIONS ? (YES/NO)', 'NO'))
+                        
+                        resources_dict[res_id] = Resource(
+                            id=res_id, 
+                            type=str(row['TYPE']), 
+                            unit=str(row['UNIT']), 
+                            name=res_name, 
+                            category=category, 
+                            resource_type=resource_type,
+                            tax_indirect_emissions=tax_indir
+                        )
         purchases_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and 'PURCHASES' in self._normalize_token(b['prefix'])), None)
         purchases_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and 'PURCHASES' in self._normalize_token(b['prefix'])), None)
         if purchases_start is not None and purchases_end is not None:
@@ -348,7 +373,6 @@ class PathFinderParser:
         return resources_dict
 
     def _parse_unit_conversions(self, df_overview, blocks_overview):
-        import pandas as pd
         unit_conversions = {}
         unit_conv_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and 'UNIT CONVERSION' in self._normalize_token(b['prefix'])), None)
         unit_conv_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and 'UNIT CONVERSION' in self._normalize_token(b['prefix'])), None)
@@ -366,16 +390,14 @@ class PathFinderParser:
                     unit_out = self._normalize_token(row.get(unit_out_col, ''))
                     factor_raw = row.get(factor_col, None)
                     if not unit_in or not unit_out or unit_in == 'NAN' or unit_out == 'NAN': continue
-                    try: factor = float(str(factor_raw).replace(',', '.').strip())
-                    except Exception: raise ValueError(f"Invalid FACTOR in UNIT CONVERSIONS at row {row_idx}: {factor_raw}")
+                    factor = self._parse_numeric(factor_raw, None)
+                    if factor is None: raise ValueError(f"Invalid FACTOR in UNIT CONVERSIONS at row {row_idx}: {factor_raw}")
                     if factor == 0.0: raise ValueError(f"UNIT CONVERSIONS factor cannot be zero for {unit_in} -> {unit_out}")
                     unit_conversions[(unit_in, unit_out)] = factor
                     unit_conversions[(unit_out, unit_in)] = 1.0 / factor
         return unit_conversions
 
     def _parse_objectives(self, df_overview, blocks_overview):
-        import pandas as pd
-        from .model import Objective
         objectives_list = []
         obj_start = next((b['row'] for b in blocks_overview if b['type'] == 'START' and b['prefix'] == 'OBJECTIVES'), None)
         obj_end = next((b['row'] for b in blocks_overview if b['type'] == 'END' and b['prefix'] == 'OBJECTIVES'), None)
@@ -404,18 +426,13 @@ class PathFinderParser:
                         elif 'MIN' in lim: lim = 'MIN'
                         elif 'MAX' in lim: lim = 'MAX'
                         else: lim = 'CAP'
-                        try: t_year = int(row.get('TARGET_YEAR', 0))
-                        except: t_year = 0
-                        try: 
-                            raw_cap = str(row.get('CAP_VALUE', 0.0))
-                            has_pct = '%' in raw_cap
-                            c_val = float(raw_cap.replace('%','').replace(',','.'))
-                            if has_pct: c_val /= 100.0
-                        except: c_val = 0.0
+                        t_year = int(self._parse_numeric(row.get('TARGET_YEAR', 0), 0))
+                        c_val = self._parse_numeric(row.get('CAP_VALUE', 0.0), 0.0)
                         c_year = None
                         try: 
-                            if pd.notna(row.get('COMP_YEAR')): c_year = int(row.get('COMP_YEAR', 0))
-                        except: pass
+                            if pd.notna(row.get('COMP_YEAR')):
+                                c_year = int(self._parse_numeric(row.get('COMP_YEAR', 0), 0))
+                        except (ValueError, TypeError): pass
                         ent = str(row.get('ENTITY', 'ALL')).strip()
                         mode = str(row.get('INTERPOLATION', 'NONE')).strip().upper()
                         if mode not in ['LINEAR', 'NONE']: mode = 'NONE'
@@ -430,8 +447,6 @@ class PathFinderParser:
         return objectives_list
 
     def _parse_technologies(self, df_tech, scenario_id, active_sc_name, resources_dict, years_list):
-        import pandas as pd
-        from .model import Technology
         blocks_tech = self._find_blocks(df_tech)
         technologies_dict = {}
         tecs_start = next((b['row'] for b in blocks_tech if b['type'] == 'START' and b['prefix'] == 'TECS'), None)
@@ -448,21 +463,15 @@ class PathFinderParser:
             tecs_col_map = {str(c).strip().upper(): c for c in df_tecs.columns}
             is_ci_col = next((tecs_col_map[k] for k in tecs_col_map if k in ["IS CONTINUOUS IMPROVEMENT", "CONTINUOUS IMPROVEMENT", "IS_CI"]), None)
             tech_category_col = next((tecs_col_map[k] for k in tecs_col_map if k in ["TECH CATEGORY", "TECHNOLOGY CATEGORY", "CATEGORY"]), None)
-            def _parse_bool(raw_val):
-                v = str(raw_val).strip().upper()
-                if v in ['YES', 'TRUE', '1', 'Y']: return True
-                if v in ['NO', 'FALSE', '0', 'N', '', 'NAN']: return False
-                try: return float(v) != 0.0
-                except Exception: return False
             for _, row in df_tecs.iterrows():
                 t_id = str(row.get('ID', '')).strip()
                 if t_id and t_id != 'nan':
                     imp_time_raw = row.get('IMPLEMANTATION TIME (YEAR)') or row.get('IMPLEMENTATION TIME (YEAR)')
-                    imp_time = int(imp_time_raw) if pd.notna(imp_time_raw) else 1
+                    imp_time = int(self._parse_numeric(imp_time_raw, 1))
                     t_name = str(row.get('NAME', '')).strip()
                     if not t_name or t_name.lower() == 'nan': raise ValueError(f"Technology '{t_id}' is missing NAME in TECS block")
                     is_continuous_improvement = False
-                    if is_ci_col is not None: is_continuous_improvement = _parse_bool(row.get(is_ci_col, False))
+                    if is_ci_col is not None: is_continuous_improvement = self._parse_bool(row.get(is_ci_col, False))
                     if t_id.upper() == 'UP': is_continuous_improvement = True
                     tech_category = "Standard"
                     if tech_category_col is not None:
@@ -473,8 +482,8 @@ class PathFinderParser:
                         tech_category = 'Carbon Capture'
                     technologies_dict[t_id] = Technology(id=t_id, name=t_name, implementation_time=imp_time, capex=0.0, opex=0.0, impacts={}, is_continuous_improvement=is_continuous_improvement, tech_category=tech_category)
         
-        euro_start = next((b['row'] for b in blocks_tech if b['type'] == 'START' and ('SPECS' in b['prefix'] or 'COMPATIBILITIES' in b['prefix']) and 'TECHNICAL' not in b['prefix']), None)
-        euro_end = next((b['row'] for b in blocks_tech if b['type'] == 'END' and ('SPECS' in b['prefix'] or 'COMPATIBILITIES' in b['prefix']) and 'TECHNICAL' not in b['prefix']), None)
+        euro_start = next((b['row'] for b in blocks_tech if b['type'] == 'START' and 'SPECS' in b['prefix'] and 'TECHNICAL' not in b['prefix']), None)
+        euro_end = next((b['row'] for b in blocks_tech if b['type'] == 'END' and 'SPECS' in b['prefix'] and 'TECHNICAL' not in b['prefix']), None)
         raw_tech_capex = {t: {} for t in technologies_dict}
         raw_tech_opex = {t: {} for t in technologies_dict}
         raw_tech_capex_links = {}
@@ -497,13 +506,12 @@ class PathFinderParser:
                     if not cost_nature or cost_nature == 'NAN':
                         exp_type = str(row.get('TYPE (VARIABLE/FIXED)', '')).strip().upper()
                         cost_nature = 'CAPEX' if exp_type == 'FIXED' else 'OPEX' if exp_type == 'VARIABLE' else ''
-                    try: cost_val = float(row.get('COST', 0))
-                    except: cost_val = 0.0
+                    cost_val = self._parse_numeric(row.get('COST', 0), 0.0)
                     y_str = str(row.get('YEAR', 'ALL')).strip().upper()
                     try: year_val = int(float(y_str))
-                    except: year_val = y_str
+                    except (ValueError, TypeError): year_val = y_str
                     per_unit_str = str(row.get('PER UNIT ?', 'NO')).strip().upper()
-                    is_per_unit = per_unit_str == 'YES'
+                    is_per_unit = self._parse_bool(per_unit_str)
                     unit_str = str(row.get('UNIT', '')).strip()
                     if cost_nature == 'CAPEX':
                         technologies_dict[t_id].capex_per_unit = is_per_unit
@@ -541,9 +549,7 @@ class PathFinderParser:
                 res_id = str(row.get('RESSOURCE ID1', '')).strip()
                 if t_id in technologies_dict and res_id and res_id != 'nan':
                     imp_type = str(row.get('TYPE (NEW/VARIATION)', '')).strip().lower()
-                    val = row.get('VALUE', 0.0)
-                    try: val = float(val)
-                    except: val = 0.0
+                    val = self._parse_numeric(row.get('VALUE', 0.0), 0.0)
                     ref_resource = None
                     for col_candidate in ['RESSOURCE REF', 'RESOURCE REF', 'REF RESSOURCE', 'REF RESOURCE', 'RESSOURCE_REF', 'RESOURCE_REF', 'REF', 'REFERENCE RESSOURCE', 'REFERENCE RESOURCE']:
                         col_val = row.get(col_candidate, None)
@@ -564,39 +570,29 @@ class PathFinderParser:
                     }
         
         tech_compatibilities = {}
-        for i, row in df_tech.iterrows():
-            row_vals = [str(x).strip().upper() for x in row if pd.notna(x)]
-            if 'COMPATIBILITIES' in row_vals:
-                if any(marker in row_vals for marker in ['START', 'END']): continue
-                header_row = df_tech.iloc[i + 1]
-                headers = []
-                headers_start_col = -1
-                for j, cell in enumerate(header_row):
-                    val = str(cell).strip()
-                    if val in technologies_dict:
-                        headers.append(val)
-                        if headers_start_col == -1: headers_start_col = j
-                if headers_start_col != -1:
-                    for k in range(i + 2, i + 2 + len(headers)):
-                        if k >= len(df_tech): break
-                        row_data = df_tech.iloc[k]
-                        t_id_row = str(row_data.iloc[headers_start_col - 1]).strip()
+        compat_start = next((b['row'] for b in blocks_tech if b['type'] == 'START' and 'COMPATIBILITIES' in b['prefix']), None)
+        compat_end = next((b['row'] for b in blocks_tech if b['type'] == 'END' and 'COMPATIBILITIES' in b['prefix']), None)
+        
+        if compat_start is not None and compat_end is not None:
+            df_compat = self._extract_block_data(df_tech, compat_start, compat_end)
+            if not df_compat.empty:
+                headers = [str(c).strip() for c in df_compat.columns if str(c).strip() in technologies_dict]
+                if headers:
+                    for _, row in df_compat.iterrows():
+                        # The first column usually contains the row technology ID
+                        t_id_row = str(row.iloc[0]).strip()
                         if t_id_row in technologies_dict:
                             compat_dict = {}
-                            for m, h_id in enumerate(headers):
-                                cell_val = str(row_data.iloc[headers_start_col + m]).strip().upper()
+                            for h_id in headers:
+                                cell_val = str(row.get(h_id, '')).strip().upper()
                                 if cell_val in ('X', 'FREE'):
                                     compat_dict[h_id] = cell_val
-                            tech_compatibilities[t_id_row] = compat_dict
-                break
+                            if compat_dict:
+                                tech_compatibilities[t_id_row] = compat_dict
 
         return technologies_dict, raw_tech_capex_links, raw_tech_opex_links, tech_compatibilities
 
     def _parse_entities(self, entities, entities_info, resources_dict, technologies_dict, scenario_id, active_sc_name, sc_name_map):
-        import pandas as pd
-        import numpy as np
-        from .model import EntityState, Process
-        import warnings
         entities_dict = {}
         for entity_id in entities:
             entity_meta = entities_info.get(entity_id, {})
@@ -628,11 +624,9 @@ class PathFinderParser:
                     if 'TIPE_OP' in row_vals:
                         idx_tipe = row_vals.index('TIPE_OP')
                         if len(row_vals) > idx_tipe + 1:
-                            try: tipe_op = float(row_vals[idx_tipe+1])
-                            except: pass
+                            tipe_op = self._parse_numeric(row_vals[idx_tipe+1], 365.0)
                         if len(row_vals) > idx_tipe + 2:
-                            try: hours_per_day = float(row_vals[idx_tipe+2])
-                            except: pass
+                            hours_per_day = self._parse_numeric(row_vals[idx_tipe+2], 24.0)
                     if 'SV ACT' in row_vals:
                         idx_sv = row_vals.index('SV ACT')
                         if len(row_vals) > idx_sv + 1:
@@ -672,22 +666,18 @@ class PathFinderParser:
                             try:
                                 idx_id = raw_row_vals.index(p_id)
                                 if idx_id + 1 < len(raw_row_vals):
-                                    p.nb_units = int(float(raw_row_vals[idx_id + 1]))
-                            except Exception:
+                                    p.nb_units = int(self._parse_numeric(raw_row_vals[idx_id + 1], 0))
+                            except (ValueError, TypeError):
                                 pass
                         else:
                             for i, cell in enumerate(row_list):
                                 cell_str = str(cell).strip()
                                 if cell_str in resources_dict:
-                                    try: 
-                                        v = float(row_list[i+1])
-                                        v = v if not np.isnan(v) else 0.0
-                                        if self._is_primary_emission_resource(resources_dict[cell_str]):
-                                            p.emission_shares[cell_str] = v
-                                        else:
-                                            p.consumption_shares[cell_str] = v
-                                    except Exception:
-                                        pass
+                                    v = self._parse_numeric(row_list[i+1], 0.0)
+                                    if self._is_primary_emission_resource(resources_dict[cell_str]):
+                                        p.emission_shares[cell_str] = v
+                                    else:
+                                        p.consumption_shares[cell_str] = v
             
             ca_percent = 0.0
             tech_trans_start = next((b['row'] for b in blocks_ent if b['type'] == 'START' and b['prefix'] == 'TECHNOLOGICAL TRANSITION'), None)
@@ -706,24 +696,14 @@ class PathFinderParser:
                                 try:
                                     ca_idx = row_vals.index('CA')
                                     if len(row_vals) > ca_idx + 1:
-                                        raw_ca = str(row_vals[ca_idx + 1]).strip()
-                                        has_pct_sign = '%' in raw_ca
-                                        ca_val = float(raw_ca.replace('%', ''))
-                                        if has_pct_sign: ca_val /= 100.0
-                                        elif ca_val > 1.0: ca_val /= 100.0
-                                        ca_percent = ca_val
-                                except Exception as e: pass
+                                        ca_percent = self._parse_numeric(row_vals[ca_idx + 1], 0.0)
+                                except (ValueError, TypeError): pass
                         elif has_budget and not scenario_id:
                             try:
                                 ca_idx = row_vals.index('CA')
                                 if len(row_vals) > ca_idx + 1:
-                                    raw_ca = str(row_vals[ca_idx + 1]).strip()
-                                    has_pct_sign = '%' in raw_ca
-                                    ca_val = float(raw_ca.replace('%', ''))
-                                    if has_pct_sign: ca_val /= 100.0
-                                    elif ca_val > 1.0: ca_val /= 100.0
-                                    ca_percent = ca_val
-                            except: pass
+                                    ca_percent = self._parse_numeric(row_vals[ca_idx + 1], 0.0)
+                            except (ValueError, TypeError): pass
                     p_id_candidates = [v for v in row_vals if v in processes_dict]
                     if p_id_candidates:
                         p_id = p_id_candidates[0]
@@ -772,11 +752,9 @@ class PathFinderParser:
                             if pd.notna(drow.iloc[val_col_idx]) and r_id and r_id != 'nan':
                                 yr = 2025
                                 if year_col_idx != -1 and pd.notna(drow.iloc[year_col_idx]):
-                                    try: yr = int(float(drow.iloc[year_col_idx]))
-                                    except: pass
+                                    yr = int(self._parse_numeric(drow.iloc[year_col_idx], 2025))
                                 if r_id not in ref_baselines: ref_baselines[r_id] = {}
-                                try: ref_baselines[r_id][yr] = float(drow.iloc[val_col_idx])
-                                except Exception: pass
+                                ref_baselines[r_id][yr] = self._parse_numeric(drow.iloc[val_col_idx], 0.0)
                         break
             
             if tot_start is not None and tot_end is not None:
@@ -787,8 +765,8 @@ class PathFinderParser:
                         r_id = str(vals[1]).strip()
                         val_str = vals[2]
                         raw_unit = str(vals[3]).strip().upper() if len(vals) > 3 else ''
-                        try: val = float(val_str)
-                        except: continue
+                        val = self._parse_numeric(val_str, None)
+                        if val is None: continue
                         multiplier = 1.0
                         new_unit = raw_unit
                         if raw_unit in ('KGCO2', 'KG CO2'): 
@@ -831,9 +809,7 @@ class PathFinderParser:
             )
         return entities_dict
 
-    def _parse_time_series(self, scenario_id, resources_dict, active_sc_name, sc_name_map, years_list):
-        from .model import TimeSeriesData
-        import pandas as pd
+    def _parse_time_series(self, scenario_id, resources_dict, active_sc_name, sc_name_map, years_list, unit_conversions=None):
         time_series = TimeSeriesData()
 
         if 'RESSOURCES_PRICE' in self.xl.sheet_names:
@@ -857,7 +833,7 @@ class PathFinderParser:
                         sc_idx = raw_upper.index('SC-DES')
                         remaining = raw_upper[sc_idx+1:]
                         in_target_block = (scenario_id is None) or any(s in [scenario_id.upper(), active_sc_name] for s in remaining) or ("ALL" in remaining)
-                    except: in_target_block = False
+                    except (ValueError, TypeError): in_target_block = False
                     continue
                 if not in_target_block: continue
                 year = None
@@ -869,13 +845,12 @@ class PathFinderParser:
                             year = y
                             start_idx = idx
                             break
-                    except: pass
+                    except (ValueError, TypeError): pass
                 if year is not None and start_idx != -1:
                     for i in range(start_idx + 1, len(row.values) - 1, 3):
                         r_id = str(row.values[i]).strip()
                         if r_id and r_id != 'nan' and pd.notna(row.values[i+1]):
-                            try: price_val = float(row.values[i+1])
-                            except: price_val = row.values[i+1]
+                            price_val = self._parse_numeric(row.values[i+1], row.values[i+1])
                             if r_id not in raw_prices: raw_prices[r_id] = {}
                             raw_prices[r_id][year] = price_val
             for r_id, p_dict in raw_prices.items():
@@ -908,7 +883,7 @@ class PathFinderParser:
                         sc_idx = raw_upper.index('SC-DES')
                         remaining = raw_upper[sc_idx+1:]
                         in_target_block = (scenario_id is None) or any(s in [scenario_id.upper(), active_sc_name] for s in remaining) or ("ALL" in remaining)
-                    except: in_target_block = False
+                    except (ValueError, TypeError): in_target_block = False
                     continue
                 if not in_target_block: continue
                 year = None
@@ -920,20 +895,16 @@ class PathFinderParser:
                             year = y
                             start_idx = idx
                             break
-                    except: pass
+                    except (ValueError, TypeError): pass
                 if year is not None and start_idx != -1:
                     if len(row.values) > start_idx + 1 and pd.notna(row.values[start_idx+1]):
-                        try: raw_prices[year] = float(row.values[start_idx+1])
-                        except: raw_prices[year] = row.values[start_idx+1]
+                        raw_prices[year] = self._parse_numeric(row.values[start_idx+1], row.values[start_idx+1])
                     if len(row.values) > start_idx + 2 and pd.notna(row.values[start_idx+2]):
-                        try: raw_penalties[year] = float(row.values[start_idx+2])
-                        except: pass
+                        raw_penalties[year] = self._parse_numeric(row.values[start_idx+2], 0.0)
                     if len(row.values) > start_idx + 3 and pd.notna(row.values[start_idx+3]):
-                        try: raw_free_pi[year] = float(row.values[start_idx+3])
-                        except: raw_free_pi[year] = row.values[start_idx+3]
+                        raw_free_pi[year] = self._parse_numeric(row.values[start_idx+3], row.values[start_idx+3])
                     if len(row.values) > start_idx + 4 and pd.notna(row.values[start_idx+4]):
-                        try: raw_free_norm[year] = float(row.values[start_idx+4])
-                        except: raw_free_norm[year] = row.values[start_idx+4]
+                        raw_free_norm[year] = self._parse_numeric(row.values[start_idx+4], row.values[start_idx+4])
             time_series.carbon_prices_anchors = dict(raw_prices)
             time_series.carbon_prices = self._interpolate_dict(raw_prices, years_list)
             time_series.carbon_quotas_pi = self._interpolate_dict(raw_free_pi, years_list)
@@ -974,7 +945,7 @@ class PathFinderParser:
                         sc_idx = raw_upper.index('SC-DES')
                         remaining = raw_upper[sc_idx+1:]
                         in_target_block_oe = (scenario_id is None) or any(s in [scenario_id.upper(), active_sc_name] for s in remaining) or ("ALL" in remaining)
-                    except: in_target_block_oe = False
+                    except (ValueError, TypeError): in_target_block_oe = False
                     continue
                 if not in_target_block_oe: continue
                 year = None
@@ -986,21 +957,220 @@ class PathFinderParser:
                             year = y
                             start_idx = idx
                             break
-                    except: pass
+                    except (ValueError, TypeError): pass
                 if year is not None and start_idx != -1:
                     for i in range(start_idx + 1, len(row.values) - 1, 3):
                         r_id = str(row.values[i]).strip()
                         if r_id and r_id != 'nan' and pd.notna(row.values[i+1]):
-                            em_val = row.values[i+1]
+                            em_val = self._parse_numeric(row.values[i+1], row.values[i+1])
                             if r_id not in raw_ems: raw_ems[r_id] = {}
                             raw_ems[r_id][year] = em_val
             for r_id, e_dict in raw_ems.items():
                 time_series.other_emissions_factors[r_id] = self._interpolate_dict(e_dict, years_list)
+
+        # ── POWER LIMITS sheet ──────────────────────────────────────────────
+        # Parse per-resource annual limits (e.g. max MW or MWH) and store
+        # them on the time_series object after unit conversion.
+        if 'POWER LIMITS' in self.xl.sheet_names:
+            self._parse_power_limits(
+                time_series, scenario_id, active_sc_name,
+                resources_dict, years_list, unit_conversions
+            )
+
         return time_series
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # POWER LIMITS sheet parser
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _parse_power_limits(
+        self,
+        time_series: TimeSeriesData,
+        scenario_id: str,
+        active_sc_name: str,
+        resources_dict: Dict[str, 'Resource'],
+        years_list: list,
+        unit_conversions: Dict,
+    ) -> None:
+        """Parse the 'POWER LIMITS' sheet and populate time_series.resource_limits.
+
+        The sheet follows the same SCENARIO / SC-DES block convention used in
+        RESSOURCES_PRICE but with a **triplet column pattern** after the YEAR
+        column:  [Resource ID] [Limit Value] [Unit]  repeating for N resources.
+
+        Special handling:
+          - Year column may contain typos such as "2 025" → spaces are stripped.
+          - 'LINEAR INTER' sentinel values are collected as NaN anchors and
+            interpolated after the full block is read.
+          - Unit conversions are applied so the stored limit is expressed in
+            the resource's base unit (from resources_dict[r_id].unit).
+        """
+        df_pl = self.xl.parse('POWER LIMITS', header=None)
+
+        # ── Guard: ensure unit_conversions is a dict ─────────────────────────
+        if unit_conversions is None:
+            unit_conversions = {}
+
+        # ── Raw anchor dictionaries: r_id -> {year: value | 'LINEAR INTER'} ─
+        raw_limits: Dict[str, Dict[int, Any]] = {}
+        # ── Per-resource unit read from the sheet (last encountered wins) ────
+        sheet_units: Dict[str, str] = {}
+
+        # ── Scenario-filtering state (mirrors RESSOURCES_PRICE pattern) ──────
+        in_target_block = (scenario_id is None)
+        found_any_scenario_block = False
+
+        for _, row in df_pl.iterrows():
+            row_vals_upper = [
+                str(x).strip().upper()
+                for x in row.values
+                if pd.notna(x) and str(x).strip()
+            ]
+
+            # ── Detect SCENARIO START / END markers ──────────────────────────
+            if 'START' in row_vals_upper and any('SCENARIO' in v for v in row_vals_upper):
+                found_any_scenario_block = True
+                in_target_block = False
+                continue
+            if 'END' in row_vals_upper and any('SCENARIO' in v for v in row_vals_upper):
+                in_target_block = False
+                continue
+
+            # ── SC-DES row: decide if this scenario block matches ────────────
+            if 'SC-DES' in row_vals_upper and found_any_scenario_block:
+                raw = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
+                raw_upper = [s.upper() for s in raw]
+                try:
+                    sc_idx = raw_upper.index('SC-DES')
+                    remaining = raw_upper[sc_idx + 1:]
+                    in_target_block = (
+                        (scenario_id is None)
+                        or any(s in [scenario_id.upper(), active_sc_name] for s in remaining)
+                        or ("ALL" in remaining)
+                    )
+                except (ValueError, TypeError):
+                    in_target_block = False
+                continue
+
+            # ── Skip rows outside the active scenario block ──────────────────
+            if not in_target_block:
+                continue
+
+            # ── Skip comment rows (lines starting with **) ───────────────────
+            first_non_empty = next(
+                (str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()),
+                ''
+            )
+            if first_non_empty.startswith('**'):
+                continue
+
+            # ── Try to identify the YEAR column ──────────────────────────────
+            # The year may contain embedded spaces ("2 025"), so we strip them
+            # before attempting int conversion.
+            year = None
+            start_idx = -1
+            for idx, cell in enumerate(row.values):
+                if pd.isna(cell):
+                    continue
+                cleaned = str(cell).replace(' ', '').strip()
+                try:
+                    y = int(cleaned)
+                    if 2000 <= y <= 2100:
+                        year = y
+                        start_idx = idx
+                        break
+                except (ValueError, TypeError):
+                    pass
+
+            if year is None or start_idx == -1:
+                continue
+
+            # ── Parse triplet columns: [Resource ID] [Value] [Unit] ──────────
+            remaining_cells = row.values[start_idx + 1:]
+            num_remaining = len(remaining_cells)
+
+            for offset in range(0, num_remaining - 2, 3):
+                r_id_raw = remaining_cells[offset]
+                val_raw = remaining_cells[offset + 1]
+                unit_raw = remaining_cells[offset + 2]
+
+                # Skip completely empty triplets
+                if pd.isna(r_id_raw):
+                    continue
+
+                r_id = str(r_id_raw).strip()
+                if not r_id or r_id.lower() == 'nan':
+                    continue
+
+                # ── Initialise the anchor dict for this resource ─────────────
+                if r_id not in raw_limits:
+                    raw_limits[r_id] = {}
+
+                # ── Detect 'LINEAR INTER' sentinel ───────────────────────────
+                val_str = str(val_raw).strip().upper() if pd.notna(val_raw) else ''
+                if 'LINEAR INTER' in val_str:
+                    # Store the sentinel as-is; _interpolate_dict handles it
+                    raw_limits[r_id][year] = 'LINEAR INTER'
+                else:
+                    raw_limits[r_id][year] = self._parse_numeric(val_raw, 0.0)
+
+                # ── Record the unit from the sheet for this resource ─────────
+                if pd.notna(unit_raw):
+                    sheet_units[r_id] = str(unit_raw).strip().upper()
+
+        # ── Interpolation & unit conversion ──────────────────────────────────
+        for r_id, anchors in raw_limits.items():
+            # Store the raw anchors for potential sensitivity re-interpolation
+            numeric_anchors = {
+                y: v for y, v in anchors.items()
+                if not isinstance(v, str)
+            }
+            time_series.resource_limits_anchors[r_id] = dict(numeric_anchors)
+
+            # Interpolate (replaces 'LINEAR INTER' with linear values)
+            interpolated = self._interpolate_dict(anchors, years_list)
+
+            # ── Determine unit conversion multiplier ─────────────────────────
+            sheet_unit = sheet_units.get(r_id, '')
+            base_unit = ''
+            if r_id in resources_dict:
+                base_unit = str(resources_dict[r_id].unit).strip().upper()
+
+            multiplier = 1.0
+            if sheet_unit and base_unit and sheet_unit != base_unit:
+                # Try exact lookup in the unit_conversions dictionary
+                conv_key = (sheet_unit, base_unit)
+                if conv_key in unit_conversions:
+                    multiplier = unit_conversions[conv_key]
+                else:
+                    # Graceful fallback: common MW→MWH annual conversion
+                    if sheet_unit == 'MW' and base_unit == 'MWH':
+                        multiplier = 8760.0
+                        warnings.warn(
+                            f"[POWER LIMITS] No explicit conversion for "
+                            f"{sheet_unit}→{base_unit} on '{r_id}'. "
+                            f"Using standard 8760 h/year multiplier."
+                        )
+                    elif sheet_unit == 'MWH' and base_unit == 'MW':
+                        multiplier = 1.0 / 8760.0
+                        warnings.warn(
+                            f"[POWER LIMITS] No explicit conversion for "
+                            f"{sheet_unit}→{base_unit} on '{r_id}'. "
+                            f"Using inverse 8760 h/year multiplier."
+                        )
+                    else:
+                        warnings.warn(
+                            f"[POWER LIMITS] Unknown conversion "
+                            f"{sheet_unit}→{base_unit} for '{r_id}'. "
+                            f"Falling back to multiplier=1.0."
+                        )
+
+            # ── Apply multiplier and store the final time series ─────────────
+            time_series.resource_limits[r_id] = {
+                y: val * multiplier for y, val in interpolated.items()
+            }
+
     def _parse_public_aids(self):
-        import pandas as pd
-        from .model import GrantParams, CCfDParams
         grant_params = GrantParams()
         ccfd_params = CCfDParams()
         if 'PUBLIC AID' in self.xl.sheet_names:
@@ -1021,8 +1191,7 @@ class PathFinderParser:
                                 active_idx = i
                                 break
                         if active_idx != -1 and len(row_list) > active_idx + 1:
-                            if str(row_list[active_idx+1]).strip().upper() == 'YES':
-                                active = True
+                            active = self._parse_bool(row_list[active_idx+1])
             if active:
                 inc_start = next((b['row'] for b in blocks_aid if b['type'] == 'START' and 'INCENTIVES' in b['prefix']), None)
                 inc_end = next((b['row'] for b in blocks_aid if b['type'] == 'END' and 'INCENTIVES' in b['prefix']), None)
@@ -1039,14 +1208,11 @@ class PathFinderParser:
                                     break
                             if grant_idx != -1:
                                 if len(row_list) > grant_idx + 1 and pd.notna(row_list[grant_idx + 1]):
-                                    try: grant_params.rate = float(str(row_list[grant_idx + 1]).replace('%', '')) / 100.0 if '%' in str(row_list[grant_idx + 1]) else float(row_list[grant_idx + 1])
-                                    except: pass
+                                    grant_params.rate = self._parse_numeric(row_list[grant_idx + 1], 0.0)
                                 if len(row_list) > grant_idx + 2 and pd.notna(row_list[grant_idx + 2]):
-                                    try: grant_params.cap = float(row_list[grant_idx + 2])
-                                    except: pass
+                                    grant_params.cap = self._parse_numeric(row_list[grant_idx + 2], 0.0)
                                 if len(row_list) > grant_idx + 3 and pd.notna(row_list[grant_idx + 3]):
-                                    try: grant_params.renew_time = float(row_list[grant_idx + 3])
-                                    except: pass
+                                    grant_params.renew_time = self._parse_numeric(row_list[grant_idx + 3], 0.0)
                                 grant_params.active = True
                         if 'SUBS_NO' in vals:
                             subs_no_idx = -1
@@ -1067,23 +1233,17 @@ class PathFinderParser:
                                     break
                             if ccfd_idx != -1:
                                 if len(row_list) > ccfd_idx + 1 and pd.notna(row_list[ccfd_idx + 1]):
-                                    try: ccfd_params.duration = int(float(row_list[ccfd_idx + 1]))
-                                    except: pass
+                                    ccfd_params.duration = int(self._parse_numeric(row_list[ccfd_idx + 1], 0))
                                 if len(row_list) > ccfd_idx + 2 and pd.notna(row_list[ccfd_idx + 2]):
-                                    try: ccfd_params.contract_type = int(float(row_list[ccfd_idx + 2]))
-                                    except: pass
+                                    ccfd_params.contract_type = int(self._parse_numeric(row_list[ccfd_idx + 2], 0))
                                 if len(row_list) > ccfd_idx + 3 and pd.notna(row_list[ccfd_idx + 3]):
-                                    try: ccfd_params.eua_price_pct = float(str(row_list[ccfd_idx + 3]).replace('%', '')) / 100.0 if '%' in str(row_list[ccfd_idx + 3]) else float(row_list[ccfd_idx + 3])
-                                    except: pass
+                                    ccfd_params.eua_price_pct = self._parse_numeric(row_list[ccfd_idx + 3], 0.0)
                                 if len(row_list) > ccfd_idx + 4 and pd.notna(row_list[ccfd_idx + 4]):
-                                    try: ccfd_params.nb_contracts = int(float(row_list[ccfd_idx + 4]))
-                                    except: pass
+                                    ccfd_params.nb_contracts = int(self._parse_numeric(row_list[ccfd_idx + 4], 0))
                                 ccfd_params.active = True
         return grant_params, ccfd_params
 
     def _parse_bank_loans(self, duration):
-        import pandas as pd
-        from .model import BankLoan
         bank_loans = []
         if 'BANK' in self.xl.sheet_names:
             df_bank = self.xl.parse('BANK', header=None)
@@ -1099,23 +1259,18 @@ class PathFinderParser:
                         df_prod = df_prod.iloc[idx+1:]
                         break
                 for _, row in df_prod.iterrows():
-                    try:
-                        rate_raw = str(row.get('RATE (%)', '0')).replace('%', '').strip()
-                        rate = float(rate_raw) / 100.0 if rate_raw else 0.0
-                        duration_val_raw = str(row.get('LOAN PERIOD (YEARS)', '1')).strip().upper()
-                        if duration_val_raw == 'ALL':
-                            for d in range(1, duration + 1):
-                                bank_loans.append(BankLoan(rate=rate, duration=d))
-                        else:
-                            loan_duration = int(float(duration_val_raw))
-                            if loan_duration < 1: loan_duration = 1
-                            bank_loans.append(BankLoan(rate=rate, duration=loan_duration))
-                    except: pass
+                    rate = self._parse_numeric(row.get('RATE (%)', '0'), 0.0)
+                    duration_val_raw = str(row.get('LOAN PERIOD (YEARS)', '1')).strip().upper()
+                    if duration_val_raw == 'ALL':
+                        for d in range(1, duration + 1):
+                            bank_loans.append(BankLoan(rate=rate, duration=d))
+                    else:
+                        loan_duration = int(self._parse_numeric(duration_val_raw, 1))
+                        if loan_duration < 1: loan_duration = 1
+                        bank_loans.append(BankLoan(rate=rate, duration=loan_duration))
         return bank_loans
 
     def _parse_dac_and_credits(self, scenario_id, active_sc_name, sc_name_map, years_list):
-        import pandas as pd
-        from .model import DACParams, CreditParams
         dac_params = DACParams()
         credit_params = CreditParams()
         if 'NEW TECH_INDIRECT' in self.xl.sheet_names:
@@ -1140,99 +1295,81 @@ class PathFinderParser:
                 if in_dac:
                     if 'ACT' in row_vals:
                         row_list = list(row.values)
-                        try:
-                            idx = next((i for i, x in enumerate(row_list) if str(x).strip().upper() == 'ACT'), -1)
-                            if idx != -1:
-                                row_sc = str(row_list[idx-1]).strip().upper() if idx > 0 and pd.notna(row_list[idx-1]) else ''
-                                if scenario_id and row_sc and row_sc not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
-                                if len(row_list) > idx + 1 and pd.notna(row_list[idx+1]): dac_params.active = (str(row_list[idx+1]).strip().upper() == 'YES')
-                                if len(row_list) > idx + 2 and pd.notna(row_list[idx+2]):
-                                    val = str(row_list[idx+2]).strip()
-                                    if val and val.replace('.', '', 1).isnumeric(): dac_params.start_year = int(float(val))
-                                if len(row_list) > idx + 3 and pd.notna(row_list[idx+3]):
-                                    val = str(row_list[idx+3]).strip()
-                                    if val and val.replace('.', '', 1).isnumeric(): dac_params.end_year = int(float(val))
-                        except: pass
+                        idx = next((i for i, x in enumerate(row_list) if str(x).strip().upper() == 'ACT'), -1)
+                        if idx != -1:
+                            row_sc = str(row_list[idx-1]).strip().upper() if idx > 0 and pd.notna(row_list[idx-1]) else ''
+                            if scenario_id and row_sc and row_sc not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
+                            if len(row_list) > idx + 1 and pd.notna(row_list[idx+1]): dac_params.active = self._parse_bool(row_list[idx+1])
+                            if len(row_list) > idx + 2 and pd.notna(row_list[idx+2]):
+                                dac_params.start_year = int(self._parse_numeric(row_list[idx+2], dac_params.start_year))
+                            if len(row_list) > idx + 3 and pd.notna(row_list[idx+3]):
+                                dac_params.end_year = int(self._parse_numeric(row_list[idx+3], dac_params.end_year))
                     if 'CARAC' in row_vals:
                         vals = [x for x in row.values if pd.notna(x)]
                         if len(vals) >= 7 and str(vals[0]).strip().upper() == 'CARAC':
                             carac_val1 = str(vals[1]).strip()
                             carac_scenario = None
                             carac_start_idx = 1
-                            try: int(float(carac_val1))
+                            try: float(carac_val1.replace(',','.').replace('%',''))
                             except (ValueError, TypeError):
                                 carac_scenario = carac_val1.upper()
                                 carac_start_idx = 2
                             if scenario_id and carac_scenario and carac_scenario not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
                             carac_vals = vals[carac_start_idx:]
                             if len(carac_vals) < 6: continue
-                            try:
-                                year = int(carac_vals[0])
-                                try: raw_dac_capex[year] = float(carac_vals[1])
-                                except: raw_dac_capex[year] = str(carac_vals[1]).strip()
-                                try: raw_dac_opex_pct[year] = float(carac_vals[4])
-                                except: raw_dac_opex_pct[year] = str(carac_vals[4]).strip()
-                                try: raw_dac_elec[year] = float(carac_vals[5])
-                                except: raw_dac_elec[year] = str(carac_vals[5]).strip()
-                            except Exception: pass
+                            year = int(self._parse_numeric(carac_vals[0], 0))
+                            if year > 0:
+                                raw_dac_capex[year] = self._parse_numeric(carac_vals[1], 0.0)
+                                raw_dac_opex_pct[year] = self._parse_numeric(carac_vals[4], 0.0)
+                                raw_dac_elec[year] = self._parse_numeric(carac_vals[5], 0.0)
                 if in_credit:
                     if 'ACT' in row_vals:
                         row_list = list(row.values)
-                        try:
-                            idx = next((i for i, x in enumerate(row_list) if str(x).strip().upper() == 'ACT'), -1)
-                            if idx != -1:
-                                row_sc = str(row_list[idx-1]).strip().upper() if idx > 0 and pd.notna(row_list[idx-1]) else ''
-                                if scenario_id and row_sc and row_sc not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
-                                if len(row_list) > idx + 1 and pd.notna(row_list[idx+1]): credit_params.active = (str(row_list[idx+1]).strip().upper() == 'YES')
-                                if len(row_list) > idx + 2 and pd.notna(row_list[idx+2]):
-                                    val = str(row_list[idx+2]).strip()
-                                    if val and val.replace('.', '', 1).isnumeric(): credit_params.start_year = int(float(val))
-                                if len(row_list) > idx + 3 and pd.notna(row_list[idx+3]):
-                                    val = str(row_list[idx+3]).strip()
-                                    if val and val.replace('.', '', 1).isnumeric(): credit_params.end_year = int(float(val))
-                        except: pass
+                        idx = next((i for i, x in enumerate(row_list) if str(x).strip().upper() == 'ACT'), -1)
+                        if idx != -1:
+                            row_sc = str(row_list[idx-1]).strip().upper() if idx > 0 and pd.notna(row_list[idx-1]) else ''
+                            if scenario_id and row_sc and row_sc not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
+                            if len(row_list) > idx + 1 and pd.notna(row_list[idx+1]): credit_params.active = self._parse_bool(row_list[idx+1])
+                            if len(row_list) > idx + 2 and pd.notna(row_list[idx+2]):
+                                credit_params.start_year = int(self._parse_numeric(row_list[idx+2], credit_params.start_year))
+                            if len(row_list) > idx + 3 and pd.notna(row_list[idx+3]):
+                                credit_params.end_year = int(self._parse_numeric(row_list[idx+3], credit_params.end_year))
                     if 'CREDIT' in row_vals and 'START' not in row_vals and 'END' not in row_vals:
                         vals = [x for x in row.values if pd.notna(x)]
                         if len(vals) >= 5 and str(vals[0]).strip().upper() == 'CREDIT':
                             credit_sc = str(vals[2]).strip().upper() if len(vals) > 2 else ''
                             if scenario_id and credit_sc and credit_sc not in [scenario_id.upper(), active_sc_name, "ALL", "DEFAULT"]: continue
-                            try:
-                                if len(vals) >= 6:
-                                    year = int(float(vals[4]))
-                                    cost = float(str(vals[5]).strip().replace('€', '').replace('$', '').replace(',', '.').strip())
-                                    raw_credit_cost[year] = cost
-                                elif len(vals) >= 5:
-                                    year = int(float(vals[3]))
-                                    cost = float(str(vals[4]).replace('€', '').replace(',', '.').strip())
-                                    raw_credit_cost[year] = cost
-                            except Exception: pass
+                            if len(vals) >= 6:
+                                year = int(self._parse_numeric(vals[4], 0))
+                                cost = self._parse_numeric(vals[5], 0.0)
+                                if year > 0: raw_credit_cost[year] = cost
+                            elif len(vals) >= 5:
+                                year = int(self._parse_numeric(vals[3], 0))
+                                cost = self._parse_numeric(vals[4], 0.0)
+                                if year > 0: raw_credit_cost[year] = cost
                 if 'TREHS' in row_vals:
                     vals = [x for x in row.values if pd.notna(x)]
                     if len(vals) >= 3 and str(vals[0]).strip().upper() == 'TREHS':
                         v_sc = None
                         v_year = 2025
-                        v_pct = 100.0
+                        v_pct = 1.0
                         potential_pcts = []
                         potential_years = []
                         potential_scs = []
                         for v in vals[1:]:
                             v_str = str(v).strip()
-                            if isinstance(v, str) and '%' in v_str:
-                                try: potential_pcts.append(float(v_str.replace('%', '')) / 100.0)
-                                except: pass
+                            if '%' in v_str:
+                                potential_pcts.append(self._parse_numeric(v_str, 1.0))
                                 continue
                             try:
-                                fv = float(v_str)
-                                if (fv >= 1900 and fv <= 2100) and v_year == 2025: potential_years.append(int(fv))
-                                elif fv <= 100.0: potential_pcts.append(fv)
-                                continue
+                                fv = float(v_str.replace(',','.'))
+                                if fv >= 1900 and fv <= 2100: potential_years.append(int(fv))
+                                else: potential_pcts.append(fv if fv <= 1.0 else fv / 100.0)
                             except: pass
                             if v_str.upper() in [s.upper() for s in sc_name_map.keys()] or v_str.upper() in [s.upper() for s in sc_name_map.values()] or v_str.upper() in ["ALL", "DEFAULT"]:
                                 potential_scs.append(v_str.upper())
                         if potential_years: v_year = potential_years[0]
-                        if potential_pcts:
-                            v_pct = potential_pcts[0]
-                            if v_pct > 1.0: v_pct = v_pct / 100.0
+                        if potential_pcts: v_pct = potential_pcts[0]
                         if potential_scs: v_sc = potential_scs[0]
                         if scenario_id and v_sc and v_sc not in [scenario_id.upper(), str(active_sc_name).upper(), "ALL", "DEFAULT"]: continue
                         if in_dac:
@@ -1241,13 +1378,13 @@ class PathFinderParser:
                         elif in_credit:
                             credit_params.ref_year = v_year
                             credit_params.max_volume_pct = v_pct
-
+ 
             if dac_params.active:
                 dac_params.capex_by_year = self._interpolate_dict(raw_dac_capex, years_list)
                 if not dac_params.capex_by_year: dac_params.active = False
                 else:
                     interp_opex_pct = self._interpolate_dict(raw_dac_opex_pct, years_list)
-                    dac_params.opex_by_year = {y: dac_params.capex_by_year.get(y, 0.0) * (interp_opex_pct.get(y, 0.0) / 100.0) for y in dac_params.capex_by_year}
+                    dac_params.opex_by_year = {y: dac_params.capex_by_year.get(y, 0.0) * interp_opex_pct.get(y, 0.0) for y in dac_params.capex_by_year}
                     dac_params.elec_by_year = self._interpolate_dict(raw_dac_elec, years_list)
             if credit_params.active:
                 credit_params.cost_by_year = self._interpolate_dict(raw_credit_cost, years_list)
@@ -1285,7 +1422,7 @@ class PathFinderParser:
 
         entities_dict = self._parse_entities(entities, entities_info, resources_dict, technologies_dict, scenario_id, active_sc_name, sc_name_map)
         
-        time_series = self._parse_time_series(scenario_id, resources_dict, active_sc_name, sc_name_map, years_list)
+        time_series = self._parse_time_series(scenario_id, resources_dict, active_sc_name, sc_name_map, years_list, unit_conversions)
         
         grant_params, ccfd_params = self._parse_public_aids()
         bank_loans = self._parse_bank_loans(duration)
@@ -1323,14 +1460,6 @@ class PathFinderParser:
         """
         Analyse le bloc SENSITIVITY START / SENSITIVITY END de la feuille OverView
         et retourne un objet SensitivityParams complet.
-
-        Structure attendue (tags en colonne A) :
-            VAR     → amplitudes de variation (%, ex: 5% 10% 25% 50% 100%)
-            P/N     → direction (P, N ou ALL)
-            SIM     → scénarios cibles (ex: BS)
-            TIME    → temps limite (s) par simulation
-            DATA?   → EUA YES/NO, RESSOURCES PRICE YES/NO, …
-            INDI    → nom d'un indicateur à surveiller
         """
         variations: List[float] = []
         run: bool = False
@@ -1343,49 +1472,32 @@ class PathFinderParser:
         in_block = False
 
         for _, row in df_overview.iterrows():
-            # Valeurs brutes et normalisées
             raw_vals = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
             vals_upper = [v.upper() for v in raw_vals]
 
-            # Détection des marqueurs START / END du bloc SENSITIVITY
             if 'SENSITIVITY' in vals_upper and 'START' in vals_upper:
                 in_block = True
                 continue
             if 'SENSITIVITY' in vals_upper and 'END' in vals_upper:
                 break
 
-            if not in_block:
-                continue
-
-            # Ignorer les lignes de commentaire ou vides
-            if not raw_vals or raw_vals[0].startswith('**'):
+            if not in_block or not raw_vals or raw_vals[0].startswith('**'):
                 continue
 
             tag = vals_upper[0]
 
-            # ── Commande de lancement (RUN YES/NO) ──────────────────────────
             if tag == 'RUN':
                 for token in raw_vals[1:]:
-                    val = token.strip().upper()
-                    if val in ('YES', 'NO'):
-                        run = (val == 'YES')
+                    if str(token).strip().upper() in ('YES', 'NO'):
+                        run = self._parse_bool(token)
                         break
 
-            # ── Amplitudes de variation ────────────────────────────────────
             elif tag == 'VAR':
                 for token in raw_vals[1:]:
-                    token_clean = token.replace('%', '').strip()
-                    try:
-                        val = float(token_clean)
-                        # Convertir les pourcentages entiers en décimaux
-                        if val > 1.0:
-                            val /= 100.0
-                        if val > 0:
-                            variations.append(round(val, 6))
-                    except ValueError:
-                        pass
+                    val = self._parse_numeric(token, None)
+                    if val is not None and val > 0:
+                        variations.append(round(val, 6))
 
-            # ── Direction P / N / ALL ──────────────────────────────────────
             elif tag == 'P/N':
                 for token in raw_vals[1:]:
                     t_up = token.strip().upper()
@@ -1393,49 +1505,33 @@ class PathFinderParser:
                         direction = t_up
                         break
 
-            # ── Scénarios à simuler ────────────────────────────────────────
             elif tag == 'SIM':
                 placeholder_skip = ('SC1', 'SC2', 'SC3', 'SC4', 'SC...', 'SC…')
                 for token in raw_vals[1:]:
                     if token.upper() not in placeholder_skip:
                         scenarios.append(token.upper())
 
-            # ── Temps limite par simulation ────────────────────────────────
             elif tag == 'TIME' or 'TIME' in tag:
                 for token in raw_vals[1:]:
-                    try:
-                        time_limit = int(float(token))
-                        break
-                    except ValueError:
-                        pass
+                    time_limit = int(self._parse_numeric(token, 10))
+                    if time_limit > 0: break
 
-            # ── Données à perturber (DATA?) ────────────────────────────────
             elif tag == 'DATA?':
-                # Format attendu : DATA? | <NOM_PARAMETRE> | YES/NO
                 if len(raw_vals) >= 3:
                     param_name = raw_vals[1].strip()
-                    yn_token = raw_vals[2].strip().upper()
-                    targets[param_name] = (yn_token == 'YES')
+                    targets[param_name] = self._parse_bool(raw_vals[2])
                 elif len(raw_vals) == 2:
-                    # Valeur YES/NO absente, supposée FALSE
                     targets[raw_vals[1].strip()] = False
 
-            # ── Indicateurs KPI ────────────────────────────────────────────
             elif tag == 'INDI':
-                # Format attendu : INDI | <NOM_INDICATEUR>
                 if len(raw_vals) >= 2:
                     indi_name = raw_vals[1].strip()
                     if indi_name and indi_name.upper() not in ('NOM', 'NAME', 'INDICATOR'):
                         indicators.append(indi_name)
 
         return SensitivityParams(
-            run=run,
-            variations=variations,
-            direction=direction,
-            scenarios=scenarios,
-            time_limit=time_limit,
-            targets=targets,
-            indicators=indicators,
+            run=run, variations=variations, direction=direction,
+            scenarios=scenarios, time_limit=time_limit, targets=targets, indicators=indicators
         )
 
     def _interpolate_dict(self, data_dict: Dict[int, Any], years_list: List[int]) -> Dict[int, float]:

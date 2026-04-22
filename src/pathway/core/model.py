@@ -116,6 +116,7 @@ class Resource:
     category: str = "Other"
     can_buy: bool = False
     can_sell: bool = False
+    tax_indirect_emissions: bool = False
 
 @dataclass
 class Technology:
@@ -147,10 +148,12 @@ class TimeSeriesData:
     carbon_prices: Dict[int, float] = field(default_factory=dict) # year -> CO2 price
     carbon_penalties: Dict[int, float] = field(default_factory=dict) # year -> penalty factor (x in 1+x)
     other_emissions_factors: Dict[str, Dict[int, float]] = field(default_factory=dict) # resource_id -> year -> factor
+    resource_limits: Dict[str, Dict[int, float]] = field(default_factory=dict)  # resource_id -> year -> limit (in base unit)
     
     # Raw values from Excel before interpolation (for sensitivity re-interpolation)
     resource_prices_anchors: Dict[str, Dict[int, float]] = field(default_factory=dict)
     carbon_prices_anchors: Dict[int, float] = field(default_factory=dict)
+    resource_limits_anchors: Dict[str, Dict[int, float]] = field(default_factory=dict)
 
 @dataclass
 class Process:

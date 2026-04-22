@@ -98,7 +98,9 @@ class PathFinderReporter:
         return self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
 
     def _process_primary_energy_consumption(self, process) -> float:
-        val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+        # Filter to only energy resources for MW-based scaling
+        excluded = self._get_non_energy_resource_ids()
+        val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions, excluded_resources=excluded)
         return val
 
     def _tech_emission_impact(self, tech):
@@ -109,6 +111,32 @@ class PathFinderReporter:
             if co2_keys:
                 imp = tech.impacts[co2_keys[0]]
         return imp
+
+    def _get_energy_resource_ids(self) -> set:
+        """Returns IDs of resources that are considered 'Energy' for scaling purposes."""
+        energy_ids = set()
+        for res_id, res in self.data.resources.items():
+            if (res_id.startswith('EN_') or 
+                res.category.upper() in ['ENERGY', 'FUEL'] or 
+                res.resource_type.upper() in ['ELECTRICITY', 'FUEL', 'GAS', 'HYDROGEN']):
+                energy_ids.add(res_id)
+        return energy_ids
+
+    def _get_non_energy_resource_ids(self) -> set:
+        """Returns IDs of resources that should be EXCLUDED from scaling drivers (e.g. Water, CO2)."""
+        all_ids = set(self.data.resources.keys())
+        energy_ids = self._get_energy_resource_ids()
+        return all_ids - energy_ids
+
+    def _get_safe_var_value(self, var, default=0.0) -> float:
+        """Returns varValue sanitized for None or extreme junk values on infeasibility."""
+        if var is None: return default
+        val = getattr(var, 'varValue', None)
+        if val is None: return default
+        # Junk data from CBC on infeasibility is often ~1e10
+        if abs(val) > 1e11: 
+            return default
+        return float(val)
 
     # Mathematical parity: tCO2-based scaling remains "entity emission baseline x process share"
     # and MW-based scaling remains "dominant weighted energy driver / operating hours".
@@ -152,8 +180,9 @@ class PathFinderReporter:
                     tech = self.data.technologies[t_id]
                     if tech.is_continuous_improvement:
                         continue
-                    if self.opt.invest_vars[(t, p_id, t_id)].varValue is not None and self.opt.invest_vars[(t, p_id, t_id)].varValue > 1e-6:
-                        invested_units = self.opt.invest_vars[(t, p_id, t_id)].varValue
+                    invest_val = self._get_safe_var_value(self.opt.invest_vars[(t, p_id, t_id)])
+                    if invest_val > 1e-6:
+                        invested_units = invest_val
                         
                         # Calculate CAPEX scaled by fractional units (tCO2 or MW)
                         cap_capex = 1.0
@@ -161,7 +190,7 @@ class PathFinderReporter:
                             if tech.capex_unit == 'tCO2': 
                                 cap_capex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                             elif 'MW' in tech.capex_unit.upper(): 
-                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                best_val = self._process_primary_energy_consumption(process)
                                 cap_capex = best_val / self.opt.entity.annual_operating_hours
                         current_capex = tech.capex_by_year.get(t, tech.capex)
                         capex_cost = (current_capex * cap_capex / process.nb_units) * invested_units
@@ -271,7 +300,7 @@ class PathFinderReporter:
                 if r_id in self.data.time_series.other_emissions_factors:
                     factor = self.data.time_series.other_emissions_factors[r_id].get(t, 0.0)
                     if factor > 0:
-                        cons_val = self.opt.cons_vars[(t, r_id)].varValue
+                        cons_val = self._get_safe_var_value(self.opt.cons_vars.get((t, r_id)))
                         indirect_co2 += cons_val * factor
                         
             total_co2 = direct_co2 + indirect_co2
@@ -284,6 +313,15 @@ class PathFinderReporter:
             taxed_co2 = self.opt.taxed_emis_vars[t].varValue
             tax_price = self.data.time_series.carbon_prices.get(t, 0.0)
             penalty_factor = self.data.time_series.carbon_penalties.get(t, 0.0)
+            
+            # --- INDIRECT CARBON TAX (User Request) ---
+            indirect_tax_cost = 0.0
+            for r_id, res in self.data.resources.items():
+                if res.tax_indirect_emissions:
+                    factor = self.data.time_series.other_emissions_factors.get(r_id, {}).get(t, 0.0)
+                    if factor > 0:
+                        cons_val = self._get_safe_var_value(self.opt.cons_vars.get((t, r_id)))
+                        indirect_tax_cost += (cons_val * factor * tax_price) / 1_000_000.0
             # Total cost is the sum of paid and penalized quotas
             # Differentiate standard tax from additional penalty
             paid_q = self.opt.paid_quota_vars[t].varValue or 0.0
@@ -328,7 +366,7 @@ class PathFinderReporter:
                     tech = self.data.technologies[t_id]
                     if tech.is_continuous_improvement:
                         continue
-                    act_var = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                    act_var = self._get_safe_var_value(self.opt.active_vars[(t, p_id, t_id)])
                     if act_var > 1e-6:
                         if tech.tech_category == 'Carbon Capture':
                             primary_emis = self._primary_emission_resource()
@@ -424,6 +462,7 @@ class PathFinderReporter:
                 'Free_Quota': direct_co2 * fq_pct if fq_pct <= 1.0 else fq_pct,  # Based on actual yearly emissions
                 'Tax_Price': tax_price,
                 'Standard_Tax_Cost_MEuros': standard_tax_cost,
+                'Indirect_Tax_Cost_MEuros': indirect_tax_cost,
                 'Penalty_Cost_MEuros': total_penalty_cost,
                 'Tax_Cost_MEuros': tax_cost_meuros,
                 'Avoided_Direct_CO2_kt': avoided_total_kt,
@@ -450,7 +489,7 @@ class PathFinderReporter:
                     if factor > 0:
                         cons_val = self.opt.cons_vars.get((t, r_id))
                         if cons_val is not None:
-                            val = cons_val.varValue
+                            val = self._get_safe_var_value(cons_val)
                             if r_id == 'EN_ELEC':
                                 base_elec = self.opt.entity.base_consumptions.get('EN_ELEC', 0.0)
                                 new_elec = max(0.0, val - base_elec)
@@ -491,10 +530,10 @@ class PathFinderReporter:
                             if tech.capex_unit == 'tCO2': 
                                 cap_capex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                             elif 'MW' in tech.capex_unit.upper(): 
-                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                best_val = self._process_primary_energy_consumption(process)
                                 cap_capex = best_val / self.opt.entity.annual_operating_hours
                         
-                        invest_v = getattr(self.opt.invest_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                        invest_v = self._get_safe_var_value(self.opt.invest_vars[(t, p_id, t_id)])
                         if invest_v > 1e-6:
                             current_capex = tech.capex_by_year.get(t, tech.capex)
                             true_capex = (current_capex * cap_capex / process.nb_units) * invest_v
@@ -547,12 +586,12 @@ class PathFinderReporter:
                             
                             # GRANT: Use precise value from the lp variable
                             if hasattr(self.opt, 'grant_amt_vars') and self.opt.grant_amt_vars.get((t, p_id, t_id)):
-                                grant_val = getattr(self.opt.grant_amt_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                                grant_val = self._get_safe_var_value(self.opt.grant_amt_vars[(t, p_id, t_id)])
                                 aids_dist[(t, f"Aid_GRANT_{t_id}")] += grant_val
                                     
                             # CCfD: Distributed over contract duration
                             if hasattr(self.opt, 'ccfd_used_vars') and self.opt.ccfd_used_vars.get((t, p_id, t_id)):
-                                if getattr(self.opt.ccfd_used_vars[(t, p_id, t_id)], 'varValue', 0) > 0.5:
+                                if self._get_safe_var_value(self.opt.ccfd_used_vars[(t, p_id, t_id)]) > 0.5:
                                     ccfd_p = self.data.ccfd_params
                                     if not imp:
                                         imp_keys = [k for k in tech.impacts.keys() if self._is_primary_emission_resource(k)]
@@ -578,7 +617,7 @@ class PathFinderReporter:
                                                     aids_dist[(tau, f"Aid_CCFD_{t_id}")] += (subsidy * avoided_tons)
 
             if self.data.dac_params.active:
-                dac_added_v = getattr(self.opt.dac_added_capacity_vars.get(t), 'varValue', 0.0) or 0.0
+                dac_added_v = self._get_safe_var_value(self.opt.dac_added_capacity_vars.get(t))
                 if dac_added_v > 1e-4:
                     dac_capex = dac_added_v * self.data.dac_params.capex_by_year.get(t, 0.0)
                     tech_capex_spent[(t, 'INDIRECT', 'DAC')] = dac_capex
@@ -587,9 +626,7 @@ class PathFinderReporter:
                     tech_invested_procs[(t, 'INDIRECT', 'DAC')] = [f"{dac_added_v / 1000:,.0f}ktCO2"]
             
             if self.data.credit_params.active:
-                # Credits are purely OPEX, but if there's a fixed setup cost (not currently in model), we'd put it here.
-                # For now, ensure it's in project_ids if used.
-                cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
+                cred_v = self._get_safe_var_value(self.opt.credit_purchased_vars.get(t))
                 if cred_v > 1e-4:
                     tech_capex_spent[(t, 'INDIRECT', 'CREDIT')] = 0.0 # No CAPEX for credits
                     tech_invested_procs[(t, 'INDIRECT', 'CREDIT')] = [f"{cred_v / 1000:,.0f}ktCO2"]
@@ -622,14 +659,14 @@ class PathFinderReporter:
             if self.data.dac_params.active:
                 row_agg['DAC'] = tech_capex_spent.get((t, 'INDIRECT', 'DAC'), 0.0)
                 row_agg['DAC_labels'] = ", ".join(tech_invested_procs.get((t, 'INDIRECT', 'DAC'), []))
-                dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
-                dac_captured_v = getattr(self.opt.dac_captured_vars.get(t), 'varValue', 0.0) or 0.0
+                dac_total_v = self._get_safe_var_value(self.opt.dac_total_capacity_vars.get(t))
+                dac_captured_v = self._get_safe_var_value(self.opt.dac_captured_vars.get(t))
                 base_opex = dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)
                 elec_cons = dac_captured_v * self.data.dac_params.elec_by_year.get(t, 0.0)
                 elec_price = self.data.time_series.resource_prices.get('EN_ELEC', {}).get(t, 0.0)
                 row_agg['DAC_Opex'] = base_opex + (elec_cons * elec_price)
             if self.data.credit_params.active:
-                cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
+                cred_v = self._get_safe_var_value(self.opt.credit_purchased_vars.get(t))
                 row_agg['Credit_Cost'] = cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)
             
             # Granular row (Plotting)
@@ -658,10 +695,10 @@ class PathFinderReporter:
                 ca_var_name = f"CA_{t}"
                 yearly_var_name = f"YearlyBudget_{t}"
                 vars_dict = self.opt.model.variablesDict()
-                if ca_var_name in vars_dict and vars_dict[ca_var_name].varValue is not None:
-                    budget_val = abs(vars_dict[ca_var_name].varValue) * ca_pct
-                elif yearly_var_name in vars_dict and vars_dict[yearly_var_name].varValue is not None:
-                    budget_val = vars_dict[yearly_var_name].varValue
+                if ca_var_name in vars_dict and self._get_safe_var_value(vars_dict[ca_var_name], None) is not None:
+                    budget_val = abs(self._get_safe_var_value(vars_dict[ca_var_name])) * ca_pct
+                elif yearly_var_name in vars_dict and self._get_safe_var_value(vars_dict[yearly_var_name], None) is not None:
+                    budget_val = self._get_safe_var_value(vars_dict[yearly_var_name])
                 else:
                     # Fallback
                     for res_id in self.opt.entity.sold_resources:
@@ -681,7 +718,7 @@ class PathFinderReporter:
         # Include 'INDIRECT' for DAC/Credit projects
         tech_principal_repayment = {(t, p_id, t_id): 0.0 for t in self.years for p_id in list(self.opt.entity.processes.keys()) + ['INDIRECT'] for t_id in list(self.data.technologies.keys()) + ['DAC', 'CREDIT']}
         
-        loan_taken_per_year = {t: sum(getattr(self.opt.loan_vars.get((t, p_id, t_id, l_id)), 'varValue', 0.0) or 0.0 
+        loan_taken_per_year = {t: sum(self._get_safe_var_value(self.opt.loan_vars.get((t, p_id, t_id, l_id))) 
                                       for p_id, p in self.opt.entity.processes.items() 
                                       for t_id in p.valid_technologies if t_id != 'UP'
                                       for l_id in range(len(self.data.bank_loans))) for t in self.years}
@@ -698,7 +735,7 @@ class PathFinderReporter:
                     project_shares[(p_id, t_id)] = self.df_projects.loc[self.df_projects['Year'] == tau, col_name].values[0] / total_capex_tau
 
             for l_id, loan in enumerate(self.data.bank_loans):
-                p_initial = sum(getattr(self.opt.loan_vars.get((tau, p_id, t_id, l_id)), 'varValue', 0.0) or 0.0
+                p_initial = sum(self._get_safe_var_value(self.opt.loan_vars.get((tau, p_id, t_id, l_id)))
                                 for p_id, p in self.opt.entity.processes.items()
                                 for t_id in p.valid_technologies if t_id != 'UP')
                 if p_initial > 0:
@@ -781,7 +818,7 @@ class PathFinderReporter:
         for i, obj in enumerate(self.data.objectives):
             if obj.mode == 'LINEAR':
                 t_target = min(obj.target_year, self.opt.years[-1])
-                penalty_val = getattr(self.opt.penalty_vars.get((i, t_target)), 'varValue', 0.0) or 0.0
+                penalty_val = self._get_safe_var_value(self.opt.penalty_vars.get((i, t_target)))
                 if penalty_val > 1e-4:
                     if obj.penalty_type == "NONE":
                         if self.verbose:
@@ -793,7 +830,7 @@ class PathFinderReporter:
                             print(f"    Target End: [cyan]{obj.target_year}[/cyan] | Resource: [cyan]{obj.resource}[/cyan] | Limit: [cyan]{obj.cap_value}[/cyan]")
                             print(f"    Shortfall (Penalty Paid): [bold red]{penalty_val:,.2f}[/bold red] {self.data.resources.get(obj.resource).unit if obj.resource in self.data.resources else 'units'}")
             else:
-                penalty_val = getattr(self.opt.penalty_vars.get(i), 'varValue', 0.0) or 0.0
+                penalty_val = self._get_safe_var_value(self.opt.penalty_vars.get(i))
                 if penalty_val > 1e-4:
                     if obj.penalty_type == "NONE":
                         if self.verbose:
@@ -1218,7 +1255,7 @@ class PathFinderReporter:
                             if tech.opex_unit == 'tCO2':
                                 cap_opex = self.opt.entity.process_emission_baseline(process, primary_emis)
                             elif 'MW' in tech.opex_unit.upper():
-                                primary_conso, _ = _primary_energy_consumption(process)
+                                primary_conso = self._process_primary_energy_consumption(process)
                                 cap_opex = primary_conso / self.opt.entity.annual_operating_hours
 
                         tech_mac_agg[t_id]['opex'] += year_opex_change + (cur_opex * cap_opex)
@@ -1618,7 +1655,7 @@ class PathFinderReporter:
                                 if tech.opex_unit == 'tCO2': 
                                     cap_opex = self.opt.entity.process_emission_baseline(process, self._primary_emission_resource())
                                 elif 'MW' in str(tech.opex_unit).upper():
-                                    best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                    best_val = self._process_primary_energy_consumption(process)
                                     cap_opex = best_val / self.opt.entity.annual_operating_hours
                             current_opex = tech.opex_by_year.get(t, tech.opex)
                             yr_val += (current_opex * cap_opex / process.nb_units) * act_v
@@ -1632,7 +1669,7 @@ class PathFinderReporter:
         dac_opex = []
         if self.data.dac_params.active:
             for t in years:
-                dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
+                dac_total_v = self._get_safe_var_value(self.opt.dac_total_capacity_vars.get(t))
                 dac_opex.append((dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)) / 1_000_000.0)
         
         df_emis_plot = df_emis.copy()
@@ -1642,7 +1679,7 @@ class PathFinderReporter:
         tax_costs = df_emis_plot['Tax_Cost_MEuros'].tolist() if 'Tax_Cost_MEuros' in df_emis_plot.columns else [0.0]*len(years)
         credit_costs = []
         for t in years:
-            cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
+            cred_v = self._get_safe_var_value(self.opt.credit_purchased_vars.get(t))
             credit_costs.append((cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)) / 1_000_000.0)
             
         ccs_st_costs = []
@@ -1712,6 +1749,7 @@ class PathFinderReporter:
             years = list(self.opt.years)
         
         standard_tax = df_plot['Standard_Tax_Cost_MEuros'].tolist() if 'Standard_Tax_Cost_MEuros' in df_plot.columns else [0.0]*len(years)
+        indirect_tax = df_plot['Indirect_Tax_Cost_MEuros'].tolist() if 'Indirect_Tax_Cost_MEuros' in df_plot.columns else [0.0]*len(years)
         penalty_costs = df_plot['Penalty_Cost_MEuros'].tolist() if 'Penalty_Cost_MEuros' in df_plot.columns else [0.0]*len(years)
         avoided_reduced = (df_plot['Really_Avoided_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist() if 'Really_Avoided_CO2_kt' in df_plot.columns else [0.0]*len(years)
         avoided_captured = (df_plot['Captured_CO2_kt'] * 1000 * df_plot['Tax_Price'] / 1_000_000.0).tolist()
@@ -1720,6 +1758,7 @@ class PathFinderReporter:
         fig = build_carbon_tax_figure(
             years=years,
             standard_tax=standard_tax,
+            indirect_tax=indirect_tax,
             penalties=penalty_costs,
             avoided_reduced=avoided_reduced,
             avoided_captured=avoided_captured,
@@ -1869,32 +1908,32 @@ class PathFinderReporter:
                     tech = self.data.technologies[t_id]
                     if tech.is_continuous_improvement:
                         continue
-                    act_v = getattr(self.opt.active_vars[(t, p_id, t_id)], 'varValue', 0.0) or 0.0
+                    act_v = self._get_safe_var_value(self.opt.active_vars[(t, p_id, t_id)])
                     if act_v > 0.01:
                         cap_opex = 1.0
                         if tech.opex_per_unit:
                             if tech.opex_unit == 'tCO2': cap_opex = self.opt.entity.process_emission_baseline(process, primary_emis)
                             elif 'MW' in str(tech.opex_unit).upper():
-                                best_val, _ = process.primary_energy_consumption(self.opt.entity.base_consumptions)
+                                best_val = self._process_primary_energy_consumption(process)
                                 cap_opex = best_val / self.opt.entity.annual_operating_hours
                         current_opex = tech.opex_by_year.get(t, tech.opex)
                         yr_opex += (current_opex * cap_opex / process.nb_units) * act_v
             if self.data.dac_params.active:
-                dac_total_v = getattr(self.opt.dac_total_capacity_vars.get(t), 'varValue', 0.0) or 0.0
+                dac_total_v = self._get_safe_var_value(self.opt.dac_total_capacity_vars.get(t))
                 yr_opex += dac_total_v * self.data.dac_params.opex_by_year.get(t, 0.0)
             tech_opex.append(yr_opex / 1_000_000.0)
         df_annual['Tech & DAC OPEX'] = tech_opex
         
         cred_costs = []
         for t in years:
-            cred_v = getattr(self.opt.credit_purchased_vars.get(t), 'varValue', 0.0) or 0.0
+            cred_v = self._get_safe_var_value(self.opt.credit_purchased_vars.get(t))
             cred_costs.append((cred_v * self.data.credit_params.cost_by_year.get(t, 0.0)) / 1_000_000.0)
         df_annual['Voluntary Carbon Credits'] = cred_costs
         
         # --- NEGATIVE COSTS (Savings/Aids) ---
         public_aids = []
         for t in years:
-            grant_total = sum(self.opt.grant_amt_vars.get((t, p_id, t_id)).varValue or 0.0 
+            grant_total = sum(self._get_safe_var_value(self.opt.grant_amt_vars.get((t, p_id, t_id))) 
                              for p_id, proc in self.opt.entity.processes.items() 
                              for t_id in proc.valid_technologies 
                              if (t, p_id, t_id) in self.opt.grant_amt_vars and self.opt.grant_amt_vars.get((t, p_id, t_id)) is not None)
@@ -1912,10 +1951,11 @@ class PathFinderReporter:
         for t in years:
             for res_id in self.data.resources:
                 if not self._is_primary_emission_resource(res_id):
-                    cons_val = self.opt.cons_vars[(t, res_id)].varValue or 0.0
+                    cons_val = self.opt.cons_vars.get((t, res_id))
+                    cons_val_numeric = self._get_safe_var_value(cons_val)
                     price = get_robust_price(res_id, t)
                     if price > 0:
-                        actual_res_costs[(t, res_id)] = (cons_val * price) / 1_000_000.0
+                        actual_res_costs[(t, res_id)] = (cons_val_numeric * price) / 1_000_000.0
         
         add_res_costs = []
         avoid_res_savings = []

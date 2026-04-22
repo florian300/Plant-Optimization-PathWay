@@ -7,6 +7,7 @@ def build_carbon_tax_figure(
     penalties: List[float],
     avoided_reduced: List[float],
     avoided_captured: List[float],
+    indirect_tax: Optional[List[float]] = None,
     ccfd_refunds: Optional[List[float]] = None,
     title: str = "CARBON TAX & AVOIDED COSTS BALANCE",
     theme: str = "report"
@@ -21,10 +22,19 @@ def build_carbon_tax_figure(
     fig.add_trace(go.Bar(
         x=years,
         y=standard_tax,
-        name="Standard Carbon Tax",
+        name="Standard Carbon Tax (S1)",
         marker_color="#EF4444", # Red-500
         hovertemplate="Standard Tax: %{y:.2f} M€<extra></extra>"
     ))
+
+    if indirect_tax and any(v > 1e-4 for v in indirect_tax):
+        fig.add_trace(go.Bar(
+            x=years,
+            y=indirect_tax,
+            name="Indirect Carbon Tax (S2/3)",
+            marker_color="#F87171", # Red-400 (lighter)
+            hovertemplate="Indirect Tax: %{y:.2f} M€<extra></extra>"
+        ))
 
     fig.add_trace(go.Bar(
         x=years,

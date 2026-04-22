@@ -703,6 +703,16 @@ class PathFinderOptimizer:
                         # So Cons <= Target means Production >= |Target|.
                         self.model += self.cons_vars[(t, res_id)] <= target_cons, f"Demand_Met_{t}_{res_id}"
 
+                # ── POWER LIMITS: Cap total consumption for resources with limits ──
+                # resource_limits is populated from the "POWER LIMITS" Excel sheet.
+                # Each entry is resource_id -> year -> max_value (already in base unit).
+                if res_id in self.data.time_series.resource_limits:
+                    limit_val = self.data.time_series.resource_limits[res_id].get(t, None)
+                    if limit_val is not None and limit_val >= 0:
+                        self.model += (
+                            self.cons_vars[(t, res_id)] <= limit_val
+                        ), f"PowerLimit_{t}_{res_id}"
+
             # Emissions computation
             direct_process_emis = pulp.lpSum([
                 self.process_state_vars[(t, p_id, self.primary_emission_id)]
@@ -1212,6 +1222,14 @@ class PathFinderOptimizer:
                 # Unpaid/Penalty emissions are at penalized price (1 + x)
                 total_cost.append((c_price * (1.0 + penalty_factor) * self.penalty_quota_vars[t]) / df)
                 
+                # Indirect Carbon Taxes (User Request)
+                # Scope 2/3 emissions for specific resources are taxed at market price
+                for res_id, res in self.data.resources.items():
+                    if res.tax_indirect_emissions:
+                        factor = self.data.time_series.other_emissions_factors.get(res_id, {}).get(t, 0.0)
+                        if factor > 0:
+                            total_cost.append((self.cons_vars[(t, res_id)] * factor * c_price) / df)
+                
         # Calculate dynamic massive penalty cost: 
         # Needs to be significantly higher than any real cost (Capex, Opex, Carbon Tax, Subsidies)
         # to ensure objectives are prioritized.
@@ -1320,6 +1338,9 @@ class PathFinderOptimizer:
                     print("  [magenta][Optimizer][/magenta] [!] Time limit reached with a FEASIBLE incumbent — reporting best solution.")
             else:
                 status = 'Infeasible'
+                print("\n  [bold red][!!!] CRITICAL: MODEL IS INFEASIBLE [!!!][/bold red]")
+                print("  [red]The solver could not find a solution that satisfies all constraints.[/red]")
+                print("  [red]Check 'POWER LIMITS' or 'COMPATIBILITIES' for conflicting requirements.\n[/red]")
         elif status == 'Optimal':
             pass  # already correct
         elif status == 'Infeasible':
@@ -1329,5 +1350,9 @@ class PathFinderOptimizer:
 
         if self.verbose:
             print(f"  [magenta][Optimizer][/magenta] [OK] Solver Status: [bold cyan]{status}[/bold cyan]")
+            if status == 'Infeasible':
+                print("\n  [bold red][!!!] CRITICAL: MODEL IS INFEASIBLE [!!!][/bold red]")
+                print("  [red]The solver could not find a solution that satisfies all constraints.[/red]")
+                print("  [red]Check 'POWER LIMITS' or 'COMPATIBILITIES' for conflicting requirements.\n[/red]")
         return status
 
