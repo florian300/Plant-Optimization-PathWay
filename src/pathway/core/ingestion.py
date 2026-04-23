@@ -86,11 +86,23 @@ class PathFinderParser:
             header_indices.pop()
             
         if max_data_idx > (max(header_indices) if header_indices else -1):
-            # Detect pattern: find headers ending with '1'
+            # Detect pattern: find headers ending with a digit
+            # We'll look for headers ending with '1' to define the base pattern
             pattern_bases = [h[:-1] for h in headers if h.endswith('1')]
             if pattern_bases:
                 curr_idx = max(header_indices) + 1
-                curr_num = 2
+                
+                # Find the highest number already used for these patterns
+                max_num = 1
+                for h in headers:
+                    for base in pattern_bases:
+                        if h.startswith(base):
+                            try:
+                                num = int(h[len(base):])
+                                if num > max_num: max_num = num
+                            except ValueError: continue
+                
+                curr_num = max_num + 1
                 while curr_idx <= max_data_idx:
                     for base in pattern_bases:
                         if curr_idx > max_data_idx: break
@@ -116,32 +128,138 @@ class PathFinderParser:
         
         return data_rows
 
+    def get_project_settings(self) -> Dict[str, Any]:
+        """Extracts global project settings and diagnostics for the Home tab."""
+        df_overview = self.xl.parse('OverView', header=None)
+        
+        # 1. INIT - Global Settings
+        init_raw = self._extract_block(df_overview, 'INIT')
+        init_dict = {}
+        for row in init_raw:
+            # First key is usually the label, second is the value
+            keys = [k for k in row.keys() if k != '**' and row[k] is not None]
+            if len(keys) >= 2:
+                init_dict[row[keys[0]]] = row[keys[1]]
+            elif len(keys) == 1:
+                # If only one key has data, it might be a flag or label
+                init_dict[keys[0]] = row[keys[0]]
+
+        # 2. STRUCTURAL - Rules
+        struct_raw = self._extract_block(df_overview, 'STRUCTURAL')
+        struct_dict = {}
+        for row in struct_raw:
+            keys = [k for k in row.keys() if k != '**' and row[k] is not None]
+            if len(keys) >= 2:
+                # Use first as key, second as value
+                struct_dict[row[keys[0]]] = row[keys[1]]
+
+        # 3. CLUSTER - Perimeter
+        cluster_data = self._extract_block(df_overview, 'CLUSTER')
+
+        # 4. OBJECTIVES - Targets
+        objectives_data = self._extract_block(df_overview, 'OBJECTIVES')
+
+        # 5. SENSITIVITY - Optional settings
+        sens_raw = self._extract_block(df_overview, 'SENSITIVITY')
+        sens_dict = {}
+        for row in sens_raw:
+            keys = [k for k in row.keys() if k != '**' and row[k] is not None]
+            if len(keys) >= 2:
+                sens_dict[row[keys[0]]] = row[keys[1]]
+
+        # 6. DIAGNOSTICS
+        diagnostics = self._get_diagnostics(df_overview, cluster_data)
+
+        return {
+            'INIT': init_dict,
+            'STRUCTURAL': struct_dict,
+            'CLUSTER': cluster_data,
+            'OBJECTIVES': objectives_data,
+            'SENSITIVITY': sens_dict,
+            'DIAGNOSTICS': diagnostics
+        }
+
+    def _get_diagnostics(self, df_overview: pd.DataFrame, cluster_data: List[Dict]) -> List[Dict]:
+        """Perform backend checks to identify data errors or warnings."""
+        logs = []
+        
+        # Check 1: Empty cluster
+        if not cluster_data:
+            logs.append({"level": "error", "msg": "No entities found in the CLUSTER block of OverView."})
+        else:
+            logs.append({"level": "success", "msg": f"Found {len(cluster_data)} entities in project perimeter."})
+
+        # Check 2: Missing sheets
+        for entity in cluster_data:
+            name = entity.get('ENTITY', 'Unknown')
+            sheet = entity.get('SHEET')
+            if not sheet or sheet not in self.xl.sheet_names:
+                logs.append({"level": "error", "msg": f"Entity '{name}': Target sheet '{sheet}' missing in Excel."})
+            else:
+                # Check 3: Basic block presence in entity sheet
+                try:
+                    df_e = self.xl.parse(sheet, header=None)
+                    for b in ['REF', 'TOTAL', 'PROCESS', 'TECHNOLOGICAL TRANSITION']:
+                        found = False
+                        for val in df_e.iloc[:, 0]:
+                            if str(val).strip() == b:
+                                found = True
+                                break
+                        if not found:
+                            logs.append({"level": "warning", "msg": f"Entity '{name}': Block '{b}' not found in sheet '{sheet}'."})
+                except Exception as e:
+                    logs.append({"level": "error", "msg": f"Error reading sheet '{sheet}' for entity '{name}': {str(e)}"})
+
+        # Check 4: Date check
+        if logs and not any(l['level'] == 'error' for l in logs):
+            logs.append({"level": "success", "msg": "Data structure validation completed with no critical errors."})
+
+        return logs
+
     def get_company_explorer_data(self) -> Dict[str, Any]:
         """Extracts company data from OverView and entity sheets for the Explorer view."""
         df_overview = self.xl.parse('OverView', header=None)
-        init_data = self._extract_block(df_overview, 'INIT')
+        global_init = self._extract_block(df_overview, 'INIT')
         cluster_data = self._extract_block(df_overview, 'CLUSTER')
         
+        # Extract tech map (ID -> Name)
+        tech_map = {}
+        if 'NEW TECH' in self.xl.sheet_names:
+            df_tech = self.xl.parse('NEW TECH', header=None)
+            tecs = self._extract_block(df_tech, 'TECS')
+            for t in tecs:
+                t_id = t.get('ID')
+                t_name = t.get('NAME')
+                if t_id and t_name:
+                    tech_map[t_id] = t_name
+
         company_data = {}
         for entity in cluster_data:
-            # Try to find name/id
-            name_keys = ['NAME', 'ENTITY', 'ID', 'PROJECT NAME']
-            comp_name = next((entity[k] for k in name_keys if k in entity and entity[k]), "Unknown Company")
+            entity_name = entity.get('ENTITY')
             sheet_name = entity.get('SHEET')
+            if not entity_name or not sheet_name: continue
             
-            if not sheet_name or sheet_name not in self.xl.sheet_names:
-                # Fallback: if no sheet, still store INIT
-                company_data[comp_name] = { "INIT": init_data, "REF": [], "TOTAL": [], "PROCESS": [], "TRANSITION": [] }
+            try:
+                df_entity = self.xl.parse(sheet_name, header=None)
+            except Exception:
                 continue
                 
-            df_comp = self.xl.parse(sheet_name, header=None)
-            company_data[comp_name] = {
-                "INIT": init_data,
-                "REF": self._extract_block(df_comp, 'REF'),
-                "TOTAL": self._extract_block(df_comp, 'TOTAL'),
-                "PROCESS": self._extract_block(df_comp, 'PROCESS'),
-                "TRANSITION": self._extract_block(df_comp, 'TECHNOLOGICAL TRANSITION')
+            # Merge global INIT, cluster info, and specific entity INIT
+            entity_init = self._extract_block(df_entity, 'INIT')
+            combined_init = []
+            if global_init: combined_init.extend(global_init)
+            combined_init.append(entity) # Entity metadata (TYPE, LOCATION, etc.)
+            if entity_init: combined_init.extend(entity_init)
+
+            company_data[entity_name] = {
+                'INIT': combined_init,
+                'REF': self._extract_block(df_entity, 'REF'),
+                'TOTAL': self._extract_block(df_entity, 'TOTAL'),
+                'PROCESS': self._extract_block(df_entity, 'PROCESS'),
+                'TRANSITION': self._extract_block(df_entity, 'TECHNOLOGICAL TRANSITION'),
+                'TECH_MAP': tech_map
             }
+            
         return company_data
 
     def _parse_numeric(self, val, default=0.0) -> float:

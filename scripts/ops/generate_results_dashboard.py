@@ -319,7 +319,7 @@ def load_sensitivity_data(json_path: Optional[Path] = None) -> Optional[List[Dic
         return None
 
 
-def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str, Any]]] = None, company_data: Optional[Dict[str, Any]] = None) -> str:
+def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str, Any]]] = None, company_data: Optional[Dict[str, Any]] = None, project_settings: Optional[Dict[str, Any]] = None) -> str:
     payload_json = json.dumps(payload, ensure_ascii=True)
     sensitivity_json = json.dumps(sensitivity_data if sensitivity_data else [], ensure_ascii=True)
     company_json = json.dumps(company_data if company_data else {}, ensure_ascii=True)
@@ -647,19 +647,83 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 <body>
   <header class=\"max-w-7xl mx-auto px-4 md:px-8 pt-8 md:pt-12 text-center\">
     <div class=\"nav-pill-container shadow-sm\">
-      <div class=\"nav-tab tab-home\" onclick=\"switchTab('home', this)\">Home</div>
+      <div class=\"nav-tab tab-home active\" onclick=\"switchTab('home', this)\">Vue d'ensemble</div>
       <div class=\"nav-tab tab-details\" onclick=\"switchTab('details', this)\">Simulation details</div>
-      <div class=\"nav-tab tab-results active\" onclick=\"switchTab('results', this)\">Results</div>
+      <div class=\"nav-tab tab-results\" onclick=\"switchTab('results', this)\">Results</div>
       <div class=\"nav-tab tab-sensitivity\" onclick=\"switchTab('sensitivity', this)\">Sensitivity analysis</div>
       <div class=\"nav-tab tab-licence\" onclick=\"switchTab('licence', this)\">Licence</div>
     </div>
   </header>
 
   <!-- Tab Contents -->
-  <div id=\"home-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
-    <section class=\"glass-card rounded-3xl p-12 text-center\">
-      <h2 class=\"text-3xl font-heading font-bold mb-4\">Home</h2>
-      <p class=\"text-slate-500\">This is the home tab placeholder.</p>
+  <div id=\"home-tab\" class=\"tab-content active max-w-7xl mx-auto px-4 md:px-8 py-10\">
+    <!-- Cards Grid -->
+    <div class=\"grid grid-cols-1 md:grid-cols-2 gap-8 mb-10\">
+      <!-- Card 1: Global Parameters -->
+      <section class=\"glass-card rounded-3xl p-8\">
+        <div class=\"flex items-center gap-3 mb-6\">
+          <div class=\"w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600\">
+            <i class=\"fa-solid fa-gears\"></i>
+          </div>
+          <h2 class=\"font-heading text-xl font-bold text-slate-800\">Paramètres Globaux</h2>
+        </div>
+        <div id=\"home-init-content\"></div>
+      </section>
+
+      <!-- Card 2: Structural Rules -->
+      <section class=\"glass-card rounded-3xl p-8\">
+        <div class=\"flex items-center gap-3 mb-6\">
+          <div class=\"w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600\">
+            <i class=\"fa-solid fa-scale-balanced\"></i>
+          </div>
+          <h2 class=\"font-heading text-xl font-bold text-slate-800\">Contraintes & Politiques</h2>
+        </div>
+        <div id=\"home-struct-content\"></div>
+      </section>
+
+      <!-- Card 3: Perimeter -->
+      <section class=\"glass-card rounded-3xl p-8\">
+        <div class=\"flex items-center gap-3 mb-6\">
+          <div class=\"w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600\">
+            <i class=\"fa-solid fa-industry\"></i>
+          </div>
+          <h2 class=\"font-heading text-xl font-bold text-slate-800\">Périmètre du Projet</h2>
+        </div>
+        <div id=\"home-cluster-content\" class=\"overflow-hidden rounded-2xl border border-slate-100\"></div>
+      </section>
+
+      <!-- Card 4: Objectives -->
+      <section class=\"glass-card rounded-3xl p-8\">
+        <div class=\"flex items-center gap-3 mb-6\">
+          <div class=\"w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-600\">
+            <i class=\"fa-solid fa-bullseye\"></i>
+          </div>
+          <h2 class=\"font-heading text-xl font-bold text-slate-800\">Objectifs de Décarbonation</h2>
+        </div>
+        <div id=\"home-objectives-content\" class=\"space-y-4\"></div>
+      </section>
+    </div>
+
+    <!-- Diagnostic Panel -->
+    <section class=\"glass-card rounded-3xl p-8\">
+      <div class=\"flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8\">
+        <div class=\"flex items-center gap-3\">
+          <div class=\"w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-600\">
+            <i class=\"fa-solid fa-vial-circle-check\"></i>
+          </div>
+          <div>
+            <h2 class=\"font-heading text-xl font-bold text-slate-800\">Validation & Diagnostics</h2>
+            <p class=\"text-xs text-slate-500 font-medium\">Contrôles d'intégrité et de cohérence des données source.</p>
+          </div>
+        </div>
+        <div class=\"flex gap-2 p-1 bg-slate-100/50 rounded-xl\">
+          <button onclick=\"filterLogs('all', this)\" class=\"log-filter-btn active px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-800 shadow-sm\">Tous</button>
+          <button onclick=\"filterLogs('error', this)\" class=\"log-filter-btn px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-rose-600\">Erreurs</button>
+          <button onclick=\"filterLogs('warning', this)\" class=\"log-filter-btn px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-amber-600\">Avertissements</button>
+          <button onclick=\"filterLogs('success', this)\" class=\"log-filter-btn px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-emerald-600\">Succès</button>
+        </div>
+      </div>
+      <div id=\"diagnostic-logs\" class=\"space-y-3\"></div>
     </section>
   </div>
 
@@ -981,8 +1045,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       </section>
 
     </div>
-  </div>
-
   <div id=\"licence-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
     <section class=\"glass-card rounded-3xl p-12 text-center\">
       <h2 class=\"text-3xl font-heading font-bold mb-4\">Licence</h2>
@@ -994,9 +1056,135 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     const dashboardData = __DASHBOARD_DATA__;
     const sensitivityData = __SENSITIVITY_DATA__;
     const companyData = __COMPANY_DATA__;
+    const projectSettings = __PROJECT_SETTINGS__;
 
     let currentSimCategory = 'simulation_prices';
     let currentExplorerTab = 'profile';
+
+    function renderHome() {
+      const settings = projectSettings;
+      if (!settings) return;
+
+      // Card 1: INIT
+      const initContainer = document.getElementById('home-init-content');
+      if (initContainer && settings.INIT) {
+        let html = '<ul class="space-y-3">';
+        Object.entries(settings.INIT).forEach(([key, val]) => {
+          if (!key.includes('WILL ONLY VERIFY')) {
+             html += `<li class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0"><span class="text-sm font-bold text-slate-500 uppercase tracking-tight">${key}</span><span class="text-sm font-bold text-slate-800">${val}</span></li>`;
+          }
+        });
+        // Add SENSITIVITY if present
+        if (settings.SENSITIVITY) {
+           Object.entries(settings.SENSITIVITY).forEach(([key, val]) => {
+             html += `<li class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0"><span class="text-sm font-bold text-orange-500 uppercase tracking-tight">${key}</span><span class="text-sm font-bold text-slate-800">${val}</span></li>`;
+           });
+        }
+        html += '</ul>';
+        initContainer.innerHTML = html;
+      }
+
+      // Card 2: STRUCTURAL
+      const structContainer = document.getElementById('home-struct-content');
+      if (structContainer && settings.STRUCTURAL) {
+        let html = '<div class="flex flex-wrap gap-3">';
+        Object.entries(settings.STRUCTURAL).forEach(([key, val]) => {
+          const isYes = String(val).toUpperCase() === 'YES';
+          html += `<div class="p-3 rounded-2xl border ${isYes ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50 border-slate-100'} flex-1 min-w-[200px]">
+            <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">${key}</span>
+            <span class="text-sm font-bold ${isYes ? 'text-emerald-700' : 'text-slate-700'}">${val}</span>
+          </div>`;
+        });
+        html += '</div>';
+        structContainer.innerHTML = html;
+      }
+
+      // Card 3: CLUSTER
+      const clusterContainer = document.getElementById('home-cluster-content');
+      if (clusterContainer && settings.CLUSTER) {
+        let html = '<table class="w-full text-left border-collapse">';
+        html += '<thead class="bg-slate-50 border-b border-slate-100"><tr>';
+        const sample = settings.CLUSTER[0] || {};
+        const keys = Object.keys(sample).filter(k => k !== '**');
+        keys.forEach(k => html += `<th class="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">${k}</th>`);
+        html += '</tr></thead><tbody>';
+        settings.CLUSTER.forEach(row => {
+          html += '<tr class="hover:bg-slate-50/50 transition-colors">';
+          keys.forEach(k => html += `<td class="px-4 py-3 text-xs font-bold text-slate-700 border-b border-slate-50">${row[k] || '-'}</td>`);
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        clusterContainer.innerHTML = html;
+      }
+
+      // Card 4: OBJECTIVES
+      const objContainer = document.getElementById('home-objectives-content');
+      if (objContainer && settings.OBJECTIVES) {
+        let html = '';
+        settings.OBJECTIVES.forEach(obj => {
+          const name = obj.NAME || obj.OBJECTIVE || obj.RESOURCE || 'Objectif';
+          html += `<div class="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 text-xs font-bold">${String(name).charAt(0)}</div>
+              <div>
+                <span class="block text-sm font-bold text-slate-800">${name}</span>
+                <span class="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">Cible: ${obj.LIMIT || obj.VALUE || '-'} | Année: ${obj.YEAR || '-'}</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pénalité</span>
+              <span class="text-xs font-bold text-rose-600">${obj.PENALITY || obj.PENALTY || '-'} €</span>
+            </div>
+          </div>`;
+        });
+        objContainer.innerHTML = html;
+      }
+
+      renderLogs('all');
+    }
+
+    function renderLogs(filter) {
+      const logsContainer = document.getElementById('diagnostic-logs');
+      if (!logsContainer || !projectSettings.DIAGNOSTICS) return;
+
+      let filtered = projectSettings.DIAGNOSTICS;
+      if (filter !== 'all') {
+        filtered = filtered.filter(l => l.level === filter);
+      }
+
+      if (filtered.length === 0) {
+        logsContainer.innerHTML = '<div class="p-8 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">Aucun message pour ce filtre.</div>';
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(log => {
+        let bgColor, borderColor, textColor, icon;
+        if (log.level === 'error') {
+          bgColor = 'bg-rose-50/50'; borderColor = 'border-rose-100'; textColor = 'text-rose-800'; icon = 'fa-triangle-exclamation';
+        } else if (log.level === 'warning') {
+          bgColor = 'bg-amber-50/50'; borderColor = 'border-amber-100'; textColor = 'text-amber-800'; icon = 'fa-circle-info';
+        } else {
+          bgColor = 'bg-emerald-50/50'; borderColor = 'border-emerald-100'; textColor = 'text-emerald-800'; icon = 'fa-circle-check';
+        }
+
+        html += `<div class="flex items-start gap-4 p-4 rounded-2xl border ${bgColor} ${borderColor} ${textColor} transition-all animate-enter">
+          <i class="fa-solid ${icon} mt-0.5"></i>
+          <span class="text-sm font-medium">${log.msg}</span>
+        </div>`;
+      });
+      logsContainer.innerHTML = html;
+    }
+
+    function filterLogs(filter, btn) {
+      document.querySelectorAll('.log-filter-btn').forEach(b => {
+        b.classList.remove('active', 'bg-white', 'text-slate-800', 'shadow-sm');
+        b.classList.add('text-slate-500');
+      });
+      btn.classList.add('active', 'bg-white', 'text-slate-800', 'shadow-sm');
+      btn.classList.remove('text-slate-500');
+      renderLogs(filter);
+    }
 
     function initCompanyExplorer() {
       const select = document.getElementById('companyExplorerSelect');
@@ -1040,21 +1228,54 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     function renderProfile(data, container) {
       const init = data.INIT || [];
       const ref = data.REF || [];
-      let html = `<div class="grid grid-cols-1 md:grid-cols-2 gap-8 fade-in">`;
-      html += `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid fa-circle-info text-indigo-500"></i> Project Metadata (INIT)</h3><div class="grid grid-cols-1 gap-3">`;
-      init.forEach(row => {
-        const keys = Object.keys(row);
-        if (keys.length < 2) return;
-        html += `<div class="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100"><span class="text-sm font-semibold text-slate-600">${row[keys[0]]}</span><span class="px-3 py-1 rounded-full bg-white border border-slate-200 text-xs font-bold text-indigo-700 shadow-sm">${row[keys[1]]}</span></div>`;
-      });
-      html += `</div></div>`;
-      html += `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-amber-500"></i> Historical Baseline (REF)</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4">`;
-      ref.forEach(row => {
-        const id = row['RESSOURCE ID'] || 'N/A';
-        const val = row['VALOR'];
-        html += `<div class="kpi-card"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">${id} (${row['YEAR'] || ''})</div><div class="text-2xl font-bold text-slate-800">${typeof val === 'number' ? val.toLocaleString() : val}</div><div class="text-xs font-medium text-slate-500 mt-1">${row['UNIT'] || ''}</div></div>`;
-      });
-      html += `</div></div></div>`;
+
+      let html = `<div class="space-y-10 fade-in">`;
+
+      // Identity Badges (Aggregate from all INIT blocks)
+      if (init.length > 0) {
+        html += `<div class="flex flex-wrap gap-2">`;
+        const shownKeys = new Set();
+        const skipKeys = new Set(['**', 'SHEET', 'FILE', 'AUTHOR', 'ACTIVE', 'ENTITY', 'ID', 'NAME', 'RUN PROJECT ? (YES/NO)']);
+        init.forEach(block => {
+          Object.entries(block).forEach(([key, val]) => {
+            if (val && !skipKeys.has(key) && !shownKeys.has(key) && !key.includes('WILL ONLY VERIFY')) {
+              shownKeys.add(key);
+              html += `<div class="px-3 py-1.5 bg-slate-100/80 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-600 shadow-sm flex items-center gap-2"><span class="text-slate-400 uppercase tracking-tighter">${key}:</span> ${val}</div>`;
+            }
+          });
+        });
+        html += `</div>`;
+      }
+
+      // Historical Baseline (REF)
+      if (ref.length > 0) {
+        html += `
+          <div class="space-y-6">
+            <h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
+              <i class="fa-solid fa-clock-rotate-left text-amber-500"></i> Historical Baseline (REF)
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">`;
+        
+        ref.forEach(row => {
+          const id = row['RESOURCE ID'] || row['RESSOURCE ID'] || row['RESOURCE'] || row['RESSOURCE'] || 'N/A';
+          const val = row['VALOR'] || row['VALUE'] || 0;
+          const unit = row['UNIT'] || '';
+          const year = row['YEAR'] || '';
+          
+          html += `
+            <div class="glass-card p-5 border-t-2 border-blue-400">
+              <div class="text-[10px] font-bold text-slate-400 uppercase mb-2">${id}</div>
+              <div class="text-xl font-bold text-slate-800">${typeof val === 'number' ? val.toLocaleString() : val}</div>
+              <div class="flex justify-between items-center mt-3 pt-3 border-t border-slate-50">
+                <span class="text-[10px] font-semibold text-blue-600">${unit}</span>
+                <span class="text-[10px] text-slate-300 italic">${year}</span>
+              </div>
+            </div>`;
+        });
+        html += `</div></div>`;
+      }
+
+      html += `</div>`;
       container.innerHTML = html;
     }
 
@@ -1069,25 +1290,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         return !isNaN(v) && v < 0;
       });
 
-      const chartTrace = {
-        type: 'bar', orientation: 'h',
-        y: total.map(r => r['RESSOURCE']),
-        x: total.map(r => {
-          const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
-          return isNaN(v) ? 0 : v;
-        }),
-        marker: { color: total.map(r => {
-          const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
-          return v >= 0 ? '#3b82f6' : '#f59e0b';
-        })},
-        hovertemplate: 'Resource: %{y}<br>Value: %{x} %{customdata}<extra></extra>',
-        customdata: total.map(r => r['UNIT'] || '')
-      };
-
-      let html = `<div class="space-y-12 fade-in">
-        <div id="balance-bar-chart" class="w-full" style="height: 450px;"></div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">`;
-
+      let html = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-10 fade-in">`;
       const renderList = (title, list, icon, color) => {
         let s = `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid ${icon} text-${color}-500"></i> ${title}</h3><div class="overflow-hidden rounded-2xl border border-slate-100 shadow-sm"><table class="explorer-table"><thead><tr><th>Resource</th><th>Value</th><th>Unit</th></tr></thead><tbody>`;
         list.forEach(r => {
@@ -1099,17 +1302,8 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       };
       html += renderList('Inputs (Consumption)', inputs, 'fa-arrow-right-to-bracket', 'blue');
       html += renderList('Outputs (Production/Emissions)', outputs, 'fa-arrow-right-from-bracket', 'amber');
-      html += `</div></div>`;
+      html += `</div>`;
       container.innerHTML = html;
-
-      Plotly.newPlot('balance-bar-chart', [chartTrace], {
-        title: { text: 'Resource Balance Overview', font: { size: 16, weight: 'bold', family: 'Montserrat' } },
-        margin: { t: 50, b: 50, l: 180, r: 50 },
-        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { family: 'Montserrat, sans-serif' },
-        xaxis: { title: 'Net Consumption (+) / Production (-)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
-        yaxis: { automargin: true }
-      }, { displayModeBar: false });
     }
 
     function renderProcesses(data, container) {
@@ -1171,33 +1365,62 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
     function renderTransition(data, container) {
       const transition = data.TRANSITION || [];
+      const techMap = data.TECH_MAP || {};
+      const processes = data.PROCESS || [];
+      const processMap = {};
+      processes.forEach(p => {
+          const id = p.ID || p.id;
+          if (id) processMap[id] = p['PROCESS NAME'] || p.id;
+      });
+
       if (transition.length === 0) { container.innerHTML = '<div class="p-10 text-center text-slate-400">No transition data.</div>'; return; }
-      const nodes = new Set();
+
+      const nodes = [];
+      const nodeMap = new Map();
+      const getNode = (label) => {
+        if (!nodeMap.has(label)) {
+          nodeMap.set(label, nodes.length);
+          nodes.push(label);
+        }
+        return nodeMap.get(label);
+      };
+
       const links = [];
       transition.forEach(row => {
-        const source = row['PROCESS ID'];
-        if (!source) return;
-        nodes.add(source);
+        const sourceID = row['PROCESS ID'];
+        if (!sourceID) return;
+        const sourceLabel = processMap[sourceID] || sourceID;
+
         Object.keys(row).forEach(key => {
-          if (key.includes('NEW TECH')) {
-            const target = row[key];
-            if (target && target !== 'None' && target !== '-') {
-              nodes.add(target);
-              links.push({ source, target, value: 1 });
+          if (key.startsWith('NEW TECH')) {
+            const targetID = row[key];
+            if (targetID && targetID !== 'None' && targetID !== '-') {
+              const targetLabel = techMap[targetID] || targetID;
+              links.push({
+                source: getNode(sourceLabel),
+                target: getNode(targetLabel),
+                value: 1
+              });
             }
           }
         });
       });
-      const nodeList = Array.from(nodes);
-      const nodeMap = {};
-      nodeList.forEach((n, i) => nodeMap[n] = i);
-      const sankeyData = [{
-        type: "sankey", orientation: "h",
-        node: { pad: 15, thickness: 20, line: { color: "white", width: 0.5 }, label: nodeList, color: nodeList.map((_, i) => `hsl(${i * (360/nodeList.length)}, 60%, 60%)`) },
-        link: { source: links.map(l => nodeMap[l.source]), target: links.map(l => nodeMap[l.target]), value: links.map(l => l.value), color: links.map(l => `hsla(${nodeMap[l.source] * (360/nodeList.length)}, 60%, 60%, 0.3)`) }
-      }];
+
+      if (links.length === 0) { container.innerHTML = '<div class="p-10 text-center text-slate-400">No active technological transitions identified.</div>'; return; }
+
+      const nodeColors = nodes.map((_, i) => `hsla(${i * (360/nodes.length)}, 60%, 50%, 0.8)`);
       container.innerHTML = `<div id="transition-sankey-chart" class="w-full" style="height: 500px;"></div>`;
-      Plotly.newPlot('transition-sankey-chart', sankeyData, { font: { size: 10, family: 'Montserrat, sans-serif' }, paper_bgcolor: 'rgba(0,0,0,0)' }, { displayModeBar: false });
+
+      Plotly.newPlot('transition-sankey-chart', [{
+        type: 'sankey', orientation: 'h',
+        node: { pad: 15, thickness: 20, line: { color: "rgba(0,0,0,0.1)", width: 0.5 }, label: nodes, color: nodeColors },
+        link: { source: links.map(l => l.source), target: links.map(l => l.target), value: links.map(l => l.value), color: links.map(l => nodeColors[l.source].replace('0.8', '0.2')) }
+      }], {
+        title: { text: "Technological Transition Roadmap", font: { size: 16, weight: 'bold', family: 'Montserrat' } },
+        font: { family: "Montserrat, sans-serif", size: 10 },
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { t: 50, b: 20, l: 20, r: 20 }
+      }, { displayModeBar: false });
     }
 
     function switchTab(tabId, el) {
@@ -1215,7 +1438,9 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       el.classList.add('active');
 
       // Trigger Plotly resize or specialized renderers
-      if (tabId === 'results') {
+      if (tabId === 'home') {
+        renderHome();
+      } else if (tabId === 'results') {
         window.dispatchEvent(new Event('resize'));
       } else if (tabId === 'details') {
         renderSimulationDetails();
@@ -2226,6 +2451,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     }
 
     initCompanyExplorer();
+    renderHome();
   </script>
 </body>
 </html>
@@ -2236,6 +2462,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         .replace("__DASHBOARD_DATA__", payload_json)
         .replace("__SENSITIVITY_DATA__", sensitivity_json)
         .replace("__COMPANY_DATA__", company_json)
+        .replace("__PROJECT_SETTINGS__", json.dumps(project_settings if project_settings else {}, ensure_ascii=True))
     )
 
 
@@ -2303,13 +2530,14 @@ def main() -> None:
     from pathway.core.ingestion import PathFinderParser
     repo_root_path = get_repo_root()
     excel_path = repo_root_path / "data" / "raw" / "excel" / "PathFinder input.xlsx"
+    project_settings = {}
+    company_data = {}
     if excel_path.exists():
         parser = PathFinderParser(str(excel_path))
+        project_settings = parser.get_project_settings()
         company_data = parser.get_company_explorer_data()
-    else:
-        company_data = {}
     
-    html = build_html(payload, sensitivity_data=sensitivity_data, company_data=company_data)
+    html = build_html(payload, sensitivity_data=sensitivity_data, company_data=company_data, project_settings=project_settings)
 
     output_path = output_dir / args.output_name
     write_dashboard_html(output_path, html)
