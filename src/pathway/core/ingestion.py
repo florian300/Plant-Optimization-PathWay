@@ -18,6 +18,132 @@ class PathFinderParser:
         self.all_scenarios_meta = []      # Store all scenarios found before filtering
         self.interpolation_mode = "LINEAR" # Default interpolation mode
 
+    def _extract_block(self, df: pd.DataFrame, marker: str) -> List[Dict[str, Any]]:
+        """Extracts a block of data between MARKER START and MARKER END agnostically."""
+        start_row = -1
+        end_row = -1
+        marker_upper = marker.upper()
+        
+        for i, row in df.iterrows():
+            row_str = " ".join([str(v).strip().upper() for v in row if pd.notna(v)])
+            if f"{marker_upper} START" in row_str:
+                start_row = i
+            elif f"{marker_upper} END" in row_str:
+                end_row = i
+                break
+        
+        if start_row == -1 or end_row == -1:
+            return []
+            
+        block_df = df.iloc[start_row + 1 : end_row]
+        
+        # Collect all rows
+        all_rows = []
+        for _, row in block_df.iterrows():
+            if row.isna().all(): continue
+            all_rows.append(row.tolist())
+        
+        if not all_rows: return []
+
+        # Agnostic detection of main table: find headers row with maximum columns
+        max_cols = 0
+        best_headers = []
+        best_indices = []
+        best_row_idx = -1
+        
+        for i, vals in enumerate(all_rows):
+            first_val = next((v for v in vals if pd.notna(v)), "")
+            if str(first_val).startswith('**'):
+                idx_list = [j for j, v in enumerate(vals) if pd.notna(v)]
+                h_list = [str(vals[j]).replace('**', '').strip() for j in idx_list]
+                valid = [(i_col, h) for i_col, h in zip(idx_list, h_list) if h]
+                if len(valid) > max_cols:
+                    max_cols = len(valid)
+                    best_indices = [p[0] for p in valid]
+                    best_headers = [p[1] for p in valid]
+                    best_row_idx = i
+        
+        # Fallback if no ** found
+        if best_row_idx == -1:
+            vals = all_rows[0]
+            best_indices = [j for j, v in enumerate(vals) if pd.notna(v)]
+            best_headers = [str(vals[j]).strip() for j in best_indices]
+            best_row_idx = 0
+
+        # Extract data rows after the identified header row
+        headers = best_headers
+        header_indices = best_indices
+        
+        # Agnostic expansion: if the header row is incomplete (e.g. ends with '...')
+        # but data exists in further columns, attempt to synthesize headers based on pattern.
+        max_data_idx = 0
+        for vals in all_rows[best_row_idx+1:]:
+            valid_idx = [j for j, v in enumerate(vals) if pd.notna(v)]
+            if valid_idx: max_data_idx = max(max_data_idx, max(valid_idx))
+        
+        if headers and headers[-1] == '...':
+            headers.pop()
+            header_indices.pop()
+            
+        if max_data_idx > (max(header_indices) if header_indices else -1):
+            # Detect pattern: find headers ending with '1'
+            pattern_bases = [h[:-1] for h in headers if h.endswith('1')]
+            if pattern_bases:
+                curr_idx = max(header_indices) + 1
+                curr_num = 2
+                while curr_idx <= max_data_idx:
+                    for base in pattern_bases:
+                        if curr_idx > max_data_idx: break
+                        headers.append(f"{base}{curr_num}")
+                        header_indices.append(curr_idx)
+                        curr_idx += 1
+                    curr_num += 1
+
+        data_rows = []
+        for i, vals in enumerate(all_rows):
+            if i <= best_row_idx: continue
+            
+            # Stop if we reach another header/metadata section
+            first_val = next((v for v in vals if pd.notna(v)), "")
+            if str(first_val).startswith('**'):
+                break
+            
+            row_dict = {}
+            for h_idx, h_name in zip(header_indices, headers):
+                val = vals[h_idx] if h_idx < len(vals) else None
+                row_dict[h_name] = val if pd.notna(val) else None
+            data_rows.append(row_dict)
+        
+        return data_rows
+
+    def get_company_explorer_data(self) -> Dict[str, Any]:
+        """Extracts company data from OverView and entity sheets for the Explorer view."""
+        df_overview = self.xl.parse('OverView', header=None)
+        init_data = self._extract_block(df_overview, 'INIT')
+        cluster_data = self._extract_block(df_overview, 'CLUSTER')
+        
+        company_data = {}
+        for entity in cluster_data:
+            # Try to find name/id
+            name_keys = ['NAME', 'ENTITY', 'ID', 'PROJECT NAME']
+            comp_name = next((entity[k] for k in name_keys if k in entity and entity[k]), "Unknown Company")
+            sheet_name = entity.get('SHEET')
+            
+            if not sheet_name or sheet_name not in self.xl.sheet_names:
+                # Fallback: if no sheet, still store INIT
+                company_data[comp_name] = { "INIT": init_data, "REF": [], "TOTAL": [], "PROCESS": [], "TRANSITION": [] }
+                continue
+                
+            df_comp = self.xl.parse(sheet_name, header=None)
+            company_data[comp_name] = {
+                "INIT": init_data,
+                "REF": self._extract_block(df_comp, 'REF'),
+                "TOTAL": self._extract_block(df_comp, 'TOTAL'),
+                "PROCESS": self._extract_block(df_comp, 'PROCESS'),
+                "TRANSITION": self._extract_block(df_comp, 'TECHNOLOGICAL TRANSITION')
+            }
+        return company_data
+
     def _parse_numeric(self, val, default=0.0) -> float:
         """Nettoie et convertit une valeur en float, gérant les devises, les séparateurs et les pourcentages."""
         if pd.isna(val) or val == '' or str(val).strip().lower() == 'nan':

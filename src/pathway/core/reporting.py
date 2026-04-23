@@ -1351,7 +1351,16 @@ class PathFinderReporter:
         self._plot_interest_paid(df_finance, show_png=toggles.chart_interest_paid)
         _step()
         
-        self._plot_prices(show_png=toggles.chart_resource_prices)
+        self._plot_simulation_prices(show_png=toggles.chart_resource_prices)
+        _step()
+        
+        self._plot_simulation_limits(show_png=toggles.chart_resource_prices)
+        _step()
+        
+        self._plot_simulation_factors(show_png=toggles.chart_resource_prices)
+        _step()
+        
+        self._plot_simulation_quotas(show_png=toggles.chart_resource_prices)
         _step()
         
         self._plot_co2_abatement_cost(df_mac, show_png=toggles.chart_co2_abatement_cost)
@@ -2035,7 +2044,7 @@ class PathFinderReporter:
         self._save_plotly_figure(fig, "Interest_Paid", show_png=show_png)
         self.charts_data.append(("Bank Loans: Interest Paid", df_plot[['Interest_Paid (M€)']]))
 
-    def _plot_prices(self, show_png: bool = True):
+    def _plot_simulation_prices(self, show_png: bool = True):
         """Plots all prices used in the simulation using the high-fidelity builder."""
         price_series = {}
         if self.data.time_series.carbon_prices:
@@ -2077,6 +2086,128 @@ class PathFinderReporter:
         df_prices = pd.DataFrame({info['name']: info['data'] for info in price_series.values()}).sort_index()
         df_prices.index.name = 'Year'
         self.charts_data.append(("Simulation Prices", df_prices))
+
+    def _plot_simulation_limits(self, show_png: bool = True):
+        """Plots technical/infrastructure limits trajectories (MW/unit)."""
+        limit_series = {}
+        colors = ['#16A085', '#27AE60', '#2980B9', '#8E44AD', '#2C3E50', '#D35400']
+        color_idx = 0
+        
+        for r_id, l_dict in self.data.time_series.resource_limits.items():
+            if l_dict and any(v > 0 for v in l_dict.values()):
+                res = self.data.resources.get(r_id)
+                name = res.name if res and res.name else r_id
+                unit = res.unit if res and res.unit else 'unit'
+                limit_series[r_id] = {
+                    'data': l_dict,
+                    'name': f"{name} Limit",
+                    'unit': unit,
+                    'color': colors[color_idx % len(colors)]
+                }
+                color_idx += 1
+
+        if not limit_series:
+            return
+
+        fig = build_simulation_prices_figure(
+            price_series=limit_series,
+            years=list(self.years),
+            theme="report",
+            title=f"TECHNICAL LIMITS: {self.scenario_name}"
+        )
+        self._save_plotly_figure(fig, "Simulation_Limits", show_png=show_png)
+        
+        df_limits = pd.DataFrame({info['name']: info['data'] for info in limit_series.values()}).sort_index()
+        df_limits.index.name = 'Year'
+        self.charts_data.append(("Simulation Technical Limits", df_limits))
+
+    def _plot_simulation_factors(self, show_png: bool = True):
+        """Plots emission factors trajectories (tCO2/unit)."""
+        factor_series = {}
+        colors = ['#7F8C8D', '#95A5A6', '#BDC3C7', '#34495E', '#2C3E50']
+        color_idx = 0
+        
+        # 1. Gather other emission factors from input
+        for r_id, f_dict in self.data.time_series.other_emissions_factors.items():
+            if f_dict: # Show even if 0, to be explicit about "Clean" resources
+                res = self.data.resources.get(r_id)
+                name = res.name if res and res.name else r_id
+                factor_series[r_id] = {
+                    'data': f_dict,
+                    'name': f"{name} Emission Factor",
+                    'unit': 'tCO2/unit',
+                    'color': colors[color_idx % len(colors)]
+                }
+                color_idx += 1
+        
+
+        if not factor_series:
+            return
+
+        fig = build_simulation_prices_figure(
+            price_series=factor_series,
+            years=list(self.years),
+            theme="report",
+            title=f"EMISSION FACTORS: {self.scenario_name}"
+        )
+        self._save_plotly_figure(fig, "Simulation_Factors", show_png=show_png)
+        
+        df_factors = pd.DataFrame({info['name']: info['data'] for info in factor_series.values()}).sort_index()
+        df_factors.index.name = 'Year'
+        self.charts_data.append(("Simulation Emission Factors", df_factors))
+
+    def _plot_simulation_quotas(self, show_png: bool = True):
+        """Plots Carbon Regulatory Framework: Quotas and CO2 Tax."""
+        quota_series = {}
+        
+        # 1. Carbon Price (EUA)
+        if self.data.time_series.carbon_prices:
+            quota_series['EUA'] = {
+                'data': self.data.time_series.carbon_prices,
+                'name': 'Market Carbon Price (EUA)',
+                'unit': '€/tCO2',
+                'color': '#2C3E50'
+            }
+            
+        # 2. Free Quotas (PI & NORM)
+        if self.data.time_series.carbon_quotas_pi:
+            quota_series['QUOTAS_PI'] = {
+                'data': self.data.time_series.carbon_quotas_pi,
+                'name': 'Free Carbon Quotas (PI)',
+                'unit': 'tCO2 or %',
+                'color': '#27AE60'
+            }
+        if self.data.time_series.carbon_quotas_norm:
+            quota_series['QUOTAS_NORM'] = {
+                'data': self.data.time_series.carbon_quotas_norm,
+                'name': 'Free Carbon Quotas (NORM)',
+                'unit': 'tCO2 or %',
+                'color': '#1E8449'
+            }
+            
+        # 3. Penalty Factor
+        if self.data.time_series.carbon_penalties:
+            quota_series['PENALTY'] = {
+                'data': self.data.time_series.carbon_penalties,
+                'name': 'Carbon Penalty Factor',
+                'unit': 'factor',
+                'color': '#C0392B'
+            }
+
+        if not quota_series:
+            return
+
+        fig = build_simulation_prices_figure(
+            price_series=quota_series,
+            years=list(self.years),
+            theme="report",
+            title=f"CARBON REGULATORY FRAMEWORK: {self.scenario_name}"
+        )
+        self._save_plotly_figure(fig, "Simulation_Quotas", show_png=show_png)
+        
+        df_quotas = pd.DataFrame({info['name']: info['data'] for info in quota_series.values()}).sort_index()
+        df_quotas.index.name = 'Year'
+        self.charts_data.append(("Simulation Carbon Framework", df_quotas))
 
     def _plot_co2_abatement_cost(self, df: pd.DataFrame, show_png: bool = True):
         """Plot the MAC curve using the high-fidelity builder."""

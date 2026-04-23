@@ -265,6 +265,9 @@ def build_dashboard_data(entity_dirs: Dict[str, Dict[str, Path]], discount_rate:
         ("carbon_tax",         "CARBON TAX",          "Carbon_Tax"),
         ("carbon_price",       "CARBON PRICE",        "Carbon_Prices"),
         ("simulation_prices",  "SIMULATION PRICES",  "Simulation_Prices"),
+        ("simulation_limits",  "TECHNICAL LIMITS",   "Simulation_Limits"),
+        ("simulation_factors", "EMISSION FACTORS",   "Simulation_Factors"),
+        ("simulation_quotas",  "CARBON & QUOTAS",    "Simulation_Quotas"),
         ("co2_abatement",      "CO2 ABATEMENT",       "CO2_Abatement"),
         ("data_used",          "DATA USED",           "Data_Used"),
     ]
@@ -316,9 +319,10 @@ def load_sensitivity_data(json_path: Optional[Path] = None) -> Optional[List[Dic
         return None
 
 
-def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str, Any]]] = None) -> str:
+def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str, Any]]] = None, company_data: Optional[Dict[str, Any]] = None) -> str:
     payload_json = json.dumps(payload, ensure_ascii=True)
     sensitivity_json = json.dumps(sensitivity_data if sensitivity_data else [], ensure_ascii=True)
+    company_json = json.dumps(company_data if company_data else {}, ensure_ascii=True)
 
     template = """<!DOCTYPE html>
 <html lang=\"en\">
@@ -349,6 +353,51 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <style>
     :root {
+      --glass-bg: rgba(255, 255, 255, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.4);
+    }
+    .explorer-tab-btn.active {
+      background: white;
+      color: #4f46e5;
+      border-color: #e0e7ff;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    }
+    .explorer-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.875rem;
+    }
+    .explorer-table th {
+      background: #f8fafc;
+      padding: 0.75rem 1rem;
+      text-align: left;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .explorer-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+    }
+    .explorer-table tr:hover td {
+      background: #f1f5f9;
+    }
+    .kpi-card {
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 1.5rem;
+      padding: 1.5rem;
+      transition: all 0.3s ease;
+    }
+    .kpi-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    }
       --bg-1: #f8fafc;
       --bg-2: #f1f5f9;
       --bg-3: #e2e8f0;
@@ -614,10 +663,78 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     </section>
   </div>
 
-  <div id=\"details-tab\" class=\"tab-content max-w-7xl mx-auto px-4 md:px-8 py-10\">
-    <section class=\"glass-card rounded-3xl p-12 text-center\">
-      <h2 class=\"text-3xl font-heading font-bold mb-4\">Simulation Details</h2>
-      <p class=\"text-slate-500\">Detailed simulation information will appear here.</p>
+  <div id="details-tab" class="tab-content max-w-7xl mx-auto px-4 md:px-8 py-10">
+    <!-- 0. Company Explorer Section -->
+    <section id="company-explorer-section" class="mb-12 fade-in">
+      <div class="glass-card rounded-3xl p-6 md:p-8 mb-8 border-b border-white/20">
+        <div class="flex flex-col lg:flex-row items-center justify-between gap-6 mb-8">
+          <div class="w-full lg:w-1/3">
+            <div class="flex items-center gap-2 mb-2">
+               <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <i class="fa-solid fa-building"></i>
+               </div>
+               <span class="text-xs font-bold text-indigo-600 uppercase tracking-tight">Company Data Explorer</span>
+            </div>
+            <select id="companyExplorerSelect" class="selector"></select>
+          </div>
+          
+          <div class="w-full lg:w-auto">
+            <div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
+              <button onclick="setExplorerTab('profile', this)" class="explorer-tab-btn active px-4 py-2 rounded-xl text-sm font-bold transition-all border border-indigo-100 bg-white text-indigo-600 shadow-sm">Profile Overview</button>
+              <button onclick="setExplorerTab('balance', this)" class="explorer-tab-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Resource Balance</button>
+              <button onclick="setExplorerTab('processes', this)" class="explorer-tab-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Process Analysis</button>
+              <button onclick="setExplorerTab('transition', this)" class="explorer-tab-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Transition Map</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="explorer-viewport" class="min-h-[400px]">
+          <!-- Dynamic content injected here -->
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4 mb-6 px-4">
+        <div class="h-px bg-slate-200 flex-1 opacity-50"></div>
+        <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+          <i class="fa-solid fa-chevron-down"></i> Simulation Parameters & Scenario Data
+        </h3>
+        <div class="h-px bg-slate-200 flex-1 opacity-50"></div>
+      </div>
+    </section>
+
+    <!-- Sticky Control Bar -->
+    <section class="glass-card rounded-3xl p-5 md:p-6 mb-8 sticky top-6 z-[100] fade-in shadow-xl border-t border-white/40">
+      <div class="flex flex-col lg:flex-row items-center justify-between gap-6">
+        <div class="w-full lg:w-1/3">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-tight block mb-2"><i class="fa-solid fa-list-check mr-2"></i>Active Scenario</span>
+          <select id="detailsScenarioSelect" class="selector"></select>
+        </div>
+        
+        <div class="w-full lg:w-auto">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-tight block mb-3 text-center lg:text-left"><i class="fa-solid fa-filter mr-2"></i>Category Filter</span>
+          <div class="flex flex-wrap items-center justify-center lg:justify-start gap-2">
+            <button onclick="setSimCategory('simulation_prices', this)" class="sim-cat-btn active px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Market Prices</button>
+            <button onclick="setSimCategory('simulation_limits', this)" class="sim-cat-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Technical Limits</button>
+            <button onclick="setSimCategory('simulation_quotas', this)" class="sim-cat-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Carbon & Quotas</button>
+            <button onclick="setSimCategory('simulation_factors', this)" class="sim-cat-btn px-4 py-2 rounded-xl text-sm font-bold transition-all border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Emission Factors</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Viewport -->
+    <section class="glass-card rounded-3xl p-6 md:p-10 fade-in relative group min-h-[650px] flex flex-col">
+      <div class="flex items-center gap-3 mb-6">
+        <div id="sim-cat-icon" class="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 text-xl shadow-inner">
+          <i class="fa-solid fa-chart-line"></i>
+        </div>
+        <div>
+          <h2 id="sim-cat-title" class="font-heading text-xl md:text-2xl font-bold text-slate-800">Market Prices Trajectories</h2>
+          <p id="sim-cat-desc" class="text-sm text-slate-500 font-medium">Evolution of commodity and resource costs over the simulation period.</p>
+        </div>
+      </div>
+      <div id="simulation-details-chart" class="flex-1 w-full" style="min-height:500px;"></div>
+      <button class="chart-btn" onclick="downloadChart('simulation-details-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
     </section>
   </div>
 
@@ -875,8 +992,213 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
   <script>
     const dashboardData = __DASHBOARD_DATA__;
-    // Sensitivity analysis data (injected by generate_results_dashboard.py)
     const sensitivityData = __SENSITIVITY_DATA__;
+    const companyData = __COMPANY_DATA__;
+
+    let currentSimCategory = 'simulation_prices';
+    let currentExplorerTab = 'profile';
+
+    function initCompanyExplorer() {
+      const select = document.getElementById('companyExplorerSelect');
+      if (!select) return;
+      const companies = Object.keys(companyData);
+      if (companies.length === 0) {
+        document.getElementById('company-explorer-section').style.display = 'none';
+        return;
+      }
+      
+      select.innerHTML = companies.map(c => `<option value="${c}">${c}</option>`).join('');
+      select.addEventListener('change', () => renderCompanyExplorer());
+      renderCompanyExplorer();
+    }
+
+    function setExplorerTab(tab, btn) {
+      currentExplorerTab = tab;
+      document.querySelectorAll('.explorer-tab-btn').forEach(b => {
+        b.classList.remove('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-indigo-100');
+        b.classList.add('text-slate-600', 'hover:bg-slate-50', 'border-slate-200');
+      });
+      btn.classList.add('active', 'bg-white', 'text-indigo-600', 'shadow-sm', 'border-indigo-100');
+      btn.classList.remove('text-slate-600', 'hover:bg-slate-50', 'border-slate-200');
+      renderCompanyExplorer();
+    }
+
+    function renderCompanyExplorer() {
+      const company = document.getElementById('companyExplorerSelect').value;
+      const data = companyData[company];
+      const viewport = document.getElementById('explorer-viewport');
+      if (!data) {
+        viewport.innerHTML = '<div class="p-10 text-center text-slate-400">No data found for this company.</div>';
+        return;
+      }
+      if (currentExplorerTab === 'profile') renderProfile(data, viewport);
+      else if (currentExplorerTab === 'balance') renderBalance(data, viewport);
+      else if (currentExplorerTab === 'processes') renderProcesses(data, viewport);
+      else if (currentExplorerTab === 'transition') renderTransition(data, viewport);
+    }
+
+    function renderProfile(data, container) {
+      const init = data.INIT || [];
+      const ref = data.REF || [];
+      let html = `<div class="grid grid-cols-1 md:grid-cols-2 gap-8 fade-in">`;
+      html += `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid fa-circle-info text-indigo-500"></i> Project Metadata (INIT)</h3><div class="grid grid-cols-1 gap-3">`;
+      init.forEach(row => {
+        const keys = Object.keys(row);
+        if (keys.length < 2) return;
+        html += `<div class="flex items-center justify-between p-4 rounded-2xl bg-slate-50/50 border border-slate-100"><span class="text-sm font-semibold text-slate-600">${row[keys[0]]}</span><span class="px-3 py-1 rounded-full bg-white border border-slate-200 text-xs font-bold text-indigo-700 shadow-sm">${row[keys[1]]}</span></div>`;
+      });
+      html += `</div></div>`;
+      html += `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-amber-500"></i> Historical Baseline (REF)</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4">`;
+      ref.forEach(row => {
+        const id = row['RESSOURCE ID'] || 'N/A';
+        const val = row['VALOR'];
+        html += `<div class="kpi-card"><div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">${id} (${row['YEAR'] || ''})</div><div class="text-2xl font-bold text-slate-800">${typeof val === 'number' ? val.toLocaleString() : val}</div><div class="text-xs font-medium text-slate-500 mt-1">${row['UNIT'] || ''}</div></div>`;
+      });
+      html += `</div></div></div>`;
+      container.innerHTML = html;
+    }
+
+    function renderBalance(data, container) {
+      const total = data.TOTAL || [];
+      const inputs = total.filter(r => {
+        const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
+        return !isNaN(v) && v >= 0;
+      });
+      const outputs = total.filter(r => {
+        const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
+        return !isNaN(v) && v < 0;
+      });
+
+      const chartTrace = {
+        type: 'bar', orientation: 'h',
+        y: total.map(r => r['RESSOURCE']),
+        x: total.map(r => {
+          const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
+          return isNaN(v) ? 0 : v;
+        }),
+        marker: { color: total.map(r => {
+          const v = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
+          return v >= 0 ? '#3b82f6' : '#f59e0b';
+        })},
+        hovertemplate: 'Resource: %{y}<br>Value: %{x} %{customdata}<extra></extra>',
+        customdata: total.map(r => r['UNIT'] || '')
+      };
+
+      let html = `<div class="space-y-12 fade-in">
+        <div id="balance-bar-chart" class="w-full" style="height: 450px;"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">`;
+
+      const renderList = (title, list, icon, color) => {
+        let s = `<div class="space-y-6"><h3 class="text-sm font-bold text-slate-800 uppercase flex items-center gap-2"><i class="fa-solid ${icon} text-${color}-500"></i> ${title}</h3><div class="overflow-hidden rounded-2xl border border-slate-100 shadow-sm"><table class="explorer-table"><thead><tr><th>Resource</th><th>Value</th><th>Unit</th></tr></thead><tbody>`;
+        list.forEach(r => {
+          const val = parseFloat(String(r['UNIT CONSUMPTION']).replace(',','.'));
+          s += `<tr><td class="font-semibold">${r['RESSOURCE']}</td><td class="font-mono font-bold text-${color}-600">${Math.abs(val).toLocaleString()}</td><td class="text-slate-400 text-xs">${r['UNIT'] || ''}</td></tr>`;
+        });
+        s += `</tbody></table></div></div>`;
+        return s;
+      };
+      html += renderList('Inputs (Consumption)', inputs, 'fa-arrow-right-to-bracket', 'blue');
+      html += renderList('Outputs (Production/Emissions)', outputs, 'fa-arrow-right-from-bracket', 'amber');
+      html += `</div></div>`;
+      container.innerHTML = html;
+
+      Plotly.newPlot('balance-bar-chart', [chartTrace], {
+        title: { text: 'Resource Balance Overview', font: { size: 16, weight: 'bold', family: 'Montserrat' } },
+        margin: { t: 50, b: 50, l: 180, r: 50 },
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { family: 'Montserrat, sans-serif' },
+        xaxis: { title: 'Net Consumption (+) / Production (-)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+        yaxis: { automargin: true }
+      }, { displayModeBar: false });
+    }
+
+    function renderProcesses(data, container) {
+      const processes = data.PROCESS || [];
+      if (processes.length === 0) { container.innerHTML = '<div class="p-10 text-center text-slate-400">No process data.</div>'; return; }
+
+      // Map Resource -> { ProcessName: Value }
+      const resourceMap = {};
+      const processNames = [];
+      const processesSet = new Set();
+
+      processes.forEach(p => {
+        const pName = p['PROCESS NAME'] || p['ID'] || 'Unnamed Process';
+        if (!processesSet.has(pName)) {
+            processesSet.add(pName);
+            processNames.push(pName);
+        }
+
+        Object.keys(p).forEach(key => {
+          if (key.startsWith('RESSOURCE ID')) {
+            const num = key.replace('RESSOURCE ID', '');
+            const rID = p[key];
+            const pctKey = `% CONSUMPTION${num}`;
+            const pctVal = p[pctKey];
+
+            if (rID && rID !== 'None' && rID !== '-') {
+              if (!resourceMap[rID]) resourceMap[rID] = {};
+              let val = 0;
+              if (typeof pctVal === 'number') val = pctVal * 100;
+              else val = parseFloat(String(pctVal).replace('%','')) || 0;
+              resourceMap[rID][pName] = (resourceMap[rID][pName] || 0) + val;
+            }
+          }
+        });
+      });
+
+      const uniqueResources = Object.keys(resourceMap);
+      const traces = processNames.map((pName, idx) => ({
+        name: pName,
+        type: 'bar',
+        x: uniqueResources,
+        y: uniqueResources.map(rID => resourceMap[rID][pName] || 0),
+        marker: { color: `hsl(${idx * (360/processNames.length)}, 65%, 55%)` },
+        hovertemplate: `<b>${pName}</b><br>Resource: %{x}<br>Contribution: %{y:.1f}%<extra></extra>`
+      }));
+
+      const headers = Object.keys(processes[0]);
+      container.innerHTML = `<div class="space-y-8 fade-in"><div id="process-stacked-chart" class="w-full"></div><div class="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm"><table class="explorer-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${processes.map(p => `<tr>${headers.map(h => `<td>${p[h] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+
+      Plotly.newPlot('process-stacked-chart', traces, {
+        barmode: 'stack', height: 450, margin: { t: 50, b: 100, l: 60, r: 20 },
+        paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { family: 'Montserrat, sans-serif' },
+        xaxis: { title: 'Consumed Resources', automargin: true },
+        yaxis: { title: 'Contribution (%)', range: [0, 100], ticksuffix: '%' },
+        legend: { orientation: 'h', y: -0.3 }
+      }, { displayModeBar: false });
+    }
+
+    function renderTransition(data, container) {
+      const transition = data.TRANSITION || [];
+      if (transition.length === 0) { container.innerHTML = '<div class="p-10 text-center text-slate-400">No transition data.</div>'; return; }
+      const nodes = new Set();
+      const links = [];
+      transition.forEach(row => {
+        const source = row['PROCESS ID'];
+        if (!source) return;
+        nodes.add(source);
+        Object.keys(row).forEach(key => {
+          if (key.includes('NEW TECH')) {
+            const target = row[key];
+            if (target && target !== 'None' && target !== '-') {
+              nodes.add(target);
+              links.push({ source, target, value: 1 });
+            }
+          }
+        });
+      });
+      const nodeList = Array.from(nodes);
+      const nodeMap = {};
+      nodeList.forEach((n, i) => nodeMap[n] = i);
+      const sankeyData = [{
+        type: "sankey", orientation: "h",
+        node: { pad: 15, thickness: 20, line: { color: "white", width: 0.5 }, label: nodeList, color: nodeList.map((_, i) => `hsl(${i * (360/nodeList.length)}, 60%, 60%)`) },
+        link: { source: links.map(l => nodeMap[l.source]), target: links.map(l => nodeMap[l.target]), value: links.map(l => l.value), color: links.map(l => `hsla(${nodeMap[l.source] * (360/nodeList.length)}, 60%, 60%, 0.3)`) }
+      }];
+      container.innerHTML = `<div id="transition-sankey-chart" class="w-full" style="height: 500px;"></div>`;
+      Plotly.newPlot('transition-sankey-chart', sankeyData, { font: { size: 10, family: 'Montserrat, sans-serif' }, paper_bgcolor: 'rgba(0,0,0,0)' }, { displayModeBar: false });
+    }
 
     function switchTab(tabId, el) {
       // Hide all tabs
@@ -892,9 +1214,12 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       // Set button as active
       el.classList.add('active');
 
-      // Trigger Plotly resize if we switched to results
+      // Trigger Plotly resize or specialized renderers
       if (tabId === 'results') {
         window.dispatchEvent(new Event('resize'));
+      } else if (tabId === 'details') {
+        renderSimulationDetails();
+        renderCompanyExplorer();
       }
     }
 
@@ -970,12 +1295,78 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
     const entitySelect = document.getElementById('entitySelect');
     const scenarioSelect = document.getElementById('scenarioSelect');
+    const detailsScenarioSelect = document.getElementById('detailsScenarioSelect');
     const graphSelect = document.getElementById('graphSelect');
     const graphTitle = document.getElementById('graphTitle');
     const graphMethod = document.getElementById('graphMethod');
     const generationDateEl = document.getElementById('generationDate');
     const titleEl = document.getElementById('dashboardTitle');
     const chartNode = document.getElementById('chart');
+
+    let msDetailsScenario;
+
+    function setSimCategory(cat, btn) {
+        currentSimCategory = cat;
+        // Update button styles
+        document.querySelectorAll('.sim-cat-btn').forEach(b => {
+            b.classList.remove('active', 'bg-blue-600', 'text-white', 'border-blue-600');
+            b.classList.add('bg-white', 'text-slate-600', 'border-slate-200');
+        });
+        btn.classList.remove('bg-white', 'text-slate-600', 'border-slate-200');
+        btn.classList.add('active', 'bg-blue-600', 'text-white', 'border-blue-600');
+        
+        // Update Icon and Header
+        const iconContainer = document.getElementById('sim-cat-icon');
+        const titleEl = document.getElementById('sim-cat-title');
+        const descEl = document.getElementById('sim-cat-desc');
+        
+        const configs = {
+            'simulation_prices': { title: 'Market Prices Trajectories', desc: 'Evolution of commodity and resource costs over the simulation period.', icon: 'fa-chart-line', color: 'bg-blue-50', text: 'text-blue-600' },
+            'simulation_limits': { title: 'Technical & Infrastructure Limits', desc: 'Installed capacities, physical supply constraints, and grid limitations.', icon: 'fa-gears', color: 'bg-emerald-50', text: 'text-emerald-600' },
+            'simulation_quotas': { title: 'Carbon Regulatory Framework', desc: 'Free allocation volumes, carbon prices, and regulatory penalty trajectories.', icon: 'fa-leaf', color: 'bg-teal-50', text: 'text-teal-600' },
+            'simulation_factors': { title: 'Emission Factors Trajectories', desc: 'Carbon intensity of upstream resources and secondary energy vectors.', icon: 'fa-smog', color: 'bg-slate-100', text: 'text-slate-600' }
+        };
+        
+        const conf = configs[cat];
+        titleEl.textContent = conf.title;
+        descEl.textContent = conf.desc;
+        iconContainer.className = `w-12 h-12 rounded-2xl ${conf.color} flex items-center justify-center ${conf.text} text-xl shadow-inner`;
+        iconContainer.innerHTML = `<i class="fa-solid ${conf.icon}"></i>`;
+        
+        renderSimulationDetails();
+    }
+
+    function renderSimulationDetails() {
+        const entityKey = entitySelect.value;
+        const scenarioKey = detailsScenarioSelect.value;
+        if (!entityKey || !scenarioKey) return;
+        
+        const scenario = dashboardData.entities[entityKey].scenarios[scenarioKey];
+        const payload = scenario.graphs[currentSimCategory];
+        
+        if (!payload || !payload.figure) {
+            Plotly.purge('simulation-details-chart');
+            return;
+        }
+        
+        const fig = JSON.parse(JSON.stringify(payload.figure)); // Deep copy
+        
+        // Custom styling for simulation details
+        fig.layout.paper_bgcolor = 'rgba(0,0,0,0)';
+        fig.layout.plot_bgcolor = 'rgba(0,0,0,0)';
+        fig.layout.font = { family: 'Montserrat, sans-serif' };
+        fig.layout.margin = { l: 60, r: 40, t: 60, b: 60 };
+        fig.layout.legend = { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' };
+        
+        // Remove individual subplot titles to keep it clean if many
+        if (fig.layout.annotations) {
+            fig.layout.annotations.forEach(ann => {
+                if (ann.text) ann.font = { size: 10, color: '#64748b', family: 'Montserrat' };
+            });
+        }
+        
+        Plotly.newPlot('simulation-details-chart', fig.data, fig.layout, plotConfig);
+    }
 
     const plotConfig = {
       responsive: true,
@@ -1353,14 +1744,34 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
     async function handleEntityChange() {
       fillScenarioSelect(entitySelect.value);
+      
+      // Sync details scenario select
+      detailsScenarioSelect.innerHTML = scenarioSelect.innerHTML;
+      detailsScenarioSelect.value = scenarioSelect.value;
+      if (msDetailsScenario) msDetailsScenario.sync();
+
       fillGraphSelect(entitySelect.value, scenarioSelect.value);
       await renderCrossScenarioCharts();
       await renderGraph();
+      renderSimulationDetails();
     }
 
     async function handleScenarioChange() {
-      fillGraphSelect(entitySelect.value, scenarioSelect.value);
+      const scKey = scenarioSelect.value;
+      
+      // Sync details scenario select
+      detailsScenarioSelect.value = scKey;
+      if (msDetailsScenario) msDetailsScenario.sync();
+
+      fillGraphSelect(entitySelect.value, scKey);
       await renderGraph();
+      renderSimulationDetails();
+    }
+
+    async function handleDetailsScenarioChange() {
+      scenarioSelect.value = detailsScenarioSelect.value;
+      if (msScenario) msScenario.sync();
+      await handleScenarioChange();
     }
 
     async function handleGraphChange() {
@@ -1387,6 +1798,12 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       // Modernize selectors
       msEntity = new ModernSelect(entitySelect);
       msScenario = new ModernSelect(scenarioSelect);
+      
+      // Init and modernize details selector
+      detailsScenarioSelect.innerHTML = scenarioSelect.innerHTML;
+      detailsScenarioSelect.value = scenarioSelect.value;
+      msDetailsScenario = new ModernSelect(detailsScenarioSelect);
+
       msGraph = new ModernSelect(graphSelect);
       msSensitivity = new ModernSelect(document.getElementById('target-selector'));
 
@@ -1395,6 +1812,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
     entitySelect.addEventListener('change', handleEntityChange);
     scenarioSelect.addEventListener('change', handleScenarioChange);
+    detailsScenarioSelect.addEventListener('change', handleDetailsScenarioChange);
     graphSelect.addEventListener('change', handleGraphChange);
     window.addEventListener('resize', () => {
       if (chartNode && chartNode.data) {
@@ -1807,6 +2225,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       })();
     }
 
+    initCompanyExplorer();
   </script>
 </body>
 </html>
@@ -1816,6 +2235,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         template
         .replace("__DASHBOARD_DATA__", payload_json)
         .replace("__SENSITIVITY_DATA__", sensitivity_json)
+        .replace("__COMPANY_DATA__", company_json)
     )
 
 
@@ -1878,7 +2298,18 @@ def main() -> None:
 
     payload = build_dashboard_data(entity_dirs, discount_rate=args.discount_rate)
     sensitivity_data = load_sensitivity_data()
-    html = build_html(payload, sensitivity_data=sensitivity_data)
+    
+    # Extract Company Data for Explorer
+    from pathway.core.ingestion import PathFinderParser
+    repo_root_path = get_repo_root()
+    excel_path = repo_root_path / "data" / "raw" / "excel" / "PathFinder input.xlsx"
+    if excel_path.exists():
+        parser = PathFinderParser(str(excel_path))
+        company_data = parser.get_company_explorer_data()
+    else:
+        company_data = {}
+    
+    html = build_html(payload, sensitivity_data=sensitivity_data, company_data=company_data)
 
     output_path = output_dir / args.output_name
     write_dashboard_html(output_path, html)
