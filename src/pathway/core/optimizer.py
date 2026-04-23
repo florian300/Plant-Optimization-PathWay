@@ -1179,7 +1179,8 @@ class PathFinderOptimizer:
                                 if s_price > 0 or tr_price > 0:
                                     total_cost.append(((s_price + tr_price) * captured_tons_per_unit * self.active_vars[(t, p_id, t_id)]) / df)
 
-                total_cost.append((self.dac_total_capacity_vars[t] * self.data.dac_params.opex_by_year.get(t, 0.0)) / df)
+                if self.data.dac_params.active:
+                    total_cost.append((self.dac_total_capacity_vars[t] * self.data.dac_params.opex_by_year.get(t, 0.0)) / df)
             if self.data.credit_params.active:
                 total_cost.append((self.credit_purchased_vars[t] * self.data.credit_params.cost_by_year.get(t, 0.0)) / df)
                 

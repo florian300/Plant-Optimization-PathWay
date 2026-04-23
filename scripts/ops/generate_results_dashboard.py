@@ -299,8 +299,8 @@ def build_dashboard_data(entity_dirs: Dict[str, Dict[str, Path]], discount_rate:
 
 def load_sensitivity_data(json_path: Optional[Path] = None) -> Optional[List[Dict[str, Any]]]:
     """
-    Charge les résultats JSON de l'analyse de sensibilité si le fichier existe.
-    Retourne None si le fichier est absent ou illisible.
+    Loads sensitivity results from JSON if the file exists.
+    Returns None if file is missing or unreadable.
     """
     if json_path is None:
         json_path = get_repo_root() / "artifacts" / "sensitivity" / "sensitivity_results.json"
@@ -309,10 +309,10 @@ def load_sensitivity_data(json_path: Optional[Path] = None) -> Optional[List[Dic
     try:
         with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
-        print(f"[Sensitivity] Données chargées : {len(data)} enregistrements depuis {json_path}")
+        print(f"[Sensitivity] Data loaded: {len(data)} records from {json_path}")
         return data
     except Exception as exc:
-        print(f"[Sensitivity] Impossible de lire {json_path}: {exc}")
+        print(f"[Sensitivity] Unable to read {json_path}: {exc}")
         return None
 
 
@@ -495,26 +495,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       display: none !important;
     }
 
-    .primary-btn {
-      background: linear-gradient(130deg, #0284c7, #0369a1);
-      color: #f8fafc;
-      border: 0;
-      border-radius: 0.85rem;
-      padding: 0.72rem 1rem;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      transition: transform 160ms ease, filter 160ms ease;
-    }
-
-    .primary-btn:hover {
-      transform: translateY(-1px);
-      filter: brightness(1.05);
-    }
-
-    .primary-btn:active {
-      transform: translateY(0);
-    }
-
     #chart {
       width: 100%;
       height: 530px;
@@ -660,7 +640,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       </section>
 
       <!-- Phase 1: Entity-Specific Filtering -->
-      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in border-l-4 border-l-emerald-500" style="position: relative; z-index: 50;">
+      <section class="glass-card rounded-3xl p-5 md:p-6 mb-6 fade-in" style="position: relative; z-index: 50;">
         <label class="block mb-2" onclick="event.preventDefault();">
           <span class="text-sm font-bold text-emerald-600 uppercase tracking-tight"><i class="fa-solid fa-industry mr-2"></i>Select Industrial Entity</span>
           <select id="entitySelect" class="selector mt-3"></select>
@@ -668,42 +648,76 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       </section>
 
       <!-- Phase 2: Scenario Comparison & Strategic Analysis Section -->
-      <section class="mb-10 fade-in flex flex-col gap-6" id="executive-summary-section" style="position: relative; z-index: 40;">
-        <h2 class="font-heading text-xl md:text-2xl font-bold text-slate-800"><i class="fa-solid fa-chart-pie text-emerald-500 mr-2"></i>Cross-Scenario Executive Summary</h2>
+      <section class="mb-12 fade-in flex flex-col gap-8" id="executive-summary-section" style="position: relative; z-index: 40;">
+        <div class="flex items-center justify-between">
+          <h2 class="font-heading text-xl md:text-2xl font-bold text-slate-800"><i class="fa-solid fa-chart-pie text-emerald-500 mr-3"></i>Cross-Scenario Executive Summary</h2>
+        </div>
+        
         <div class="flex flex-col gap-8">
-          <div class="relative group">
-            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Trade-off Matrix: Cost vs. CO2 (Bubble = CAPEX)</h3>
-            <div id="chart-tradeoff-matrix" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
-            <button class="chart-btn" onclick="downloadChart('chart-tradeoff-matrix')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
+          <!-- Top Row: Grid for Matrix and ROI -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="relative group glass-card rounded-3xl p-8 flex flex-col h-full">
+              <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                  <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Trade-off Matrix</h3>
+                  <p class="text-[10px] text-slate-500 font-medium">Cost vs. CO₂ Efficiency (Bubble = CAPEX)</p>
+                </div>
+              </div>
+              <div id="chart-tradeoff-matrix" class="flex-1 w-full" style="min-height:380px;"></div>
+              <button class="chart-btn" onclick="downloadChart('chart-tradeoff-matrix')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
+            </div>
+
+            <div class="relative group glass-card rounded-3xl p-8 flex flex-col h-full">
+              <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-2xl bg-sky-50 flex items-center justify-center text-sky-600">
+                  <i class="fa-solid fa-arrow-trend-up"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">ROI Delta vs. BAU</h3>
+                  <p class="text-[10px] text-slate-500 font-medium">Cumulative Financial Variance Over Time</p>
+                </div>
+              </div>
+              <div id="chart-roi-delta" class="flex-1 w-full" style="min-height:380px;"></div>
+              <button class="chart-btn" onclick="downloadChart('chart-roi-delta')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
+            </div>
           </div>
-          <div class="relative group">
-            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">ROI Delta vs. BAU: Cumulative Financial Variance</h3>
-            <div id="chart-roi-delta" class="w-full bg-white rounded-xl shadow-sm border border-slate-100" style="height:450px;"></div>
-            <button class="chart-btn" onclick="downloadChart('chart-roi-delta')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
-          </div>
-          <div class="relative group">
-            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Performance Radar: Normalized KPI Comparison</h3>
-            <div class="flex flex-col md:flex-row gap-6 bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-              <div id="chart-performance-radar" class="flex-1" style="height:450px;"></div>
-              <div class="md:w-80 flex flex-col justify-center border-l border-slate-100 pl-6 space-y-4">
-                <div>
-                  <h4 class="text-xs font-bold text-emerald-600 uppercase tracking-tight mb-1">Cost Eff.</h4>
-                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Efficacité Économique</b> : Score normalisé basé sur le coût total de transition (NPV). Un score élevé indique un coût global réduit (Capex + Opex - Gains).</p>
+
+          <!-- Bottom Row: Wide Radar with Side Info -->
+          <div class="relative group glass-card rounded-3xl p-8">
+            <div class="flex items-center gap-3 mb-8">
+              <div class="w-10 h-10 rounded-2xl bg-purple-50 flex items-center justify-center text-purple-600">
+                <i class="fa-solid fa-bullseye"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Performance Radar</h3>
+                <p class="text-[10px] text-slate-500 font-medium">Multi-Criteria Strategic Benchmarking</p>
+              </div>
+            </div>
+            
+            <div class="flex flex-col xl:flex-row gap-10">
+              <div id="chart-performance-radar" class="flex-1" style="height:480px;"></div>
+              <div class="xl:w-80 flex flex-col justify-center border-t xl:border-t-0 xl:border-l border-slate-100 pt-8 xl:pt-0 xl:pl-10 space-y-5">
+                <div class="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-100/50">
+                  <h4 class="text-xs font-bold text-emerald-700 uppercase tracking-tight mb-2">Cost Eff.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Economic Efficiency</b>: Normalized score based on NPV. A high score indicates a reduced overall transition cost.</p>
                 </div>
-                <div>
-                  <h4 class="text-xs font-bold text-sky-600 uppercase tracking-tight mb-1">CapEx Eff.</h4>
-                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Efficacité Capital</b> : Mesure le besoin en investissement. Plus le score est haut, moins le scénario nécessite de fonds initiaux pour être déployé.</p>
+                <div class="p-4 rounded-2xl bg-sky-50/40 border border-sky-100/50">
+                  <h4 class="text-xs font-bold text-sky-700 uppercase tracking-tight mb-2">CapEx Eff.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Capital Efficiency</b>: Measures investment requirement. Higher scores mean less capital-intensive scenarios.</p>
                 </div>
-                <div>
-                  <h4 class="text-xs font-bold text-purple-600 uppercase tracking-tight mb-1">Decarb.</h4>
-                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Performance Carbone</b> : Capacité à atteindre le Net Zero. Le score est de 100 si les émissions totales à la fin de la simulation sont nulles ou négatives.</p>
+                <div class="p-4 rounded-2xl bg-purple-50/40 border border-purple-100/50">
+                  <h4 class="text-xs font-bold text-purple-700 uppercase tracking-tight mb-2">Decarb.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Carbon Performance</b>: Ability to reach Net Zero by the end of the simulation period.</p>
                 </div>
-                <div>
-                  <h4 class="text-xs font-bold text-amber-600 uppercase tracking-tight mb-1">Indep.</h4>
-                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Indice de Résilience</b> : Autonomie vis-à-vis des ressources externes (électricité, gaz). Analyse la stabilité face aux fluctuations de prix des marchés.</p>
+                <div class="p-4 rounded-2xl bg-amber-50/40 border border-amber-100/50">
+                  <h4 class="text-xs font-bold text-amber-700 uppercase tracking-tight mb-2">Indep.</h4>
+                  <p class="text-[11px] text-slate-600 leading-relaxed"><b>Resilience Index</b>: Autonomy regarding external resources and stability against price volatility.</p>
                 </div>
-                <div class="pt-2 border-t border-slate-100">
-                  <p class="text-[10px] text-slate-400 italic">Note : Les scores sont normalisés sur une échelle de 0 à 100 pour permettre une comparaison stratégique directe entre scénarios.</p>
+                <div class="pt-2">
+                  <p class="text-[10px] text-slate-400 italic leading-snug">Note: Scores are normalized (0-100) for direct strategic comparison.</p>
                 </div>
               </div>
             </div>
@@ -731,10 +745,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       <section class="glass-card rounded-3xl p-4 md:p-6 mb-6 fade-in relative group">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
           <h2 id="graphTitle" class="font-heading text-lg md:text-2xl font-bold text-slate-800"></h2>
-          <button id="downloadBtn" class="primary-btn inline-flex items-center justify-center gap-2">
-            <i class="fa-solid fa-download"></i>
-            Download Chart as Image
-          </button>
         </div>
         <div id="chart"></div>
         <button class="chart-btn hidden md:flex" onclick="downloadChart('chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
@@ -747,65 +757,66 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     </main>
   </div>
 
-  <!-- ═══════════════════ ONGLET ANALYSE DE SENSIBILITÉ ═══════════════════ -->
+  <!-- ═══════════════════ SENSITIVITY ANALYSIS TAB ═══════════════════ -->
   <div id=\"sensitivity-tab\" class=\"tab-content max-w-full mx-auto px-4 md:px-12 py-10\">
 
-    <!-- En-tête -->
-    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in\">
-      <div class=\"flex flex-col md:flex-row md:items-end md:justify-between gap-4\">
-        <div>
-          <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
-            <i class=\"fa-solid fa-chart-line\"></i>
-            Risk Analysis — One-At-a-Time (OAT)
-          </p>
-          <h2 id=\"sens-main-title\" class=\"font-heading text-2xl md:text-3xl font-bold mt-3\">Sensitivity Analysis</h2>
-          <p class=\"text-slate-500 mt-2 text-sm\">
-            One parameter is varied at a time while all others remain at their baseline values.
-            Each point represents an independent MILP simulation.
-          </p>
-        </div>
-        <div id=\"sens-status-badge\" class=\"rounded-2xl subtle-pill px-4 py-3 text-sm\"></div>
-      </div>
-    </section>
+    <!-- Header -->
 
     <!-- 1. VUE GLOBALE DES RISQUES (Comparative) -->
     <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-8 fade-in\">
       <h3 class=\"font-heading text-xl font-bold text-slate-800 mb-6 flex items-center gap-2\">
         <i class=\"fa-solid fa-earth-americas text-sky-500\"></i>
-        Vue Globale des Risques (Comparaison Multi-Paramètres)
+        Global Risk Overview (Multi-Parameter Comparison)
       </h3>
       
       <div class=\"grid grid-cols-1 xl:grid-cols-2 gap-8\">
         <!-- Packed Bubble -->
         <div class="relative group">
-          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Variance du Bilan</h4>
-          <p class="text-xs text-slate-400 mb-4">Rayon proportionnel à la variance maximale du coût de transition par paramètre.</p>
+          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Scenario Variance</h4>
+          <p class="text-xs text-slate-400 mb-4">Radius proportional to maximum CO₂ emissions variance per parameter.</p>
           <div id="sens-bubble-chart" class="bg-slate-50/50 rounded-2xl" style="height:500px;"></div>
           <button class="chart-btn" onclick="downloadChart('sens-bubble-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
         </div>
         
         <!-- Tornado Chart -->
         <div class="relative group">
-          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Impact Financier Relatif</h4>
-          <p class="text-xs text-slate-400 mb-4">Écart du coût de transition vs baseline pour les variations extrêmes.</p>
+          <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Relative Financial Impact</h4>
+          <p class="text-xs text-slate-400 mb-4">Transition cost variance vs baseline for extreme variations.</p>
           <div id="sens-tornado-chart" class="bg-slate-50/50 rounded-2xl" style="height:500px;"></div>
           <button class="chart-btn" onclick="downloadChart('sens-tornado-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
         </div>
       </div>
     </section>
 
-    <!-- 2. ANALYSE DÉTAILLÉE PAR PARAMÈTRE -->
-    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in border-t-4 border-sky-400\">
+    <!-- 2. DETAILED PARAMETER ANALYSIS (Merged Header + Selector) -->
+    <section class=\"glass-card rounded-3xl p-6 md:p-8 mb-6 fade-in\" style=\"position: relative; z-index: 200;\">
+      <!-- Top Part: General Status and Info -->
+      <div class=\"flex flex-col md:flex-row md:items-start md:justify-between gap-6 mb-8 border-b border-slate-100 pb-6\">
+        <div>
+          <p class=\"subtle-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide\">
+            <i class=\"fa-solid fa-chart-line text-sky-500\"></i>
+            Risk Analysis — One-At-a-Time (OAT)
+          </p>
+          <h2 id=\"sens-main-title\" class=\"font-heading text-2xl md:text-3xl font-bold mt-3\">Sensitivity Analysis</h2>
+          <p class=\"text-slate-500 mt-2 text-sm max-w-3xl\">
+            One parameter is varied at a time while all others remain at their baseline values.
+            Each point represents an independent MILP simulation targeting specific KPIs.
+          </p>
+        </div>
+        <div id=\"sens-status-badge\" class=\"rounded-2xl subtle-pill px-4 py-3 text-sm\"></div>
+      </div>
+
+      <!-- Bottom Part: Detailed Parameter Selection -->
       <div class=\"flex flex-col lg:flex-row lg:items-center justify-between gap-6\">
         <div class=\"flex-1\">
           <h3 class=\"font-heading text-xl font-bold text-slate-800 flex items-center gap-2\">
             <i class=\"fa-solid fa-magnifying-glass-chart text-sky-500\"></i>
-            Analyse Détaillée par Paramètre
+            Detailed Parameter Analysis
           </h3>
-          <p class=\"text-sm text-slate-500 mt-1\">Sélectionnez un paramètre pour explorer l'impact précis de ses variations.</p>
+          <p class=\"text-sm text-slate-500 mt-1\">Select a parameter to explore the precise impact of its variations on decarbonization trajectories.</p>
         </div>
         
-        <div class=\"flex flex-col sm:flex-row sm:items-center gap-4 bg-white/50 p-2 rounded-2xl border border-slate-100 shadow-sm\" style=\"position: relative; z-index: 100;\">
+        <div class=\"flex flex-col sm:flex-row sm:items-center gap-4 bg-white/50 p-2 rounded-2xl border border-slate-100 shadow-sm\" style=\"position: relative; z-index: 1000;\">
           <div class=\"block min-w-[300px]\">
             <span class=\"text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1\">Sensitivity Parameter (OAT)</span>
             <select id=\"target-selector\" class=\"selector mt-1\" onchange=\"filterSensitivityData()\"></select>
@@ -814,27 +825,27 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       </div>
     </section>
 
-    <!-- Grille des graphiques détaillés -->
+    <!-- Detailed charts grid -->
     <div class=\"grid grid-cols-1 gap-6\">
 
 
-      <!-- 3. Trajectoires de Décarbonation (Net CO2) -->
+      <!-- 3. Decarbonization Trajectories (Net CO2) -->
       <section class=\"glass-card rounded-3xl p-5 md:p-6 fade-in\">
         <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-12\">
-          <!-- Gauche: Trajectoire Temporelle -->
+          <!-- Left: Temporal Trajectory -->
           <div class="relative group">
-            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Trajectoires de Décarbonation</h3>
+            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Decarbonization Trajectories</h3>
             <p class="text-xs text-slate-500 mb-3">
-              Projection annuelle des émissions nettes (Scope 1 + Scope 2 - Captage DAC - Crédits) pour chaque scénario de variation.
+              Annual projection of net emissions (Scope 1 + Scope 2 - DAC Capture - Credits) for each variation scenario.
             </p>
             <div id="sens-trajectory-chart" style="height:500px;"></div>
             <button class="chart-btn" onclick="downloadChart('sens-trajectory-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
           </div>
-          <!-- Droite: Sensibilité Totale -->
+          <!-- Right: Total Sensitivity -->
           <div class="relative group">
-            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Émissions Totales vs Variation</h3>
+            <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Total Emissions vs Variation</h3>
             <p class="text-xs text-slate-500 mb-3">
-              Impact cumulé sur les émissions totales sur l'horizon en fonction du pourcentage de variation du paramètre ciblé.
+              Cumulative impact on total emissions over the horizon based on the variation percentage of the target parameter.
             </p>
             <div id="sens-total-co2-chart" style="height:500px;"></div>
             <button class="chart-btn" onclick="downloadChart('sens-total-co2-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
@@ -842,11 +853,11 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         </div>
       </section>
 
-      <!-- 4. Scatter Coût vs CO₂ -->
+      <!-- 4. Cost vs CO₂ Scatter -->
       <section class="glass-card rounded-3xl p-5 md:p-6 fade-in relative group">
-        <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Coût vs Émissions CO₂</h3>
+        <h3 class="font-heading text-lg font-bold text-slate-800 mb-1">Cost vs CO₂ Emissions</h3>
         <p class="text-xs text-slate-500 mb-3">
-          Chaque point est une simulation. L'axe X représente la variation du coût de transition (%) et l'axe Y la variation des émissions totales (%).
+          Each point represents a simulation. The X-axis shows transition cost variation (%) and the Y-axis shows total emissions variation (%).
         </p>
         <div id="sens-scatter-chart" style="height:500px;"></div>
         <button class="chart-btn" onclick="downloadChart('sens-scatter-chart')" title="Download as Image"><i class="fa-solid fa-download"></i></button>
@@ -864,7 +875,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
   <script>
     const dashboardData = __DASHBOARD_DATA__;
-    // Données d'analyse de sensibilité (injectées par generate_results_dashboard.py)
+    // Sensitivity analysis data (injected by generate_results_dashboard.py)
     const sensitivityData = __SENSITIVITY_DATA__;
 
     function switchTab(tabId, el) {
@@ -964,12 +975,12 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     const graphMethod = document.getElementById('graphMethod');
     const generationDateEl = document.getElementById('generationDate');
     const titleEl = document.getElementById('dashboardTitle');
-    const downloadBtn = document.getElementById('downloadBtn');
     const chartNode = document.getElementById('chart');
 
     const plotConfig = {
       responsive: true,
       displaylogo: false,
+      displayModeBar: false, // Hide the floating menu bar
       modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
       toImageButtonOptions: {
         format: 'png',
@@ -1165,12 +1176,23 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
         // 1. Trade-off Matrix (Scatter)
         if (scenarioData.length > 0) {
+            // Calculate dynamic ranges with buffer to prevent label clipping
+            const xVals = scenarioData.map(d => d.cost);
+            const yVals = scenarioData.map(d => d.emis);
+            const xMin = Math.min(...xVals);
+            const xMax = Math.max(...xVals);
+            const yMin = Math.min(...yVals);
+            const yMax = Math.max(...yVals);
+            const xBuffer = (xMax - xMin || Math.abs(xMax) || 1) * 0.25;
+            const yBuffer = (yMax - yMin || Math.abs(yMax) || 1) * 0.25;
+
             const trTrace = {
-                x: scenarioData.map(d => d.cost),
-                y: scenarioData.map(d => d.emis),
+                x: xVals,
+                y: yVals,
                 text: scenarioData.map(d => `<b>${d.name}</b><br>Cost: ${d.cost.toLocaleString(undefined, {maximumFractionDigits:0})} M€<br>CO2: ${d.emis.toLocaleString(undefined, {maximumFractionDigits:0})} tCO2<br>CAPEX: ${d.capex.toLocaleString(undefined, {maximumFractionDigits:0})} M€`),
                 mode: 'markers+text',
                 textposition: 'top center',
+                cliponaxis: false,
                 hoverinfo: 'text',
                 marker: {
                     size: scenarioData.map(d => d.capex),
@@ -1183,9 +1205,17 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
             };
             const trLayout = {
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                margin: {l: 40, r: 20, t: 20, b: 40},
-                xaxis: { title: 'Total 25y Cost (M€)', gridcolor: '#f1f5f9' },
-                yaxis: { title: 'Total 25y CO2 (t)', gridcolor: '#f1f5f9' },
+                margin: {l: 60, r: 60, t: 60, b: 60},
+                xaxis: { 
+                    title: 'Total 25y Cost (M€)', 
+                    gridcolor: '#f1f5f9',
+                    range: [xMin - xBuffer, xMax + xBuffer]
+                },
+                yaxis: { 
+                    title: 'Total 25y CO2 (t)', 
+                    gridcolor: '#f1f5f9',
+                    range: [yMin - yBuffer, yMax + (yBuffer * 1.5)] // Extra space on top for text labels
+                },
                 font: { family: 'Montserrat, sans-serif', size: 10 }
             };
             Plotly.newPlot('chart-tradeoff-matrix', [trTrace], trLayout, {displayModeBar: false});
@@ -1258,20 +1288,35 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
                radarTraces.push({
                    type: 'scatterpolar',
                    r: [costScore, capexScore, decarbScore, indepScore, costScore],
-                   theta: ['Cost Eff.', 'CapEx Eff.', 'Decarb.', 'Indep.', 'Cost Eff.'],
+                   theta: ['Cost Efficiency', 'CapEx Efficiency', 'Decarbonization', 'Independence', 'Cost Efficiency'],
                    fill: 'none',
                    name: sd.name,
                    mode: 'lines+markers',
-                   line: { color: sd.color, width: 2 },
-                   marker: { color: sd.color, size: 6 }
+                   line: { color: sd.color, width: 3.5 },
+                   marker: { color: sd.color, size: 9, line: { width: 2, color: '#ffffff' } },
+                   hovertemplate: `<b>${sd.name}</b><br>%{theta}: %{r:.1f}/100<extra></extra>`
                });
             });
             const raLayout = {
-                polar: { radialaxis: { visible: false, range: [0, 100] } },
+                polar: { 
+                    bgcolor: 'rgba(255,255,255,0.5)',
+                    radialaxis: { 
+                        visible: true, 
+                        range: [0, 100], 
+                        gridcolor: '#cbd5e1', 
+                        gridwidth: 0.5,
+                        tickvals: [0, 25, 50, 75, 100],
+                        tickfont: { size: 9, color: '#94a3b8' }
+                    },
+                    angularaxis: {
+                        gridcolor: '#cbd5e1',
+                        tickfont: { size: 11, color: '#1e293b', family: 'Montserrat, sans-serif' }
+                    }
+                },
                 showlegend: true, 
-                legend: { orientation: 'h', yanchor: 'top', y: -0.15, xanchor: 'center', x: 0.5 },
+                legend: { orientation: 'h', yanchor: 'top', y: -0.12, xanchor: 'center', x: 0.5, font: { size: 11 } },
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                margin: {l: 20, r: 20, t: 20, b: 80}, font: { family: 'Montserrat', size: 10 }
+                margin: {l: 80, r: 80, t: 40, b: 80}, font: { family: 'Montserrat, sans-serif' }
             };
             Plotly.newPlot('chart-performance-radar', radarTraces, raLayout, {displayModeBar: false});
         }
@@ -1322,24 +1367,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       await renderGraph();
     }
 
-    function handleDownload() {
-      const entityKey = entitySelect.value;
-      const scenarioKey = scenarioSelect.value;
-      const graphKey = graphSelect.value;
-      const scenario = dashboardData.entities[entityKey].scenarios[scenarioKey] || {};
-      const graph = (scenario.graphs || {})[graphKey] || {};
-      const fallback = [entityKey, scenarioKey, graphKey].filter(Boolean).join('_') || 'chart';
-      const filename = graph.downloadName || fallback;
-
-      Plotly.downloadImage(chartNode, {
-        format: 'png',
-        filename,
-        scale: 2,
-        width: 1600,
-        height: 900,
-      });
-    }
-
     async function init() {
       titleEl.textContent = dashboardData.projectTitle || 'Plant-Optimization-PathWay - Results Dashboard';
       generationDateEl.textContent = dashboardData.generationDate || 'N/A';
@@ -1352,7 +1379,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         entitySelect.disabled = true;
         scenarioSelect.disabled = true;
         graphSelect.disabled = true;
-        downloadBtn.disabled = true;
         return;
       }
 
@@ -1370,7 +1396,6 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     entitySelect.addEventListener('change', handleEntityChange);
     scenarioSelect.addEventListener('change', handleScenarioChange);
     graphSelect.addEventListener('change', handleGraphChange);
-    downloadBtn.addEventListener('click', handleDownload);
     window.addEventListener('resize', () => {
       if (chartNode && chartNode.data) {
         Plotly.Plots.resize(chartNode);
@@ -1449,7 +1474,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         targets[r.target].push(r);
       });
 
-      const plotConfig = { responsive: true, displaylogo: false };
+      const plotConfig = { responsive: true, displaylogo: false, displayModeBar: false };
       const plotLayout = (extra) => Object.assign({
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor:  'rgba(0,0,0,0)',
@@ -1461,10 +1486,10 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
       // ── 1. Packed Bubble ───────────────────────────────────────────────
       (function buildBubble() {
-        // Calculate data points first
+        // Calculate data points first based on CO2 Emissions Variance
         const dataPoints = Object.entries(targets).map(([target, records]) => {
-          const costs = records.map(r => r.transition_cost / 1_000_000.0);
-          const maxVariance = Math.max(...costs) - Math.min(...costs);
+          const emis = records.map(r => r.total_emissions);
+          const maxVariance = Math.max(...emis) - Math.min(...emis);
           return { target, maxVariance };
         });
 
@@ -1472,19 +1497,44 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         dataPoints.sort((a, b) => b.maxVariance - a.maxVariance);
 
         // Calculate sizeref for Area mode
-        // Formula: input_value / sizeref = rendered_area_in_pixels
-        // We want max_diameter = 120px => max_area = PI * (60)^2 ~= 11310
         const maxVal = Math.max(...dataPoints.map(d => d.maxVariance), 1);
         const sizeref = maxVal / 11000;
+        
+        // Circular Packing Algorithm to prevent overlap
+        const packed = [];
+        const padding = 1.35; // Increased padding for safety
+        
+        dataPoints.forEach(d => {
+            let angle = Math.random() * Math.PI * 2;
+            let distance = 0;
+            let x, y;
+            let collision = true;
+            
+            // Calculate radius in data coordinates
+            // maxVal -> max radius of ~1.1 units (given -5 to 5 axis range)
+            const r = Math.sqrt(d.maxVariance / (maxVal || 1)) * 1.15; 
+            
+            let attempts = 0;
+            while(collision && attempts < 1000) {
+                x = distance * Math.cos(angle);
+                y = distance * Math.sin(angle);
+                collision = false;
+                for(let p of packed) {
+                    const dist = Math.sqrt((x-p.x)**2 + (y-p.y)**2);
+                    if(dist < (r + p.r) * padding) {
+                        collision = true;
+                        break;
+                    }
+                }
+                // Spiral outwards faster
+                angle += 0.4;
+                distance += 0.04;
+                attempts++;
+            }
+            packed.push({ ...d, x, y, r });
+        });
 
-        const bubbleTraces = dataPoints.map(({target, maxVariance}, i) => {
-          // Circular Jittering (Polar Distribution)
-          // Spread them out in a spiral/circular pattern instead of a square
-          const angle = (i / dataPoints.length) * 2 * Math.PI + (Math.random() * 0.5);
-          const radius = 0.5 + Math.sqrt(Math.random()) * 2.0; // Radius between 0.5 and 2.5
-          const x = radius * Math.cos(angle);
-          const y = radius * Math.sin(angle);
-
+        const bubbleTraces = packed.map(({target, maxVariance, x, y}, i) => {
           return {
             type: 'scatter',
             mode: 'markers+text',
@@ -1493,7 +1543,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
             y: [y],
             text: [target],
             textposition: 'middle center',
-            textfont: { size: 9, color: '#fff', weight: 'bold' },
+            textfont: { size: 10, color: '#1e293b', weight: '800' }, // Darker, bolder text
             marker: {
               size: [maxVariance],
               sizemode: 'area',
@@ -1503,15 +1553,15 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
               opacity: 0.4, // More transparency for high density
               line: { width: 1, color: '#fff' },
             },
-            hovertemplate: `<b>${target}</b><br>Variance max : %{customdata:,.1f} M€<extra></extra>`,
+            hovertemplate: `<b>${target}</b><br>Max CO₂ variance: %{customdata:,.0f} t<extra></extra>`,
             customdata: [maxVariance],
           };
         });
 
         const layout = plotLayout({
-          title: { text: 'Variance Maximale du Bilan (M€)', font: { size: 13, weight: 'bold' } },
-          xaxis: { visible: false, range: [-3.5, 3.5] },
-          yaxis: { visible: false, range: [-3.5, 3.5] },
+          title: { text: 'Maximum CO₂ Variance (t)', font: { size: 13, weight: 'bold' } },
+          xaxis: { visible: false, range: [-5.5, 5.5] },
+          yaxis: { visible: false, range: [-5.5, 5.5] },
           showlegend: false,
         });
         Plotly.newPlot('sens-bubble-chart', bubbleTraces, layout, plotConfig);
@@ -1521,39 +1571,54 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       (function buildTornado() {
         const tornadoTraces = [];
         const sortedTargets = Object.entries(targets).map(([target, records]) => {
-          const sortedRecs = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
-          const minRec = sortedRecs[0];
-          const maxRec = sortedRecs[sortedRecs.length - 1];
+          const isStr = records[0].is_structural;
+          let minRec, maxRec;
+          
+          if (isStr) {
+            // Sort by impact for structural parameters
+            const sortedByImpact = [...records].sort((a, b) => a.transition_cost - b.transition_cost);
+            minRec = sortedByImpact[0];
+            maxRec = sortedByImpact[sortedByImpact.length - 1];
+          } else {
+            // Sort by variation percentage for numerical parameters
+            const sortedRecs = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
+            minRec = sortedRecs[0];
+            maxRec = sortedRecs[sortedRecs.length - 1];
+          }
+
           const deltaMin = (minRec && minRec.transition_cost != null) ? (minRec.transition_cost / 1_000_000.0) - baseCost : 0;
           const deltaMax = (maxRec && maxRec.transition_cost != null) ? (maxRec.transition_cost / 1_000_000.0) - baseCost : 0;
-          return { target, minRec, maxRec, deltaMin, deltaMax, range: Math.abs(deltaMax - deltaMin) };
+          return { target, minRec, maxRec, deltaMin, deltaMax, range: Math.abs(deltaMax - deltaMin), isStr };
         }).sort((a, b) => b.range - a.range);
 
-        sortedTargets.forEach(({target, minRec, maxRec, deltaMin, deltaMax}) => {
+        sortedTargets.forEach(({target, minRec, maxRec, deltaMin, deltaMax, isStr}) => {
+          const labelMin = isStr ? minRec.state : `${minRec.variation_pct.toFixed(0)}%`;
+          const labelMax = isStr ? maxRec.state : `${maxRec.variation_pct.toFixed(0)}%`;
+
           tornadoTraces.push({
             type: 'bar',
             orientation: 'h',
-            name: `${target} (-)`,
+            name: `${target} (Min)`,
             y: [target],
             x: [deltaMin],
             marker: { color: deltaMin < 0 ? '#10b981' : '#ef4444' },
-            hovertemplate: `<b>${target}</b><br>Variation : ${minRec ? minRec.variation_pct.toFixed(0) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
+            hovertemplate: `<b>${target}</b><br>State/Var: ${labelMin}<br>Δ Balance: %{x:,.1f} M€<extra></extra>`,
           });
           tornadoTraces.push({
             type: 'bar',
             orientation: 'h',
-            name: `${target} (+)`,
+            name: `${target} (Max)`,
             y: [target],
             x: [deltaMax],
             marker: { color: deltaMax < 0 ? '#10b981' : '#ef4444' },
-            hovertemplate: `<b>${target}</b><br>Variation : ${maxRec ? maxRec.variation_pct.toFixed(0) : 0}%<br>Δ Bilan : %{x:,.1f} M€<extra></extra>`,
+            hovertemplate: `<b>${target}</b><br>State/Var: ${labelMax}<br>Δ Balance: %{x:,.1f} M€<extra></extra>`,
           });
         });
 
         const layout = plotLayout({
           barmode: 'overlay',
-          title: { text: 'Impact sur le Bilan Net vs Baseline', font: { size: 13, weight: 'bold' } },
-          xaxis: { title: 'Δ Bilan Net de Transition (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+          title: { text: 'Impact on Net Balance vs Baseline', font: { size: 13, weight: 'bold' } },
+          xaxis: { title: 'Δ Net Transition Balance (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
           yaxis: { automargin: true, categoryorder: 'total ascending' },
           showlegend: false
         });
@@ -1569,17 +1634,17 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
     function buildDetailedSensitivityCharts(data, selectedTarget) {
       data = data || [];
 
-      // Badge de statut
+      // Status badge
       const badge = document.getElementById('sens-status-badge');
       if (badge) {
         if (data.length === 0) {
-          badge.innerHTML = '<span style="color:#d97706;"><i class=\"fa-solid fa-triangle-exclamation\"></i> Aucune donnée — Exécutez run_sensitivity.py</span>';
+          badge.innerHTML = '<span style="color:#d97706;"><i class=\"fa-solid fa-triangle-exclamation\"></i> No data — Run run_sensitivity.py</span>';
         } else {
           const validCount = data.filter(r => r.status === 'Optimal' || r.status === 'Feasible').length;
           const shortfallCount = data.filter(r => (r.penalty_cost || 0) > 1.0).length;
-          let html = `<span style="color:#16a34a;"><i class=\"fa-solid fa-circle-check\"></i> ${validCount} / ${data.length} simulations valides</span>`;
+          let html = `<span style="color:#16a34a;"><i class=\"fa-solid fa-circle-check\"></i> ${validCount} / ${data.length} valid simulations</span>`;
           if (shortfallCount > 0) {
-            html += ` <span style="color:#dc2626; margin-left:10px;"><i class=\"fa-solid fa-circle-exclamation\"></i> ${shortfallCount} cibles non atteintes</span>`;
+            html += ` <span style="color:#dc2626; margin-left:10px;"><i class=\"fa-solid fa-circle-exclamation\"></i> ${shortfallCount} targets not reached</span>`;
           }
           badge.innerHTML = html;
         }
@@ -1598,7 +1663,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
         targets[r.target].push(r);
       });
 
-      const plotConfig = { responsive: true, displaylogo: false };
+      const plotConfig = { responsive: true, displaylogo: false, displayModeBar: false };
       const plotLayout = (extra) => Object.assign({
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor:  'rgba(0,0,0,0)',
@@ -1612,57 +1677,75 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
       (function buildDecarbonizationViews() {
         const trajectoryTraces = [];
         const summaryTraces = [];
+        const isStructural = data.length > 0 && data[0].is_structural;
         
         Object.entries(targets).forEach(([target, records]) => {
           records.forEach(r => {
             if (!r.co2_trajectory || !r.co2_trajectory.years) return;
-            const isBase = Math.abs(r.variation_pct) < 0.001;
+            const isBase = !isStructural && Math.abs(r.variation_pct) < 0.001;
+            const label = isStructural ? `${r.state}` : `${target} (${r.variation_pct > 0 ? '+' : ''}${r.variation_pct.toFixed(0)}%)`;
             
             trajectoryTraces.push({
               type: 'scatter',
               mode: 'lines',
-              name: isBase ? `Baseline (BS)` : `${target} (${r.variation_pct > 0 ? '+' : ''}${r.variation_pct.toFixed(0)}%)`,
+              name: isBase ? `Baseline (BS)` : label,
               x: r.co2_trajectory.years,
               y: r.co2_trajectory.values,
               line: {
                 width: isBase ? 4 : 2,
-                dash: isBase ? 'solid' : 'dot',
+                dash: isBase ? 'solid' : (isStructural ? 'solid' : 'dot'),
                 color: isBase ? '#7c3aed' : undefined,
                 shape: 'spline'
               },
-              opacity: isBase ? 1 : 0.7,
-              hovertemplate: `<b>${target} (${r.variation_pct.toFixed(0)}%)</b><br>Année %{x}<br>Net CO2 : %{y:,.0f} t<extra></extra>`
+              opacity: isBase ? 1 : 0.8,
+              hovertemplate: `<b>${label}</b><br>Year %{x}<br>Net CO₂ : %{y:,.0f} t<extra></extra>`
             });
           });
         });
 
         const trajectoryLayout = plotLayout({
-          title: { text: 'Projection Temporelle du Net CO₂', font: { size: 13, weight: 'bold' } },
-          xaxis: { title: 'Année' },
+          title: { text: 'Temporal Net CO₂ Projection', font: { size: 13, weight: 'bold' } },
+          xaxis: { title: 'Year' },
           yaxis: { title: 'Net CO₂ (t)', zeroline: true },
           showlegend: true,
           legend: { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'center', x: 0.5 }
         });
         Plotly.newPlot('sens-trajectory-chart', trajectoryTraces, trajectoryLayout, plotConfig);
 
-        Object.entries(targets).forEach(([target, records]) => {
-          const sorted = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
+        if (isStructural) {
+          // Bar chart for categorical states
           summaryTraces.push({
-            type: 'scatter',
-            mode: 'lines+markers',
-            name: target,
-            x: sorted.map(r => r.variation_pct),
-            y: sorted.map(r => r.total_emissions),
-            line: { shape: 'spline', color: '#0ea5e9' },
-            marker: { size: 10, line: { width: 1, color: '#fff' } },
-            hovertemplate: `<b>${target}</b><br>Var. Paramètre : %{x:+.1f}%<br>Émissions Totales : %{y:,.0f} t<extra></extra>`
+            type: 'bar',
+            name: selectedTarget,
+            x: data.map(r => r.state),
+            y: data.map(r => r.total_emissions),
+            marker: { color: '#0ea5e9', line: { width: 1, color: '#fff' } },
+            hovertemplate: `<b>${selectedTarget}</b><br>State: %{x}<br>Total Emissions: %{y:,.0f} t<extra></extra>`
           });
-        });
+        } else {
+          // Line chart for numeric variations
+          Object.entries(targets).forEach(([target, records]) => {
+            const sorted = [...records].sort((a, b) => a.variation_pct - b.variation_pct);
+            summaryTraces.push({
+              type: 'scatter',
+              mode: 'lines+markers',
+              name: target,
+              x: sorted.map(r => r.variation_pct),
+              y: sorted.map(r => r.total_emissions),
+              line: { shape: 'spline', color: '#0ea5e9' },
+              marker: { size: 10, line: { width: 1, color: '#fff' } },
+              hovertemplate: `<b>${target}</b><br>Param. Variation: %{x:+.1f}%<br>Total Emissions: %{y:,.0f} t<extra></extra>`
+            });
+          });
+        }
 
         const summaryLayout = plotLayout({
-          title: { text: 'Émissions Totales vs Variation (%)', font: { size: 13, weight: 'bold' } },
-          xaxis: { title: 'Variation du Paramètre (%)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
-          yaxis: { title: 'Émissions Totales (tCO₂)' },
+          title: { text: isStructural ? 'Total Emissions by State' : 'Total Emissions vs Variation (%)', font: { size: 13, weight: 'bold' } },
+          xaxis: { 
+            title: isStructural ? 'Structural States' : 'Parameter Variation (%)', 
+            zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' 
+          },
+          yaxis: { title: 'Total Emissions (tCO₂)' },
           showlegend: false
         });
         Plotly.newPlot('sens-total-co2-chart', summaryTraces, summaryLayout, plotConfig);
@@ -1670,6 +1753,7 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
 
       // ── 4. Scatter Coût vs CO₂ ──────────────────────────────────────────
       (function buildScatter() {
+        const isStructural = data.length > 0 && data[0].is_structural;
         const scatterTraces = Object.entries(targets).map(([target, records]) => {
           const filtered = records.filter(r =>
             r.transition_cost != null && r.total_emissions != null && baseEmis !== 0
@@ -1677,28 +1761,31 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           
           return {
             type: 'scatter',
-            mode: 'markers',
+            mode: 'markers+text',
             name: target,
             x: filtered.map(r => (r.transition_cost / 1_000_000.0) - baseCost),
             y: filtered.map(r => (r.total_emissions - baseEmis) / Math.abs(baseEmis) * 100),
+            text: isStructural ? filtered.map(r => r.state) : [],
+            textposition: 'top center',
             marker: {
               size: 14,
-              color: filtered.map(r => r.variation_pct),
-              colorscale: 'RdYlGn',
-              reversescale: true,
-              colorbar: { title: { text: 'Var. (%)', font: { size: 10 } }, thickness: 12, len: 0.7 },
+              color: isStructural ? undefined : filtered.map(r => r.variation_pct),
+              colorscale: isStructural ? undefined : 'RdYlGn',
+              reversescale: isStructural ? undefined : true,
+              colorbar: isStructural ? undefined : { title: { text: 'Var. (%)', font: { size: 10 } }, thickness: 12, len: 0.7 },
               line: { width: 1.5, color: '#fff' },
             },
-            text: filtered.map(r => {
+            customdata: filtered,
+            hovertemplate: filtered.map(r => {
               const deltaBalance = (r.transition_cost / 1_000_000.0) - baseCost;
               const deltaE = (r.total_emissions - baseEmis) / Math.abs(baseEmis) * 100;
-              return `Paramètre : ${target}<br>` +
-                     `Variation : ${r.variation_pct.toFixed(1)}%<br>` +
-                     `<b>Δ Bilan Net : ${deltaBalance >= 0 ? '+' : ''}${deltaBalance.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} M€</b><br>` +
-                     `Δ Émissions : ${deltaE >= 0 ? '+' : ''}${deltaE.toFixed(4)}%<br>` +
-                     (r.penalty_cost > 1.0 ? `<span style=\"color:red\">⚠️ Cible non atteinte</span>` : '');
+              const label = isStructural ? `State: ${r.state}` : `Variation: ${r.variation_pct.toFixed(1)}%`;
+              return `Parameter: ${target}<br>` +
+                     `${label}<br>` +
+                     `<b>Δ Net Balance: ${deltaBalance >= 0 ? '+' : ''}${deltaBalance.toLocaleString('en-US', { maximumFractionDigits: 1 })} M€</b><br>` +
+                     `Δ Emissions: ${deltaE >= 0 ? '+' : ''}${deltaE.toFixed(4)}%<br>` +
+                     (r.penalty_cost > 1.0 ? `<span style=\"color:red\">⚠️ Target not reached</span>` : '');
             }),
-            hovertemplate: '%{text}<extra></extra>',
           };
         });
 
@@ -1708,13 +1795,13 @@ def build_html(payload: Dict[str, Any], sensitivity_data: Optional[List[Dict[str
           name: 'Baseline',
           x: [0], y: [0],
           marker: { size: 18, color: '#7c3aed', symbol: 'star', line: { width: 2, color: '#fff' } },
-          hovertemplate: 'Scénario de base (Origine)<extra></extra>',
+          hovertemplate: 'Baseline Scenario (Origin)<extra></extra>',
         });
 
         const layout = plotLayout({
-          title: { text: 'Variation Bilan (M€) vs Émissions (%)', font: { size: 13, weight: 'bold' } },
-          xaxis: { title: 'Δ Bilan Net (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
-          yaxis: { title: 'Δ Émissions (%)',  zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+          title: { text: 'Balance Variation (M€) vs Emissions (%)', font: { size: 13, weight: 'bold' } },
+          xaxis: { title: 'Δ Net Balance (M€)', zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
+          yaxis: { title: 'Δ Emissions (%)',  zeroline: true, zerolinewidth: 2, zerolinecolor: '#94a3b8' },
         });
         Plotly.newPlot('sens-scatter-chart', scatterTraces, layout, plotConfig);
       })();

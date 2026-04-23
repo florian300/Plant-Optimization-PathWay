@@ -16,6 +16,7 @@ class PathFinderParser:
         self.verbose = verbose
         self.sim_row_found = False        # Track if SIM row exists in OverView
         self.all_scenarios_meta = []      # Store all scenarios found before filtering
+        self.interpolation_mode = "LINEAR" # Default interpolation mode
 
     def _parse_numeric(self, val, default=0.0) -> float:
         """Nettoie et convertit une valeur en float, gérant les devises, les séparateurs et les pourcentages."""
@@ -164,8 +165,11 @@ class PathFinderParser:
         if not mask.any():
             return res
             
-        res = res.interpolate(method='linear')
-        res = res.bfill().ffill().fillna(0.0)
+        if self.interpolation_mode == "NONE":
+            res = res.ffill().bfill().fillna(0.0)
+        else:
+            res = res.interpolate(method='linear')
+            res = res.bfill().ffill().fillna(0.0)
 
         if is_brownian:
             vals = res.values
@@ -1467,24 +1471,47 @@ class PathFinderParser:
         scenarios: List[str] = []
         time_limit: int = 10
         targets: Dict[str, bool] = {}
+        structural_targets: Dict[str, List[str]] = {}
         indicators: List[str] = []
 
         in_block = False
+        in_structural = False
 
         for _, row in df_overview.iterrows():
             raw_vals = [str(x).strip() for x in row.values if pd.notna(x) and str(x).strip()]
             vals_upper = [v.upper() for v in raw_vals]
+            # Normalized values for tag detection (ignoring brackets)
+            vals_tag = [v.replace('[', '').replace(']', '') for v in vals_upper]
 
-            if 'SENSITIVITY' in vals_upper and 'START' in vals_upper:
+            if any('SENSITIVITY' in t for t in vals_tag) and any('START' in t for t in vals_tag):
                 in_block = True
                 continue
-            if 'SENSITIVITY' in vals_upper and 'END' in vals_upper:
-                break
+            if any('SENSITIVITY' in t for t in vals_tag) and any('END' in t for t in vals_tag):
+                in_block = False
+                continue
+            
+            # Detect structural sub-block (flexible: can be inside or outside main block)
+            if any('STRUCTURAL' in t for t in vals_tag) and any('START' in t for t in vals_tag):
+                in_structural = True
+                continue
+            if any('STRUCTURAL' in t for t in vals_tag) and any('END' in t for t in vals_tag):
+                in_structural = False
+                continue
 
-            if not in_block or not raw_vals or raw_vals[0].startswith('**'):
+            if (not in_block and not in_structural) or not raw_vals or raw_vals[0].startswith('**'):
+                continue
+
+            if in_structural:
+                # Format: PARAM_NAME | STATE1 | STATE2 | ...
+                if len(raw_vals) >= 2:
+                    param_name = raw_vals[0].strip().upper()
+                    states = [s.strip().upper() for s in raw_vals[1:] if s.strip()]
+                    if states:
+                        structural_targets[param_name] = states
                 continue
 
             tag = vals_upper[0]
+            # ... existing tags ...
 
             if tag == 'RUN':
                 for token in raw_vals[1:]:
@@ -1518,8 +1545,10 @@ class PathFinderParser:
 
             elif tag == 'DATA?':
                 if len(raw_vals) >= 3:
-                    param_name = raw_vals[1].strip()
-                    targets[param_name] = self._parse_bool(raw_vals[2])
+                    # The last token is the YES/NO, everything in between is the parameter name
+                    is_active = self._parse_bool(raw_vals[-1])
+                    param_name = " ".join(raw_vals[1:-1]).strip()
+                    targets[param_name] = is_active
                 elif len(raw_vals) == 2:
                     targets[raw_vals[1].strip()] = False
 
@@ -1529,9 +1558,25 @@ class PathFinderParser:
                     if indi_name and indi_name.upper() not in ('NOM', 'NAME', 'INDICATOR'):
                         indicators.append(indi_name)
 
+        # Structural targets are only active if "SIMULATION SETTINGS" is set to YES in the DATA? list
+        # We perform a robust check looking for "SIMULATION" and "SETTING" keywords
+        has_sim_settings = False
+        target_keys = list(targets.keys())
+        for k in target_keys:
+            norm_k = "".join(k.upper().split())
+            # Matches "Simulation Settings", "SimulationSetting", "Simulation_Settings", etc.
+            if 'SIMULATION' in norm_k and 'SETTING' in norm_k:
+                if targets[k]:
+                    has_sim_settings = True
+                del targets[k] # Always remove from numerical list
+        
+        if not has_sim_settings:
+            structural_targets = {}
+
         return SensitivityParams(
             run=run, variations=variations, direction=direction,
-            scenarios=scenarios, time_limit=time_limit, targets=targets, indicators=indicators
+            scenarios=scenarios, time_limit=time_limit, targets=targets, 
+            structural_targets=structural_targets, indicators=indicators
         )
 
     def _interpolate_dict(self, data_dict: Dict[int, Any], years_list: List[int]) -> Dict[int, float]:

@@ -77,6 +77,8 @@ class SensitivityParams:
     time_limit: int = 10
     # Dictionnaire des données à perturber : {'EUA': True, 'RESSOURCES PRICE': False, ...}
     targets: Dict[str, bool] = field(default_factory=dict)
+    # Dictionnaire des paramètres structurels à tester : {'TAX_INDIRECT_EMISSIONS': ['YES', 'NO'], ...}
+    structural_targets: Dict[str, List[str]] = field(default_factory=dict)
     # Liste des indicateurs KPI à extraire (ex: ['TRANSITION COST', 'AVERAGE CO2 ABATEMENT', ...])
     indicators: List[str] = field(default_factory=list)
 
@@ -105,6 +107,7 @@ class Parameters:
     relax_integrality: bool = False
     discount_rate: float = 0.0
     run_project: bool = True
+    interpolation_mode: str = "LINEAR" # Options: "LINEAR", "NONE"
 
 @dataclass
 class Resource:

@@ -489,17 +489,16 @@ def main():
         sens_params = _parser_probe.parse_sensitivity()
         active_targets = [k for k, v in sens_params.targets.items() if v]
         
-        # We only run if RUN was YES AND we have variations, scenarios and targets
+        # We only run if RUN was YES AND we have variations, scenarios and (targets OR structural_targets)
         if sens_params.run:
             # Validate each prerequisite independently for clear diagnostic messages
             if not sens_params.scenarios:
                 console.print("[yellow][INFO][/yellow] Sensitivity: SIM row is empty — no scenarios to simulate. Skipping.")
-            elif not sens_params.variations:
-                console.print("[yellow][INFO][/yellow] Sensitivity: no variation amplitudes defined (VAR row). Skipping.")
-            elif not active_targets:
+            elif not active_targets and not sens_params.structural_targets:
                 console.print("[yellow][INFO][/yellow] Sensitivity: no targets set to YES (DATA? rows). Skipping.")
             else:
-                console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({len(active_targets)} targets, {len(sens_params.variations)} variations, {len(sens_params.scenarios)} scenario(s))...[/bold magenta]")
+                target_count = len(active_targets) + len(sens_params.structural_targets)
+                console.print(f"\n[bold magenta]SENSITIVITY ANALYSIS ({target_count} target(s), {len(sens_params.scenarios)} scenario(s))...[/bold magenta]")
                 sens_output_path = os.path.join('artifacts', 'sensitivity', 'sensitivity_results.json')
                 sens_results = run_sensitivity(file_path, output_path=sens_output_path, verbose=False, precomputed_base_sols=precomputed_results)
                 if sens_results:
